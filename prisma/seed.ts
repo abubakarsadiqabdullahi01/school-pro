@@ -4,15 +4,20 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
-  // Clear existing data (dev use only)
+  // Clear existing data (dev use only) - ORDER MATTERS for foreign key constraints
+  // Delete child records first, then parent records
   await prisma.loginSession.deleteMany({});
   await prisma.loginAttempt.deleteMany({});
   await prisma.credential.deleteMany({});
+  
+  // Delete user role records before users
   await prisma.student.deleteMany({});
   await prisma.teacher.deleteMany({});
   await prisma.parent.deleteMany({});
   await prisma.admin.deleteMany({});
   await prisma.superAdmin.deleteMany({});
+  
+  // Delete users before schools (if users reference schools)
   await prisma.user.deleteMany({});
   await prisma.school.deleteMany({});
 

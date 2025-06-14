@@ -61,8 +61,13 @@ export async function createTerm({
       },
     })
 
-    revalidatePath("/dashboard/super-admin/terms")
-    revalidatePath(`/dashboard/super-admin/sessions/${sessionId}`)
+    if(session.user.role === "SUPER_ADMIN") {
+      revalidatePath("/dashboard/super-admin/terms")
+      revalidatePath(`/dashboard/super-admin/sessions/${sessionId}`)
+    }
+
+    revalidatePath("/dashboard/admin/school-terms") // Admin only
+    revalidatePath(`/dashboard/admin/school-terms/${sessionId}`) // Admin only
     revalidatePath("/dashboard/admin/school-terms")
     return { success: true, termId: newTerm.id }
   } catch (error) {

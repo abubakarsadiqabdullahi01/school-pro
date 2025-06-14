@@ -1,255 +1,159 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { BarChart3, BookOpen, Calendar, GraduationCap, Users } from "lucide-react"
-
-import { StatsCard } from "@/components/dashboard/stats-card"
-import { RecentActivity } from "@/components/dashboard/recent-activity"
-import { LoadingSpinner } from "@/components/dashboard/loading-spinner"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { motion } from "framer-motion"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-
-// Mock data for recent activities
-const recentActivities = [
-  {
-    id: "1",
-    user: {
-      name: "John Smith",
-      role: "Teacher",
-    },
-    action: "submitted grades for",
-    target: "Class 10A Mathematics",
-    date: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-  },
-  {
-    id: "2",
-    user: {
-      name: "Sarah Johnson",
-      role: "Admin",
-    },
-    action: "approved leave request for",
-    target: "Teacher David Wilson",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-  },
-  {
-    id: "3",
-    user: {
-      name: "Michael Brown",
-      role: "Student",
-    },
-    action: "submitted assignment for",
-    target: "Physics Class",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-  },
-  {
-    id: "4",
-    user: {
-      name: "Emily Davis",
-      role: "Parent",
-    },
-    action: "paid fees for",
-    target: "Student Alex Davis",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 8), // 8 hours ago
-  },
-  {
-    id: "5",
-    user: {
-      name: "Robert Wilson",
-      role: "Admin",
-    },
-    action: "created new class",
-    target: "11B Science",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-  },
-]
+import { RefreshCw, Settings, FileDown } from "lucide-react"
+import { LoadingSpinner } from "@/components/dashboard/loading-spinner"
+import { DashboardOverview } from "@/components/admin-dashboard/DashboardOverview"
+import { SystemHealth } from "@/components/admin-dashboard/SystemHealth"
+import { getDashboardData, getSystemHealth } from "@/app/actions/admin-dashboard"
+import { toast } from "sonner"
 
 export default function AdminDashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [dashboardData, setDashboardData] = useState<any>(null)
+  const [systemHealthData, setSystemHealthData] = useState<any>(null)
+
+  const fetchData = async (showRefreshIndicator = false) => {
+    try {
+      if (showRefreshIndicator) setIsRefreshing(true)
+
+      const [dashboardResult, healthResult] = await Promise.all([getDashboardData(), getSystemHealth()])
+
+      if (dashboardResult.success) {
+        setDashboardData(dashboardResult.data)
+      } else {
+        toast.error("Error", {
+          description: dashboardResult.error || "Failed to load dashboard data",
+        })
+      }
+
+      if (healthResult.success) {
+        setSystemHealthData(healthResult.data)
+      } else {
+        console.error("Failed to load system health data:", healthResult.error)
+      }
+    } catch (error) {
+      console.error("Dashboard data fetch error:", error)
+      toast.error("Error", {
+        description: "Failed to load dashboard data",
+      })
+    } finally {
+      setIsLoading(false)
+      setIsRefreshing(false)
+    }
+  }
 
   useEffect(() => {
-    // Simulate data loading
-    const timer = setTimeout(() => {
-      setIsLoading(false)
-    }, 1000)
-
-    return () => clearTimeout(timer)
+    fetchData()
   }, [])
 
+  const handleRefresh = () => {
+    fetchData(true)
+  }
+
+  const handleExportReport = () => {
+    toast.info("Exporting Report", {
+      description: "Your report is being generated and will download shortly.",
+    })
+    // In a real implementation, this would trigger a download
+  }
+
   if (isLoading) {
-    return <LoadingSpinner message="Loading dashboard data..." />
+    return <LoadingSpinner message="Loading admin dashboard..." />
+  }
+
+  if (!dashboardData) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-gray-500 mb-4">Failed to load dashboard data</p>
+          <Button onClick={() => fetchData()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="flex flex-col justify-between gap-4 md:flex-row md:items-center"
+      >
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Admin Dashboard</h2>
-          <p className="text-muted-foreground">Overview of your school's performance and activities</p>
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+            Admin Dashboard
+          </h1>
+          <p className="text-muted-foreground">
+            Welcome back! Here's what's happening at {dashboardData.school?.name || "your school"}
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button>Download Report</Button>
+          <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button className="gap-2" onClick={handleExportReport}>
+            <FileDown className="h-4 w-4" />
+            Export Report
+          </Button>
         </div>
-      </div>
+      </motion.div>
 
+      {/* Main Content */}
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-4 lg:w-[400px]">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="academics">Academics</TabsTrigger>
-          <TabsTrigger value="attendance">Attendance</TabsTrigger>
-          <TabsTrigger value="finance">Finance</TabsTrigger>
+          <TabsTrigger value="academic">Academic</TabsTrigger>
+          <TabsTrigger value="system">System</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatsCard
-              title="Total Students"
-              value="1,245"
-              icon={GraduationCap}
-              trend={{ value: 12, isPositive: true }}
-              delay={0}
-            />
-            <StatsCard
-              title="Total Teachers"
-              value="86"
-              icon={Users}
-              trend={{ value: 4, isPositive: true }}
-              delay={1}
-            />
-            <StatsCard title="Classes" value="42" icon={BookOpen} delay={2} />
-            <StatsCard title="Upcoming Events" value="8" icon={Calendar} description="In the next 30 days" delay={3} />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="lg:col-span-4">
-              <CardHeader>
-                <CardTitle>Attendance Overview</CardTitle>
-                <CardDescription>Average attendance rate for the current month</CardDescription>
-              </CardHeader>
-              <CardContent className="h-[300px]">
-                <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                  Chart Placeholder
-                </div>
-              </CardContent>
-            </Card>
-
-            <RecentActivity activities={recentActivities} className="lg:col-span-3" />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Upcoming Events</CardTitle>
-                <CardDescription>Events scheduled for the next 30 days</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { name: "Parent-Teacher Meeting", date: "Tomorrow, 2:00 PM" },
-                    { name: "Annual Sports Day", date: "May 15, 9:00 AM" },
-                    { name: "Science Exhibition", date: "May 20, 10:00 AM" },
-                  ].map((event, i) => (
-                    <div key={i} className="flex justify-between">
-                      <div className="font-medium">{event.name}</div>
-                      <div className="text-muted-foreground">{event.date}</div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Admissions</CardTitle>
-                <CardDescription>New students admitted this month</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { name: "Emma Thompson", grade: "Grade 8", date: "May 2" },
-                    { name: "James Wilson", grade: "Grade 5", date: "May 4" },
-                    { name: "Sophia Martinez", grade: "Grade 10", date: "May 7" },
-                  ].map((student, i) => (
-                    <div key={i} className="flex justify-between">
-                      <div>
-                        <div className="font-medium">{student.name}</div>
-                        <div className="text-sm text-muted-foreground">{student.grade}</div>
-                      </div>
-                      <div className="text-muted-foreground">{student.date}</div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-                <CardDescription>Frequently used administrative actions</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-2">
-                  <Button className="w-full justify-start">
-                    <Users className="mr-2 h-4 w-4" />
-                    Add New Student
-                  </Button>
-                  <Button className="w-full justify-start">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    Schedule Event
-                  </Button>
-                  <Button className="w-full justify-start">
-                    <BarChart3 className="mr-2 h-4 w-4" />
-                    Generate Reports
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <DashboardOverview data={dashboardData} />
         </TabsContent>
 
-        <TabsContent value="academics" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Academic Performance</CardTitle>
-              <CardDescription>Overview of academic performance by grade</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[400px]">
-              <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                Academic Performance Chart Placeholder
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="academic" className="space-y-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+            <DashboardOverview data={dashboardData} />
+          </motion.div>
         </TabsContent>
 
-        <TabsContent value="attendance" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Attendance Trends</CardTitle>
-              <CardDescription>Monthly attendance trends by grade</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[400px]">
-              <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                Attendance Chart Placeholder
+        <TabsContent value="system" className="space-y-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+            {systemHealthData ? (
+              <SystemHealth data={systemHealthData} />
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-500">System health data not available</p>
               </div>
-            </CardContent>
-          </Card>
+            )}
+          </motion.div>
         </TabsContent>
 
-        <TabsContent value="finance" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Financial Overview</CardTitle>
-              <CardDescription>Income and expenses for the current academic year</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[400px]">
-              <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                Finance Chart Placeholder
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="settings" className="space-y-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="text-center py-12"
+          >
+            <Settings className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Dashboard Settings</h3>
+            <p className="text-gray-500 mb-4">Customize your dashboard experience</p>
+            <Button variant="outline">Configure Dashboard</Button>
+          </motion.div>
         </TabsContent>
       </Tabs>
-    </div>
+    </motion.div>
   )
 }
-

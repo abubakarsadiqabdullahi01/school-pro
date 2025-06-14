@@ -40,8 +40,27 @@ interface Student {
   parentName?: string;
   registrationDate: string;
   isActive: boolean;
-  recentAssessments: { id: string; subject: string; totalScore: string; grade: string }[];
-  recentPayments: { id: string; feeName: string; amount: number; paymentDate: string; status: string }[];
+  recentAssessments: {
+    id: string;
+    subject: string;
+    totalScore: string; // Can be number or "ABS", "EXM", "UNPUB"
+    grade: string;
+    remark: string;
+    term: string;
+    ca1?: number;
+    ca2?: number;
+    ca3?: number;
+    exam?: number;
+    isAbsent: boolean;
+    isExempt: boolean;
+    isPublished: boolean;
+  }[];
+  recentPayments: {
+    id: string;
+    amount: number;
+    paymentDate: string;
+    status: string;
+  }[];
 }
 
 interface ClassOption {
@@ -228,12 +247,27 @@ export default function StudentList() {
                           <TableCell>{student.year || "N/A"}</TableCell>
                           <TableCell>{student.parentName || "Not Assigned"}</TableCell>
                           <TableCell>
-                            {student.recentAssessments.length > 0 ? (
-                              `${student.recentAssessments[0].subject}: ${student.recentAssessments[0].totalScore} (${student.recentAssessments[0].grade})`
-                            ) : (
-                              "N/A"
-                            )}
-                          </TableCell>
+  {student.recentAssessments.length > 0 ? (
+    <div className="text-sm">
+      <div className="font-medium">
+        {student.recentAssessments[0].subject}: {student.recentAssessments[0].totalScore}
+      </div>
+      <div className="text-muted-foreground">
+        Grade: {student.recentAssessments[0].grade}
+      </div>
+      {student.recentAssessments[0].totalScore !== "ABS" && 
+       student.recentAssessments[0].totalScore !== "EXM" && 
+       student.recentAssessments[0].totalScore !== "UNPUB" && (
+        <div className="text-xs text-muted-foreground">
+          CA: {(student.recentAssessments[0].ca1 || 0) + (student.recentAssessments[0].ca2 || 0) + (student.recentAssessments[0].ca3 || 0)} | 
+          Exam: {student.recentAssessments[0].exam || 0}
+        </div>
+      )}
+    </div>
+  ) : (
+    "No assessments"
+  )}
+</TableCell>
                           <TableCell>
                             {student.recentPayments.length > 0 ? (
                               `${student.recentPayments[0].feeName}: ${student.recentPayments[0].amount} (${student.recentPayments[0].status})`

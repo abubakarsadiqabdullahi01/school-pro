@@ -262,6 +262,38 @@ export async function getStudents(filter: {
     const pageSize = filter.pageSize || 20;
     const skip = (page - 1) * pageSize;
 
+    // Fetch the grading system for the school
+    const gradingSystem = schoolId 
+      ? await prisma.gradingSystem.findFirst({
+          where: { schoolId, isDefault: true },
+          include: {
+            levels: {
+              orderBy: { minScore: 'asc' }
+            }
+          }
+        })
+      : null;
+
+    // Helper function to calculate grade based on total score
+    function calculateGrade(totalScore: number): { grade: string; remark: string } {
+      if (!gradingSystem?.levels || gradingSystem.levels.length === 0) {
+        return { grade: "N/A", remark: "No grading system" };
+      }
+
+      // Sort grade levels by minScore descending to find the correct grade
+      const sortedLevels = [...gradingSystem.levels].sort((a, b) => b.minScore - a.minScore);
+      
+      for (const level of sortedLevels) {
+        if (totalScore >= level.minScore && totalScore <= level.maxScore) {
+          return { grade: level.grade, remark: level.remark };
+        }
+      }
+      
+      // If no grade found, return lowest grade or default
+      const lowestGrade = sortedLevels[sortedLevels.length - 1];
+      return { grade: lowestGrade?.grade || "F9", remark: lowestGrade?.remark || "Fail" };
+    }
+
     // Query students with pagination
     const students = await prisma.student.findMany({
       where: whereClause,
@@ -326,8 +358,26 @@ export async function getStudents(filter: {
         assessments: {
           select: {
             id: true,
-            totalScore: true,
-            grade: true,
+            ca1: true,
+            ca2: true,
+            ca3: true,
+            exam: true,
+            isAbsent: true,
+            isExempt: true,
+            isPublished: true,
+            createdAt: true,
+            subject: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            term: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
           take: 5,
           orderBy: { createdAt: "desc" },
@@ -388,11 +438,48 @@ export async function getStudents(filter: {
           ? `${student.parents[0].parent.user.firstName} ${student.parents[0].parent.user.lastName}`
           : "Not Assigned",
       registrationDate: student.createdAt.toISOString().split("T")[0],
-      recentAssessments: student.assessments.map((a) => ({
-        id: a.id,
-        totalScore: a.totalScore || "N/A",
-        grade: a.grade || "N/A",
-      })),
+      recentAssessments: student.assessments.map((a) => {
+        // Calculate total score from individual components
+        const ca1 = a.ca1 || 0;
+        const ca2 = a.ca2 || 0;
+        const ca3 = a.ca3 || 0;
+        const exam = a.exam || 0;
+        const totalScore = ca1 + ca2 + ca3 + exam;
+        
+        // Calculate grade dynamically using grading system
+        const gradeInfo = calculateGrade(totalScore);
+        
+        // Handle special cases
+        let displayScore = totalScore.toString();
+        let displayGrade = gradeInfo.grade;
+        
+        if (a.isAbsent) {
+          displayScore = "ABS";
+          displayGrade = "ABS";
+        } else if (a.isExempt) {
+          displayScore = "EXM";
+          displayGrade = "EXM";
+        } else if (!a.isPublished) {
+          displayScore = "UNPUB";
+          displayGrade = "UNPUB";
+        }
+        
+        return {
+          id: a.id,
+          subject: a.subject?.name || "N/A",
+          totalScore: displayScore,
+          grade: displayGrade,
+          remark: gradeInfo.remark,
+          term: a.term?.name || "N/A",
+          ca1: a.ca1,
+          ca2: a.ca2,
+          ca3: a.ca3,
+          exam: a.exam,
+          isAbsent: a.isAbsent,
+          isExempt: a.isExempt,
+          isPublished: a.isPublished,
+        };
+      }),
       recentPayments: student.payments.map((p) => ({
         id: p.id,
         amount: p.amount,
@@ -422,6 +509,7 @@ export async function getStudents(filter: {
     };
   }
 }
+
 
 // Get a specific student by ID
 export async function getStudent(id: string) {
