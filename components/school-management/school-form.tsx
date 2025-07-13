@@ -1,25 +1,36 @@
 "use client"
 
 import { useState } from "react"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
-import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
-
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Checkbox } from "@/components/ui/checkbox"
-import { createSchool, updateSchool } from "@/app/actions/user-management"
-import { schoolFormSchema } from "@/lib/validations/school"
+import { Textarea } from "@/components/ui/textarea"
+import { toast } from "sonner"
+import { createSchool, updateSchool } from "@/app/actions/school-management"
+import { Loader2 } from 'lucide-react'
+
+const schoolFormSchema = z.object({
+  name: z.string().min(2, "School name must be at least 2 characters"),
+  code: z.string().min(2, "School code must be at least 2 characters").max(10, "School code must be at most 10 characters"),
+  address: z.string().min(5, "Address must be at least 5 characters"),
+  phone: z.string().min(10, "Phone number must be at least 10 characters"),
+  email: z.string().email("Invalid email address"),
+  website: z.string().url("Invalid website URL").optional().or(z.literal("")),
+  logoUrl: z.string().url("Invalid logo URL").optional().or(z.literal("")),
+  admissionPrefix: z.string().min(2, "Admission prefix must be at least 2 characters").max(5, "Admission prefix must be at most 5 characters").optional(),
+  admissionFormat: z.string().optional(),
+  admissionSequenceStart: z.number().min(1, "Admission sequence start must be at least 1").optional(),
+})
 
 type SchoolFormValues = z.infer<typeof schoolFormSchema>
 
 interface SchoolFormProps {
-  school?: {
+  schoolData?: {
     id: string
     name: string
     code: string
@@ -28,72 +39,79 @@ interface SchoolFormProps {
     email: string
     website?: string | null
     logoUrl?: string | null
-    isActive: boolean
+    admissionPrefix: string
+    admissionFormat: string
+    admissionSequenceStart: number
   }
 }
 
-export function SchoolForm({ school }: SchoolFormProps = {}) {
-  const [isLoading, setIsLoading] = useState(false)
+export function SchoolForm({ schoolData }: SchoolFormProps) {
   const router = useRouter()
-  const isEditMode = !!school
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const isEditing = !!schoolData
 
   const form = useForm<SchoolFormValues>({
     resolver: zodResolver(schoolFormSchema),
     defaultValues: {
-      name: school?.name || "",
-      code: school?.code || "",
-      address: school?.address || "",
-      phone: school?.phone || "",
-      email: school?.email || "",
-      website: school?.website || "",
-      logoUrl: school?.logoUrl || "",
-      isActive: school?.isActive ?? true,
+      name: schoolData?.name || "",
+      code: schoolData?.code || "",
+      address: schoolData?.address || "",
+      phone: schoolData?.phone || "",
+      email: schoolData?.email || "",
+      website: schoolData?.website || "",
+      logoUrl: schoolData?.logoUrl || "",
+      admissionPrefix: schoolData?.admissionPrefix || "STD",
+      admissionFormat: schoolData?.admissionFormat || "{PREFIX}-{YEAR}-{NUMBER}",
+      admissionSequenceStart: schoolData?.admissionSequenceStart || 1,
     },
   })
 
   async function onSubmit(data: SchoolFormValues) {
-    if (isEditMode) {
-      setIsLoading(true)
-      try {
-        await updateSchool({
-          id: school.id,
-          ...data,
-        })
-        toast.success("School updated successfully")
-        await router.push("/dashboard/super-admin/schools")
-      } catch (error: any) {
-        toast.error("Failed to update school")
-        console.error(error)
-      } finally {
-        setIsLoading(false)
+    setIsSubmitting(true)
+    try {
+      const result = isEditing 
+        ? await updateSchool(schoolData.id, {
+            ...data,
+            website: data.website || undefined,
+            logoUrl: data.logoUrl || undefined,
+            admissionPrefix: data.admissionPrefix || "STD",
+            admissionFormat: data.admissionFormat || "{PREFIX}-{YEAR}-{NUMBER}",
+            admissionSequenceStart: data.admissionSequenceStart || 1,
+          })
+        : await createSchool({
+            ...data,
+            website: data.website || undefined,
+            logoUrl: data.logoUrl || undefined,
+            admissionPrefix: data.admissionPrefix || "STD",
+            admissionFormat: data.admissionFormat || "{PREFIX}-{YEAR}-{NUMBER}",
+            admissionSequenceStart: data.admissionSequenceStart || 1,
+          })
+
+      if (result.success) {
+        toast.success(isEditing ? "School updated successfully" : "School created successfully")
+        router.push("/dashboard/super-admin/schools")
+      } else {
+        toast.error(result.error)
       }
-    } else {
-      setIsLoading(true)
-      try {
-        await createSchool(data)
-        toast.success("School created successfully")
-        await router.push("/dashboard/super-admin/schools")
-      } catch (error: any) {
-        toast.error("Failed to create school")
-        console.error(error)
-      } finally {
-        setIsLoading(false)
-      }
+    } catch (error) {
+      toast.error("An unexpected error occurred")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   return (
-    <Card>
+    <Card className="w-full max-w-4xl mx-auto">
       <CardHeader>
-        <CardTitle>{isEditMode ? "Edit School" : "School Information"}</CardTitle>
+        <CardTitle>{isEditing ? "Edit School" : "Create New School"}</CardTitle>
         <CardDescription>
-          {isEditMode ? "Update the school details" : "Enter the details for the new school"}
+          {isEditing ? "Update the school information below" : "Fill in the details to create a new school"}
         </CardDescription>
       </CardHeader>
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardContent className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
+      <CardContent>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
                 name="name"
@@ -107,7 +125,6 @@ export function SchoolForm({ school }: SchoolFormProps = {}) {
                   </FormItem>
                 )}
               />
-
               <FormField
                 control={form.control}
                 name="code"
@@ -117,7 +134,9 @@ export function SchoolForm({ school }: SchoolFormProps = {}) {
                     <FormControl>
                       <Input placeholder="Enter school code" {...field} />
                     </FormControl>
-                    <FormDescription>A unique code for the school (e.g., LINCOLN, SJH)</FormDescription>
+                    <FormDescription>
+                      A unique identifier for the school (e.g., "NHS", "LINCOLN")
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -131,14 +150,14 @@ export function SchoolForm({ school }: SchoolFormProps = {}) {
                 <FormItem>
                   <FormLabel>Address</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter school address" {...field} />
+                    <Textarea placeholder="Enter school address" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
                 name="phone"
@@ -152,7 +171,6 @@ export function SchoolForm({ school }: SchoolFormProps = {}) {
                   </FormItem>
                 )}
               />
-
               <FormField
                 control={form.control}
                 name="email"
@@ -160,7 +178,7 @@ export function SchoolForm({ school }: SchoolFormProps = {}) {
                   <FormItem>
                     <FormLabel>Email Address</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter email address" type="email" {...field} />
+                      <Input type="email" placeholder="Enter email address" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -168,29 +186,28 @@ export function SchoolForm({ school }: SchoolFormProps = {}) {
               />
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
                 name="website"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Website</FormLabel>
+                    <FormLabel>Website (Optional)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter website URL (optional)" {...field} value={field.value || ""} />
+                      <Input placeholder="https://example.com" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
               <FormField
                 control={form.control}
                 name="logoUrl"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Logo URL</FormLabel>
+                    <FormLabel>Logo URL (Optional)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter logo URL (optional)" {...field} value={field.value || ""} />
+                      <Input placeholder="https://example.com/logo.png" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -198,42 +215,81 @@ export function SchoolForm({ school }: SchoolFormProps = {}) {
               />
             </div>
 
-            <FormField
-              control={form.control}
-              name="isActive"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                  <FormControl>
-                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel>Active School</FormLabel>
-                    <FormDescription>If checked, the school will be active in the system</FormDescription>
-                  </div>
-                </FormItem>
-              )}
-            />
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button type="button" variant="outline" onClick={() => router.push("/dashboard/super-admin/schools")}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {isEditMode ? "Updating..." : "Creating..."}
-                </>
-              ) : isEditMode ? (
-                "Update School"
-              ) : (
-                "Create School"
-              )}
-            </Button>
-          </CardFooter>
-        </form>
-      </Form>
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium">Admission Number Configuration</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <FormField
+                  control={form.control}
+                  name="admissionPrefix"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Admission Prefix</FormLabel>
+                      <FormControl>
+                        <Input placeholder="STD" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Prefix for admission numbers (e.g., "STD", "NHS")
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="admissionFormat"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Admission Format</FormLabel>
+                      <FormControl>
+                        <Input placeholder="{PREFIX}-{YEAR}-{NUMBER}" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Format template for admission numbers
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="admissionSequenceStart"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Starting Number</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="number" 
+                          placeholder="1" 
+                          {...field}
+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Starting number for admission sequence
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.back()}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {isEditing ? "Update School" : "Create School"}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </CardContent>
     </Card>
   )
 }
-

@@ -30,6 +30,7 @@ import {
 } from "@/app/actions/compiler"
 import { exportClassResultsPDF } from "@/lib/pdf/class-results-termly"
 import type { ClassLevel } from "@prisma/client"
+import Image from "next/image"
 
 interface ClassResultsOverviewProps {
   schoolId: string
@@ -99,6 +100,8 @@ export function ClassResultsOverview({
     enabled: !!schoolId,
     staleTime: 1000 * 60 * 5,
   })
+
+  console.log("Grading System:", gradingSystem)
 
   // Fetch classes
   const { data: classes = [], isLoading: isLoadingClasses } = useQuery({
@@ -632,15 +635,35 @@ export function ClassResultsOverview({
                     </div>
 
                     {/* Class Info Header */}
-                    <div className="text-center space-y-2">
-                      <h1 className="text-3xl font-bold text-gray-800">{schoolName.toUpperCase()}</h1>
-                      <p className="text-base text-gray-600">{schoolAddress}</p>
-                      <p className="text-base text-gray-600">
-                        GSM: {schoolPhone} | Email: {schoolEmail}
-                      </p>
-                      <h2 className="text-xl font-semibold text-gray-700">Termly Class Results</h2>
-                      <hr className="border-t border-gray-400 my-2 w-3/4 mx-auto" />
-                    </div>
+                    <div className=" flex items-start">
+                                    {/* Logo on the left */}
+                                    {schoolLogo && (
+                                      <div className="flex-shrink-0 pl-5 pt-5">
+                                        <Image
+                                          src={schoolLogo || "/placeholder.svg"}
+                                          alt={`${schoolName} Logo`}
+                                          width={90}
+                                          height={90}
+                                          className="object-contain"
+                                          onError={(e) => {
+                                            console.error("Failed to load school logo:", schoolLogo)
+                                            e.currentTarget.style.display = "none"
+                                          }}
+                                        />
+                                      </div>
+                                    )}
+                    
+                                {/* School information - centered in remaining space */}
+                                <div className="flex-1 text-center space-y-2">
+                                  <h1 className="text-3xl font-bold text-gray-800">{schoolName.toUpperCase()}</h1>
+                                  <p className="text-base text-gray-600">{schoolAddress}</p>
+                                  <p className="text-base text-gray-600">
+                                    GSM: {schoolPhone} | Email: {schoolEmail}
+                                  </p>
+                                  <h2 className="text-xl font-semibold text-gray-700">Students Termly Continuous Assessment Sheet</h2>
+                                  <hr className="border-t border-gray-400 my-2 w-3/4 mx-auto" />
+                                </div>
+                              </div>
 
                     <div className="space-y-2">
                       <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">

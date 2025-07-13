@@ -5,10 +5,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { toast } from "sonner"
-import { Loader2, CalendarIcon, Search } from "lucide-react"
+import { Loader2, CalendarIcon, Search, BookOpen, Info, CheckCircle, Clock } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
-
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -16,9 +15,11 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { createTerm, updateTerm } from "@/app/actions/term-management"
+import { motion } from "framer-motion"
 
 // Define the form schema with validation
 const termFormSchema = z
@@ -69,6 +70,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const router = useRouter()
+
   const isEditMode = !!termData
 
   const form = useForm<TermFormValues>({
@@ -99,11 +101,9 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
   // Handle session change
   const handleSessionChange = (sessionId: string) => {
     form.setValue("sessionId", sessionId)
-
     // Reset dates when session changes
     form.setValue("startDate", undefined)
     form.setValue("endDate", undefined)
-
     const session = sessions.find((s) => s.id === sessionId)
     if (session) {
       setSelectedSession(session)
@@ -112,248 +112,359 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
 
   async function onSubmit(data: TermFormValues) {
     setIsLoading(true)
-
     try {
       // Validate that term dates are within session dates
       if (selectedSession) {
         if (data.startDate < selectedSession.startDate || data.endDate > selectedSession.endDate) {
-          toast.error("Term dates must be within the session date range")
+          toast.error("Error", { description: "Term dates must be within the session date range" })
           setIsLoading(false)
           return
         }
       }
 
+      let result
       if (isEditMode && termData) {
-        await updateTerm({
+        result = await updateTerm({
           id: termData.id,
           ...data,
         })
-        toast.success("Term updated successfully")
       } else {
-        await createTerm(data)
-        toast.success("Term created successfully")
+        result = await createTerm(data)
       }
 
-      // Immediately redirect after successful submission
-      router.push("/dashboard/super-admin/terms")
-
-      // Force a refresh to update the terms list
-      router.refresh()
+      if (result.success) {
+        toast.success("Success", { description: result.message })
+        router.push("/dashboard/super-admin/terms")
+        router.refresh()
+      } else {
+        toast.error("Error", { description: result.error })
+      }
     } catch (error: any) {
       console.error("Failed to save term:", error)
-      toast.error(error.message || "Failed to save term")
-      setIsLoading(false) // Only reset loading state on error
+      toast.error("Error", { description: error.message || "Failed to save term" })
+    } finally {
+      setIsLoading(false)
     }
-    // Remove the finally block to keep loading state active until redirect completes
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{isEditMode ? "Edit Term" : "Term Information"}</CardTitle>
-        <CardDescription>
-          {isEditMode ? "Update the term details" : "Enter the details for the new academic term"}
-        </CardDescription>
-      </CardHeader>
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardContent className="space-y-6">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Term Name <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., First Term, Second Term, etc." {...field} />
-                  </FormControl>
-                  <FormDescription>Enter a descriptive name for the academic term</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="sessionId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Academic Session <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <Select
-                    onValueChange={handleSessionChange}
-                    defaultValue={field.value}
-                    disabled={isEditMode || !!preselectedSessionId}
-                  >
-                    <FormControl>
-                      <SelectTrigger  className="w-full">
-                        <SelectValue placeholder="Select a session" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <div className="sticky top-0 p-2 bg-background z-10 border-b">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Search sessions..."
-                            className="pl-8"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      {filteredSessions.length === 0 ? (
-                        <div className="text-center py-4 text-sm text-muted-foreground">No sessions found</div>
-                      ) : (
-                        filteredSessions.map((session) => (
-                          <SelectItem key={session.id} value={session.id}>
-                            {session.name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>The academic session this term belongs to</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {selectedSession && (
-              <div className="rounded-md bg-muted p-3 text-sm">
-                <p className="font-medium">Session Date Range:</p>
-                <p className="text-muted-foreground">
-                  {format(new Date(selectedSession.startDate), "MMMM d, yyyy")} to{" "}
-                  {format(new Date(selectedSession.endDate), "MMMM d, yyyy")}
-                </p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Note: Term dates must be within this session date range.
-                </p>
-              </div>
-            )}
-
-            <div className="grid gap-6 md:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="startDate"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>
-                      Start Date <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={field.onChange}
-                          initialFocus
-                          disabled={(date) => {
-                            if (!selectedSession) return false
-                            return date < selectedSession.startDate || date > selectedSession.endDate
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <FormDescription>When the academic term begins</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="endDate"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>
-                      End Date <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={field.onChange}
-                          initialFocus
-                          disabled={(date) => {
-                            const startDate = form.getValues("startDate")
-                            if (!selectedSession) return startDate ? date < startDate : false
-                            return date < (startDate || selectedSession.startDate) || date > selectedSession.endDate
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <FormDescription>When the academic term ends</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+      <Card className="max-w-4xl mx-auto">
+        <CardHeader className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <BookOpen className="h-6 w-6 text-primary" />
             </div>
+            <div>
+              <CardTitle className="text-2xl">{isEditMode ? "Edit Academic Term" : "Create Academic Term"}</CardTitle>
+              <CardDescription className="text-base">
+                {isEditMode ? "Update the term details below" : "Set up a new academic term within a session"}
+              </CardDescription>
+            </div>
+          </div>
 
-            <FormField
-              control={form.control}
-              name="isCurrent"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                  <FormControl>
-                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel>Set as Current Term</FormLabel>
+          {selectedSession && (
+            <Alert>
+              <Clock className="h-4 w-4" />
+              <AlertDescription>
+                Creating term for session <strong>{selectedSession.name}</strong>
+                <br />
+                <span className="text-sm text-muted-foreground">
+                  Session period: {format(new Date(selectedSession.startDate), "MMM d, yyyy")} to{" "}
+                  {format(new Date(selectedSession.endDate), "MMM d, yyyy")}
+                </span>
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <CardContent className="space-y-8">
+              {/* Term Name */}
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-base font-semibold">
+                      Term Name <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="e.g., First Term, Second Term, Third Term"
+                        className="h-12 text-base"
+                        {...field}
+                      />
+                    </FormControl>
                     <FormDescription>
-                      If checked, this will be set as the current active term for the session. This will automatically
-                      deactivate any other current term for this session.
+                      Enter a descriptive name for the academic term (e.g., "First Term", "Second Term")
                     </FormDescription>
-                  </div>
-                </FormItem>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Session Selection */}
+              <FormField
+                control={form.control}
+                name="sessionId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-base font-semibold">
+                      Academic Session <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <Select
+                      onValueChange={handleSessionChange}
+                      defaultValue={field.value}
+                      disabled={isEditMode || !!preselectedSessionId}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="h-12 text-base">
+                          <SelectValue placeholder="Select a session" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <div className="sticky top-0 p-2 bg-background z-10 border-b">
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              placeholder="Search sessions..."
+                              className="pl-8"
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        {filteredSessions.length === 0 ? (
+                          <div className="text-center py-4 text-sm text-muted-foreground">No sessions found</div>
+                        ) : (
+                          filteredSessions.map((session) => (
+                            <SelectItem key={session.id} value={session.id} className="py-3">
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                <div>
+                                  <div className="font-medium">{session.name}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {format(new Date(session.startDate), "MMM yyyy")} -{" "}
+                                    {format(new Date(session.endDate), "MMM yyyy")}
+                                  </div>
+                                </div>
+                              </div>
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {isEditMode || preselectedSessionId
+                        ? "Session cannot be changed after term creation"
+                        : "Select the academic session this term belongs to"}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Session Date Range Info */}
+              {selectedSession && (
+                <Alert>
+                  <Clock className="h-4 w-4" />
+                  <AlertDescription>
+                    <div className="space-y-1">
+                      <p className="font-medium">Session Date Range:</p>
+                      <p className="text-sm">
+                        {format(new Date(selectedSession.startDate), "MMMM d, yyyy")} to{" "}
+                        {format(new Date(selectedSession.endDate), "MMMM d, yyyy")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Note: Term dates must be within this session date range.
+                      </p>
+                    </div>
+                  </AlertDescription>
+                </Alert>
               )}
-            />
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button type="button" variant="outline" onClick={() => router.push("/dashboard/super-admin/terms")}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {isEditMode ? "Updating..." : "Creating..."}
-                </>
-              ) : isEditMode ? (
-                "Update Term"
-              ) : (
-                "Create Term"
-              )}
-            </Button>
-          </CardFooter>
-        </form>
-      </Form>
-    </Card>
+
+              {/* Date Range */}
+              <div className="grid gap-6 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="startDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel className="text-base font-semibold">
+                        Start Date <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "h-12 text-base pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground",
+                              )}
+                            >
+                              {field.value ? (
+                                <div className="flex items-center gap-2">
+                                  <CalendarIcon className="h-4 w-4" />
+                                  {format(field.value, "PPP")}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <CalendarIcon className="h-4 w-4" />
+                                  <span>Pick start date</span>
+                                </div>
+                              )}
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <div className="Calendar">
+                            <div className="mode-single">
+                              <div className="selected">{field.value}</div>
+                              <div className="onSelect">{field.onChange}</div>
+                              <div className="initialFocus">true</div>
+                              <div className="disabled">
+                                {(date) => {
+                                  if (!selectedSession) return false
+                                  return date < selectedSession.startDate || date > selectedSession.endDate
+                                }}
+                              </div>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      <FormDescription>When the academic term begins</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="endDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel className="text-base font-semibold">
+                        End Date <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "h-12 text-base pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground",
+                              )}
+                            >
+                              {field.value ? (
+                                <div className="flex items-center gap-2">
+                                  <CalendarIcon className="h-4 w-4" />
+                                  {format(field.value, "PPP")}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <CalendarIcon className="h-4 w-4" />
+                                  <span>Pick end date</span>
+                                </div>
+                              )}
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <div className="Calendar">
+                            <div className="mode-single">
+                              <div className="selected">{field.value}</div>
+                              <div className="onSelect">{field.onChange}</div>
+                              <div className="initialFocus">true</div>
+                              <div className="disabled">
+                                {(date) => {
+                                  const startDate = form.getValues("startDate")
+                                  if (!selectedSession) return startDate ? date < startDate : false
+                                  return (
+                                    date < (startDate || selectedSession.startDate) || date > selectedSession.endDate
+                                  )
+                                }}
+                              </div>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      <FormDescription>When the academic term ends</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Current Term Toggle */}
+              <FormField
+                control={form.control}
+                name="isCurrent"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                      <div className="space-y-2 leading-none">
+                        <FormLabel className="text-base font-semibold flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4" />
+                          Set as Current Term
+                        </FormLabel>
+                        <FormDescription className="text-sm">
+                          If checked, this will be set as the current active term for the session. This will
+                          automatically deactivate any other current term for this session.
+                        </FormDescription>
+                        {field.value && (
+                          <Badge variant="secondary" className="mt-2">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Will be set as current
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              {/* Info Alert */}
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  After creating the term, you can assign classes, subjects, and students to this term, as well as set
+                  up fee structures and assessment schedules.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+
+            <CardFooter className="flex justify-between bg-muted/50 rounded-b-lg">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push("/dashboard/super-admin/terms")}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isLoading} className="min-w-[120px]">
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {isEditMode ? "Updating..." : "Creating..."}
+                  </>
+                ) : isEditMode ? (
+                  "Update Term"
+                ) : (
+                  "Create Term"
+                )}
+              </Button>
+            </CardFooter>
+          </form>
+        </Form>
+      </Card>
+    </motion.div>
   )
 }

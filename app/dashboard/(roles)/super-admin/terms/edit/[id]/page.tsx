@@ -72,7 +72,6 @@ export default async function EditTermPage({ params }: { params: { id: string } 
             )
           </p>
         </div>
-
         <TermForm
           sessions={formattedSessions}
           termData={{

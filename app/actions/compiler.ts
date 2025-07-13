@@ -53,6 +53,7 @@ export async function getGradingSystem(schoolId: string) {
       throw new Error("No default grading system found for this school")
     }
 
+
     return {
       success: true,
       data: {
@@ -366,6 +367,7 @@ export async function getAssessmentsForClassTerm(classTermId: string) {
 }
 
 // Get class term results with grades and positions
+// Get class term results with grades and positions
 export async function getClassTermResults(classTermId: string) {
   try {
     const schoolId = await authorizeAndGetSchoolId()
@@ -418,29 +420,33 @@ export async function getClassTermResults(classTermId: string) {
 
     const results = studentClassTerms.map((sct) => {
       const studentAssessments = assessments.filter((a) => a.student.id === sct.student.id)
-      let totalScore: number | null = 0
-      let subjectCount = 0
+      let totalScore = 0
+      const subjectCount = classSubjects.length
       const subjects: Record<string, { score: number | null; grade: string | null }> = {}
 
       classSubjects.forEach((cs) => {
         const assessment = studentAssessments.find((a) => a.subject.id === cs.subject.id)
         const total = assessment && !assessment.isExempt && !assessment.isAbsent
           ? ((assessment.ca1 ?? 0) + (assessment.ca2 ?? 0) + (assessment.ca3 ?? 0) + (assessment.exam ?? 0))
-          : null
-        if (total !== null) {
-          totalScore = (totalScore ?? 0) + total
-          subjectCount++
-        }
-        const grade = total !== null
-          ? gradingSystem.levels.find((level) => total >= level.minScore && total <= level.maxScore)?.grade ?? null
-          : null
+          : 0 // Treat absent/exempt as 0
+
+        totalScore += total
+
+        const scoreInt = Math.floor(total) // <-- FIXED: floor before grade lookup
+
+        const grade = gradingSystem.levels.find(
+          (level) => scoreInt >= level.minScore && scoreInt <= level.maxScore
+        )?.grade ?? null
+
         subjects[cs.subject.id] = { score: total, grade }
       })
 
-      const averageScore = subjectCount > 0 ? totalScore! / subjectCount : null
-      const grade = averageScore !== null
-        ? gradingSystem.levels.find((level) => averageScore >= level.minScore && averageScore <= level.maxScore)?.grade ?? null
-        : null
+      const averageScore = subjectCount > 0 ? totalScore / subjectCount : 0
+      const avgScoreInt = Math.floor(averageScore) // <-- FIXED: floor average before grade lookup
+
+      const grade = gradingSystem.levels.find(
+        (level) => avgScoreInt >= level.minScore && avgScoreInt <= level.maxScore
+      )?.grade ?? ""
 
       return {
         studentId: sct.student.id,
@@ -448,9 +454,9 @@ export async function getClassTermResults(classTermId: string) {
         admissionNo: sct.student.admissionNo,
         gender: sct.student.user.gender,
         subjects,
-        totalScore: totalScore === 0 && subjectCount === 0 ? null : totalScore,
-        averageScore: averageScore ?? 0,
-        grade: grade ?? "",
+        totalScore,
+        averageScore,
+        grade,
         position: 0, // Placeholder, calculated below
       }
     })
@@ -466,7 +472,7 @@ export async function getClassTermResults(classTermId: string) {
     let previousScore: number | null = null
     let tieCount = 0
 
-    const finalResults = sortedResults.map((result, index) => {
+    const finalResults = sortedResults.map((result) => {
       const currentScore = result.totalScore ?? null
       if (currentScore === null) {
         return { ...result, position: 0 }
@@ -492,6 +498,8 @@ export async function getClassTermResults(classTermId: string) {
     }
   }
 }
+
+
 
 // Auto-publish results if complete
 export async function autoPublishClassTermResults(classTermId: string) {

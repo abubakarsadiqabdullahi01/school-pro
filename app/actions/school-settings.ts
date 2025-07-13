@@ -1,7 +1,441 @@
 "use server"
-import { prisma } from "@/lib/db"
+
 import { auth } from "@/auth"
+import { redirect } from "next/navigation"
+import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+
+export async function getSchoolSettingsData() {
+  try {
+    const session = await auth()
+    if (!session?.user?.id || session.user.role !== "ADMIN") {
+      redirect("/dashboard")
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!admin?.schoolId) {
+      throw new Error("Admin not associated with a school")
+    }
+
+    const [school, gradingSystem, stats, currentSession, currentTerm] = await Promise.all([
+      prisma.school.findUnique({
+        where: { id: admin.schoolId },
+      }),
+      prisma.gradingSystem.findFirst({
+        where: { schoolId: admin.schoolId, isDefault: true },
+        include: {
+          levels: true,
+        },
+      }),
+      Promise.all([
+        prisma.student.count({ where: { schoolId: admin.schoolId } }),
+        prisma.teacher.count({ where: { schoolId: admin.schoolId } }),
+        prisma.class.count({ where: { schoolId: admin.schoolId } }),
+      ]),
+      prisma.session.findFirst({
+        where: { schoolId: admin.schoolId, isCurrent: true },
+      }),
+      prisma.term.findFirst({
+        where: {
+          session: { schoolId: admin.schoolId },
+          isCurrent: true,
+        },
+      }),
+    ])
+
+    if (!school) {
+      throw new Error("School not found")
+    }
+
+    const [totalStudents, totalTeachers, totalClasses] = stats
+
+    return {
+      success: true,
+      data: {
+        school,
+        gradingSystem: gradingSystem
+          ? {
+              id: gradingSystem.id,
+              name: gradingSystem.name,
+              description: gradingSystem.description,
+              isDefault: gradingSystem.isDefault,
+              passMark: gradingSystem.passMark,
+              levelsCount: gradingSystem.levels.length,
+            }
+          : null,
+        stats: {
+          totalStudents,
+          totalTeachers,
+          totalClasses,
+          currentSession: currentSession?.name,
+          currentTerm: currentTerm?.name,
+        },
+      },
+    }
+  } catch (error) {
+    console.error("Failed to fetch school settings data:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch school settings data",
+    }
+  }
+}
+
+export async function getAdmissionSettingsData() {
+  try {
+    const session = await auth()
+    if (!session?.user?.id || session.user.role !== "ADMIN") {
+      redirect("/dashboard")
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!admin?.schoolId) {
+      throw new Error("Admin not associated with a school")
+    }
+
+    const [school, sequences] = await Promise.all([
+      prisma.school.findUnique({
+        where: { id: admin.schoolId },
+      }),
+      prisma.admissionSequence.findMany({
+        where: { schoolId: admin.schoolId },
+        orderBy: { year: "desc" },
+      }),
+    ])
+
+    if (!school) {
+      throw new Error("School not found")
+    }
+
+    const currentYear = new Date().getFullYear()
+    const currentSequence = sequences.find((seq) => seq.year === currentYear)
+
+    // Generate next admission number
+    const nextSequenceNumber = (currentSequence?.lastSequence || 0) + 1
+    const paddedNumber = nextSequenceNumber.toString().padStart(4, "0")
+
+    const nextAdmissionNumber = school.admissionFormat
+      .replace("{PREFIX}", school.admissionPrefix)
+      .replace("{YEAR}", currentYear.toString())
+      .replace("{NUMBER}", paddedNumber)
+
+    return {
+      success: true,
+      data: {
+        school,
+        sequences,
+        currentYear,
+        nextAdmissionNumber,
+      },
+    }
+  } catch (error) {
+    console.error("Failed to fetch admission settings data:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch admission settings data",
+    }
+  }
+}
+
+export async function updateAdmissionSettings({
+  schoolId,
+  admissionPrefix,
+  admissionFormat,
+  admissionSequenceStart,
+}: {
+  schoolId: string
+  admissionPrefix: string
+  admissionFormat: string
+  admissionSequenceStart: number
+}) {
+  try {
+    const session = await auth()
+    if (!session?.user?.id || session.user.role !== "ADMIN") {
+      throw new Error("Unauthorized - Only school admins can update admission settings")
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!admin?.schoolId || admin.schoolId !== schoolId) {
+      throw new Error("You can only update admission settings for your assigned school")
+    }
+
+    // Admin CAN update admission settings for their school
+    await prisma.school.update({
+      where: { id: schoolId },
+      data: {
+        admissionPrefix,
+        admissionFormat,
+        admissionSequenceStart,
+      },
+    })
+
+    revalidatePath("/dashboard/admin/school-settings")
+    revalidatePath("/dashboard/admin/school-settings/admission")
+
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to update admission settings:", error)
+    throw new Error(error instanceof Error ? error.message : "Failed to update admission settings")
+  }
+}
+
+export async function generateNextAdmissionNumber({
+  schoolId,
+  prefix,
+  format,
+  year,
+}: {
+  schoolId: string
+  prefix: string
+  format: string
+  year: number
+}) {
+  try {
+    const session = await auth()
+    if (!session?.user?.id || session.user.role !== "ADMIN") {
+      throw new Error("Unauthorized")
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!admin?.schoolId || admin.schoolId !== schoolId) {
+      throw new Error("You can only generate numbers for your assigned school")
+    }
+
+    // Get current sequence for the year
+    const sequence = await prisma.admissionSequence.findUnique({
+      where: {
+        schoolId_year: {
+          schoolId,
+          year,
+        },
+      },
+    })
+
+    const nextSequenceNumber = (sequence?.lastSequence || 0) + 1
+    const paddedNumber = nextSequenceNumber.toString().padStart(4, "0")
+
+    const admissionNumber = format
+      .replace("{PREFIX}", prefix)
+      .replace("{YEAR}", year.toString())
+      .replace("{NUMBER}", paddedNumber)
+
+    return {
+      success: true,
+      admissionNumber,
+    }
+  } catch (error) {
+    console.error("Failed to generate admission number:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to generate admission number",
+    }
+  }
+}
+
+export async function createAdmissionNumber({
+  schoolId,
+  year,
+}: {
+  schoolId: string
+  year?: number
+}) {
+  try {
+    const session = await auth()
+    if (!session?.user?.id || (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN")) {
+      throw new Error("Unauthorized")
+    }
+
+    // If admin, verify they can create for this school
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+      })
+
+      if (!admin?.schoolId || admin.schoolId !== schoolId) {
+        throw new Error("You can only create admission numbers for your assigned school")
+      }
+    }
+
+    const school = await prisma.school.findUnique({
+      where: { id: schoolId },
+    })
+
+    if (!school) {
+      throw new Error("School not found")
+    }
+
+    const currentYear = year || new Date().getFullYear()
+
+    // Use transaction to ensure atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      // Get or create admission sequence for the year
+      let sequence = await tx.admissionSequence.findUnique({
+        where: {
+          schoolId_year: {
+            schoolId,
+            year: currentYear,
+          },
+        },
+      })
+
+      if (!sequence) {
+        sequence = await tx.admissionSequence.create({
+          data: {
+            schoolId,
+            year: currentYear,
+            lastSequence: school.admissionSequenceStart,
+          },
+        })
+      } else {
+        // Increment the sequence
+        sequence = await tx.admissionSequence.update({
+          where: { id: sequence.id },
+          data: {
+            lastSequence: sequence.lastSequence + 1,
+          },
+        })
+      }
+
+      // Generate the admission number
+      const paddedNumber = sequence.lastSequence.toString().padStart(4, "0")
+      const admissionNumber = school.admissionFormat
+        .replace("{PREFIX}", school.admissionPrefix)
+        .replace("{YEAR}", currentYear.toString())
+        .replace("{NUMBER}", paddedNumber)
+
+      return {
+        admissionNumber,
+        sequence: sequence.lastSequence,
+        year: currentYear,
+      }
+    })
+
+    return {
+      success: true,
+      ...result,
+    }
+  } catch (error) {
+    console.error("Failed to create admission number:", error)
+    throw new Error(error instanceof Error ? error.message : "Failed to create admission number")
+  }
+}
+
+export async function getSchoolInformationData() {
+  try {
+    const session = await auth()
+    if (!session?.user?.id || session.user.role !== "ADMIN") {
+      redirect("/dashboard")
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!admin?.schoolId) {
+      throw new Error("Admin not associated with a school")
+    }
+
+    const [school, stats] = await Promise.all([
+      prisma.school.findUnique({
+        where: { id: admin.schoolId },
+      }),
+      Promise.all([
+        prisma.student.count({ where: { schoolId: admin.schoolId } }),
+        prisma.teacher.count({ where: { schoolId: admin.schoolId } }),
+        prisma.class.count({ where: { schoolId: admin.schoolId } }),
+        prisma.session.count({ where: { schoolId: admin.schoolId } }),
+      ]),
+    ])
+
+    if (!school) {
+      throw new Error("School not found")
+    }
+
+    const [totalStudents, totalTeachers, totalClasses, totalSessions] = stats
+
+    return {
+      success: true,
+      data: {
+        school,
+        canEditCode: false, // Only super admin can edit school code
+        stats: {
+          totalStudents,
+          totalTeachers,
+          totalClasses,
+          totalSessions,
+        },
+      },
+    }
+  } catch (error) {
+    console.error("Failed to fetch school information data:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch school information data",
+    }
+  }
+}
+
+export async function updateSchoolInformation({
+  schoolId,
+  address,
+  phone,
+  email,
+  website,
+}: {
+  schoolId: string
+  address: string
+  phone: string
+  email: string
+  website?: string
+}) {
+  try {
+    const session = await auth()
+    if (!session?.user?.id || session.user.role !== "ADMIN") {
+      throw new Error("Unauthorized - Only admins can update school information")
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!admin?.schoolId || admin.schoolId !== schoolId) {
+      throw new Error("You can only update information for your assigned school")
+    }
+
+    // Admin can ONLY update these specific fields - no other fields allowed
+    await prisma.school.update({
+      where: { id: schoolId },
+      data: {
+        address,
+        phone,
+        email,
+        website: website || null,
+        // Explicitly NOT allowing: name, code, isActive, createdAt, etc.
+        // logoUrl is handled separately via upload API
+      },
+    })
+
+    revalidatePath("/dashboard/admin/school-settings")
+    revalidatePath("/dashboard/admin/school-settings/information")
+
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to update school information:", error)
+    throw new Error(error instanceof Error ? error.message : "Failed to update school information")
+  }
+}
 
 // Create a new grading system
 export async function createGradingSystem({

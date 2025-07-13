@@ -1,239 +1,565 @@
-"use server";
+"use server"
 
-import { prisma } from "@/lib/db";
-import { auth } from "@/auth";
-import bcrypt from "bcryptjs";
-import { Gender } from "@prisma/client";
-
+import { prisma } from "@/lib/db"
+import { auth } from "@/auth"
+import bcrypt from "bcryptjs"
+import type { Gender } from "@prisma/client"
 
 // Function to hash passwords using bcrypt
 async function hashPassword(password: string): Promise<string> {
-  const salt = await bcrypt.genSalt(10);
-  return bcrypt.hash(password, salt);
+  const salt = await bcrypt.genSalt(10)
+  return bcrypt.hash(password, salt)
 }
 
 // Function to verify passwords
 async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
-  return bcrypt.compare(password, hashedPassword);
+  return bcrypt.compare(password, hashedPassword)
 }
 
-
-// Create a new student
-export async function createStudent(data: {
-  firstName: string;
-  lastName: string;
-  dateOfBirth: string;
-  gender?: Gender | null;
-  state?: string;
-  lga?: string;
-  address?: string;
-  phone?: string;
-  classId: string;
-  termId: string;
-  year?: number;
-  admissionNo: string;
-  parentId?: string;
-  relationship?: string;
-  isActive: boolean;
-  credentials?: Array<{
-    type: "EMAIL" | "PHONE" | "REGISTRATION_NUMBER" | "PSN";
-    value: string;
-    passwordHash: string;
-    isPrimary: boolean;
-  }>;
-}) {
+// Generate admission number based on school configuration
+export async function generateAdmissionNumber() {
   try {
-    const session = await auth();
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      return { success: false, error: "Unauthorized" };
+    const session = await auth()
+    const isNotAuthorized = !session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
+    if (isNotAuthorized) {
+      return { success: false, error: "Unauthorized" }
     }
 
-    let schoolId: string;
+    let schoolId: string
     if (session.user.role === "ADMIN") {
       const admin = await prisma.admin.findUnique({
         where: { userId: session.user.id },
         select: { schoolId: true },
-      });
+      })
       if (!admin?.schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
+        return { success: false, error: "Admin not associated with a school" }
       }
-      schoolId = admin.schoolId;
+      schoolId = admin.schoolId
     } else {
-      const school = await prisma.school.findFirst({
-        select: { id: true },
-      });
+      const school = await prisma.school.findFirst({ select: { id: true } })
       if (!school) {
-        return { success: false, error: "No school found in the system" };
+        return { success: false, error: "No school found" }
       }
-      schoolId = school.id;
+      schoolId = school.id
     }
 
-    const classRecord = await prisma.class.findUnique({ where: { id: data.classId } });
-    if (!classRecord) {
-      return { success: false, error: "Invalid class selected" };
-    }
+    const currentYear = new Date().getFullYear()
+    const result = await prisma.$transaction(async (tx) => {
+      const school = await tx.school.findUnique({
+        where: { id: schoolId },
+        select: {
+          admissionPrefix: true,
+          admissionFormat: true,
+          admissionSequenceStart: true,
+        },
+      })
 
-    const term = await prisma.term.findUnique({ where: { id: data.termId } });
-    if (!term) {
-      return { success: false, error: "Invalid term selected" };
-    }
+      if (!school) throw new Error("School not found")
 
-    // Validate parentId if provided
-    let parentId = data.parentId;
-    if (parentId) {
-      const parentExists = await prisma.parent.findUnique({ where: { id: parentId } });
-      if (!parentExists) {
-        return { success: false, error: "Selected parent does not exist" };
-      }
-    }
+      let admissionSequence = await tx.admissionSequence.findUnique({
+        where: { schoolId_year: { schoolId, year: currentYear } },
+      })
 
-    const result = await prisma.$transaction(
-      async (tx) => {
-        const existingStudent = await tx.student.findUnique({
-          where: { admissionNo: data.admissionNo },
-        });
-        if (existingStudent) {
-          throw new Error("A student with this admission number already exists.");
-        }
-
-        const studentUser = await tx.user.create({
+      let nextSequence: number
+      if (!admissionSequence) {
+        admissionSequence = await tx.admissionSequence.create({
           data: {
-            firstName: data.firstName,
-            lastName: data.lastName,
-            phone: data.phone,
-            role: "STUDENT",
-            isActive: data.isActive,
-            dateOfBirth: new Date(data.dateOfBirth),
-            gender: data.gender ?? null,
-            state: data.state,
-            lga: data.lga,
-            address: data.address,
-          },
-        });
-
-        if (data.credentials && data.credentials.length > 0) {
-          for (const cred of data.credentials) {
-            const existingCred = await tx.credential.findUnique({
-              where: { value: cred.value },
-            });
-            if (existingCred) {
-              throw new Error(
-                `A user with this ${cred.type.toLowerCase()} already exists. Please use a different ${cred.type.toLowerCase()}.`,
-              );
-            }
-            const passwordHash = await hashPassword(cred.passwordHash);
-            await tx.credential.create({
-              data: {
-                userId: studentUser.id,
-                type: cred.type,
-                value: cred.value,
-                passwordHash,
-                isPrimary: cred.isPrimary,
-              },
-            });
-          }
-        }
-
-        const student = await tx.student.create({
-          data: {
-            userId: studentUser.id,
             schoolId,
-            admissionNo: data.admissionNo,
-            year: data.year,
+            year: currentYear,
+            lastSequence: school.admissionSequenceStart - 1,
           },
-        });
+        })
+        nextSequence = school.admissionSequenceStart
+      } else {
+        nextSequence = admissionSequence.lastSequence + 1
+      }
 
-        const classTerm = await tx.classTerm.findFirst({
-          where: { classId: data.classId, termId: data.termId },
-        });
+      await tx.admissionSequence.update({
+        where: { id: admissionSequence.id },
+        data: { lastSequence: nextSequence },
+      })
 
-        let classTermId: string;
-        if (!classTerm) {
-          const newClassTerm = await tx.classTerm.create({
-            data: { classId: data.classId, termId: data.termId },
-          });
-          classTermId = newClassTerm.id;
-        } else {
-          classTermId = classTerm.id;
-        }
+      const admissionNo = school.admissionFormat
+        .replace("{PREFIX}", school.admissionPrefix)
+        .replace("{YEAR}", currentYear.toString())
+        .replace("{NUMBER}", nextSequence.toString().padStart(4, "0"))
 
-        await tx.studentClassTerm.create({
-          data: { studentId: student.id, classTermId },
-        });
+      return admissionNo
+    })
 
-        if (parentId) {
-          const parent = await tx.parent.findUnique({ where: { id: parentId } });
-          if (!parent) {
-            throw new Error("Parent does not exist in the database");
-          }
-
-          await tx.studentParent.create({
-            data: {
-              studentId: student.id,
-              parentId,
-              relationship: data.relationship || "PARENT",
-            },
-          });
-        }
-
-        return {
-          id: student.id,
-          userId: studentUser.id,
-          firstName: studentUser.firstName,
-          lastName: studentUser.lastName,
-          admissionNo: student.admissionNo,
-          classId: data.classId,
-          termId: data.termId,
-          parentId,
-        };
-      },
-      { timeout: 5000 },
-    );
-
-    return { success: true, data: result };
-  } catch (error) {
-    console.error("Error creating student:", error);
+    return { success: true, data: { admissionNo: result } }
+  } catch (error: any) {
+    // Handle unique constraint error
+    if (error.code === "P2002") {
+      return {
+        success: false,
+        error: "Admission number conflict, please retry",
+      }
+    }
+    console.error("Error generating admission number:", error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to create student",
-    };
+      error: error instanceof Error ? error.message : "Unknown error",
+    }
   }
 }
 
-
-// Get all students with enhanced filtering and pagination
-export async function getStudents(filter: {
-  classId?: string;
-  assignmentStatus?: "all" | "assigned" | "not_assigned";
-  page?: number;
-  pageSize?: number;
-} = { assignmentStatus: "all", page: 1, pageSize: 20 }) {
+export async function createStudent(data: {
+  firstName: string
+  lastName: string
+  dateOfBirth: string
+  gender?: Gender | null
+  state?: string
+  lga?: string
+  address?: string
+  phone?: string
+  classId: string
+  termId: string
+  year?: number
+  parentId?: string
+  relationship?: string
+  isActive: boolean
+  credentials?: Array<{
+    type: "EMAIL" | "PHONE" | "REGISTRATION_NUMBER" | "PSN"
+    value: string
+    passwordHash: string
+    isPrimary: boolean
+  }>
+}) {
   try {
-    // Get the current user session
-    const session = await auth();
-
+    const session = await auth()
     if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      return { success: false, error: "Unauthorized" };
+      return { success: false, error: "Unauthorized" }
     }
 
-    // Get the admin's school ID if applicable
-    let schoolId: string | undefined;
-
+    let schoolId: string
     if (session.user.role === "ADMIN") {
       const admin = await prisma.admin.findUnique({
         where: { userId: session.user.id },
         select: { schoolId: true },
-      });
+      })
+      if (!admin?.schoolId) {
+        return { success: false, error: "Admin not associated with a school" }
+      }
+      schoolId = admin.schoolId
+    } else {
+      const school = await prisma.school.findFirst({
+        select: { id: true },
+      })
+      if (!school) {
+        return { success: false, error: "No school found in the system" }
+      }
+      schoolId = school.id
+    }
 
-      schoolId = admin?.schoolId;
+    const classRecord = await prisma.class.findUnique({ where: { id: data.classId } })
+    if (!classRecord) {
+      return { success: false, error: "Invalid class selected" }
+    }
 
+    const term = await prisma.term.findUnique({ where: { id: data.termId } })
+    if (!term) {
+      return { success: false, error: "Invalid term selected" }
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // === 1. Generate admission number inside transaction ===
+      const currentYear = new Date().getFullYear()
+      const school = await tx.school.findUnique({
+        where: { id: schoolId },
+        select: {
+          admissionPrefix: true,
+          admissionFormat: true,
+          admissionSequenceStart: true,
+        },
+      })
+
+      if (!school) throw new Error("School not found")
+
+      let admissionSequence = await tx.admissionSequence.findUnique({
+        where: { schoolId_year: { schoolId, year: currentYear } },
+      })
+
+      let nextSequence: number
+      if (!admissionSequence) {
+        admissionSequence = await tx.admissionSequence.create({
+          data: {
+            schoolId,
+            year: currentYear,
+            lastSequence: school.admissionSequenceStart - 1,
+          },
+        })
+        nextSequence = school.admissionSequenceStart
+      } else {
+        nextSequence = admissionSequence.lastSequence + 1
+      }
+
+      await tx.admissionSequence.update({
+        where: { id: admissionSequence.id },
+        data: { lastSequence: nextSequence },
+      })
+
+      const admissionNo = school.admissionFormat
+        .replace("{PREFIX}", school.admissionPrefix)
+        .replace("{YEAR}", currentYear.toString())
+        .replace("{NUMBER}", nextSequence.toString().padStart(4, "0"))
+
+      // === 2. Create student user ===
+      const studentUser = await tx.user.create({
+        data: {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone,
+          role: "STUDENT",
+          isActive: data.isActive,
+          dateOfBirth: new Date(data.dateOfBirth),
+          gender: data.gender ?? null,
+          state: data.state,
+          lga: data.lga,
+          address: data.address,
+        },
+      })
+
+      if (data.credentials && data.credentials.length > 0) {
+        for (const cred of data.credentials) {
+          const existingCred = await tx.credential.findUnique({
+            where: { value: cred.value },
+          })
+          if (existingCred) {
+            throw new Error(`A user with this ${cred.type.toLowerCase()} already exists.`)
+          }
+          const passwordHash = await hashPassword(cred.passwordHash)
+          await tx.credential.create({
+            data: {
+              userId: studentUser.id,
+              type: cred.type,
+              value: cred.value,
+              passwordHash,
+              isPrimary: cred.isPrimary,
+            },
+          })
+        }
+      }
+
+      const student = await tx.student.create({
+        data: {
+          userId: studentUser.id,
+          schoolId,
+          admissionNo,
+          year: data.year ?? currentYear,
+        },
+      })
+
+      const classTerm = await tx.classTerm.findFirst({
+        where: { classId: data.classId, termId: data.termId },
+      })
+
+      const classTermId = classTerm
+        ? classTerm.id
+        : (await tx.classTerm.create({ data: { classId: data.classId, termId: data.termId } })).id
+
+      await tx.studentClassTerm.create({
+        data: { studentId: student.id, classTermId },
+      })
+
+      if (data.parentId) {
+        const parent = await tx.parent.findUnique({ where: { id: data.parentId } })
+        if (!parent) {
+          throw new Error("Parent does not exist")
+        }
+        await tx.studentParent.create({
+          data: {
+            studentId: student.id,
+            parentId: data.parentId,
+            relationship: data.relationship || "PARENT",
+          },
+        })
+      }
+
+      return {
+        id: student.id,
+        admissionNo,
+        userId: studentUser.id,
+        firstName: studentUser.firstName,
+        lastName: studentUser.lastName,
+        classId: data.classId,
+        termId: data.termId,
+        parentId: data.parentId,
+      }
+    })
+
+    return { success: true, data: result }
+  } catch (error) {
+    console.error("Error creating student:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to create student",
+    }
+  }
+}
+
+// Update student function
+export async function updateStudent(
+  studentId: string,
+  data: {
+    firstName: string
+    lastName: string
+    dateOfBirth: string
+    gender?: Gender | null
+    state?: string
+    lga?: string
+    address?: string
+    phone?: string
+    classId?: string
+    termId?: string
+    year?: number
+    isActive: boolean
+  },
+) {
+  try {
+    const session = await auth()
+    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    let schoolId: string | undefined
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      })
+      if (!admin?.schoolId) {
+        return { success: false, error: "Admin not associated with a school" }
+      }
+      schoolId = admin.schoolId
+    }
+
+    // Verify student exists and belongs to the admin's school
+    const existingStudent = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true },
+    })
+
+    if (!existingStudent) {
+      return { success: false, error: "Student not found" }
+    }
+
+    if (schoolId && existingStudent.schoolId !== schoolId) {
+      return { success: false, error: "Unauthorized to edit this student" }
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Update user information
+      const updatedUser = await tx.user.update({
+        where: { id: existingStudent.userId },
+        data: {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone,
+          isActive: data.isActive,
+          dateOfBirth: new Date(data.dateOfBirth),
+          gender: data.gender ?? null,
+          state: data.state,
+          lga: data.lga,
+          address: data.address,
+        },
+      })
+
+      // Update student information
+      const updatedStudent = await tx.student.update({
+        where: { id: studentId },
+        data: {
+          year: data.year,
+        },
+      })
+
+      // Update class assignment if provided
+      if (data.classId && data.termId) {
+        // Find or create the class term
+        let classTerm = await tx.classTerm.findFirst({
+          where: { classId: data.classId, termId: data.termId },
+        })
+
+        if (!classTerm) {
+          classTerm = await tx.classTerm.create({
+            data: { classId: data.classId, termId: data.termId },
+          })
+        }
+
+        // Check if student is already assigned to this class term
+        const existingAssignment = await tx.studentClassTerm.findFirst({
+          where: { studentId, classTermId: classTerm.id },
+        })
+
+        if (!existingAssignment) {
+          await tx.studentClassTerm.create({
+            data: { studentId, classTermId: classTerm.id },
+          })
+        }
+      }
+
+      return {
+        id: updatedStudent.id,
+        userId: updatedUser.id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        admissionNo: updatedStudent.admissionNo,
+      }
+    })
+
+    return { success: true, data: result }
+  } catch (error) {
+    console.error("Error updating student:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update student",
+    }
+  }
+}
+
+// Deactivate/Activate student function
+export async function toggleStudentStatus(studentId: string) {
+  try {
+    const session = await auth()
+    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    let schoolId: string | undefined
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      })
+      if (!admin?.schoolId) {
+        return { success: false, error: "Admin not associated with a school" }
+      }
+      schoolId = admin.schoolId
+    }
+
+    // Verify student exists and belongs to the admin's school
+    const existingStudent = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { user: true },
+    })
+
+    if (!existingStudent) {
+      return { success: false, error: "Student not found" }
+    }
+
+    if (schoolId && existingStudent.schoolId !== schoolId) {
+      return { success: false, error: "Unauthorized to modify this student" }
+    }
+
+    // Toggle the active status
+    const updatedUser = await prisma.user.update({
+      where: { id: existingStudent.userId },
+      data: {
+        isActive: !existingStudent.user.isActive,
+      },
+    })
+
+    return {
+      success: true,
+      data: {
+        id: studentId,
+        isActive: updatedUser.isActive,
+        message: updatedUser.isActive ? "Student activated successfully" : "Student deactivated successfully",
+      },
+    }
+  } catch (error) {
+    console.error("Error toggling student status:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update student status",
+    }
+  }
+}
+
+// Get current session and term
+export async function getCurrentSessionAndTerm() {
+  try {
+    const session = await prisma.session.findFirst({
+      where: { isCurrent: true },
+      include: {
+        terms: {
+          where: { isCurrent: true },
+          take: 1,
+        },
+      },
+    })
+
+    if (!session || !session.terms[0]) {
+      return { success: false, error: "No active session or term found" }
+    }
+
+    return {
+      success: true,
+      data: {
+        sessionId: session.id,
+        sessionName: session.name,
+        termId: session.terms[0].id,
+        termName: session.terms[0].name,
+      },
+    }
+  } catch (error) {
+    console.error("Error fetching current session and term:", error)
+    return { success: false, error: "Failed to fetch current session and term" }
+  }
+}
+
+// Get all classes for a school
+export async function getClasses() {
+  try {
+    const classes = await prisma.class.findMany({
+      select: {
+        id: true,
+        name: true,
+        level: true,
+      },
+    })
+
+    return {
+      success: true,
+      data: classes,
+    }
+  } catch (error) {
+    console.error("Error fetching classes:", error)
+    return { success: false, error: "Failed to fetch classes" }
+  }
+}
+
+// Get all students with enhanced filtering and pagination
+export async function getStudents(
+  filter: {
+    classId?: string
+    assignmentStatus?: "all" | "assigned" | "not_assigned"
+    page?: number
+    pageSize?: number
+  } = { assignmentStatus: "all", page: 1, pageSize: 20 },
+) {
+  try {
+    // Get the current user session
+    const session = await auth()
+    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    // Get the admin's school ID if applicable
+    let schoolId: string | undefined
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      })
+      schoolId = admin?.schoolId
       if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
+        return { success: false, error: "Admin not associated with a school" }
       }
     }
 
     // Build the where clause for students
-    const whereClause: any = schoolId ? { schoolId } : {};
+    const whereClause: any = schoolId ? { schoolId } : {}
 
     // Handle class filtering via StudentClassTerm
     if (filter.classId) {
@@ -243,55 +569,55 @@ export async function getStudents(filter: {
             classId: filter.classId,
           },
         },
-      };
+      }
     }
 
     // Handle assignment status
     if (filter.assignmentStatus === "assigned") {
       whereClause.classTerms = {
         some: {}, // At least one StudentClassTerm record exists
-      };
+      }
     } else if (filter.assignmentStatus === "not_assigned") {
       whereClause.classTerms = {
         none: {}, // No StudentClassTerm records exist
-      };
+      }
     }
 
     // Calculate pagination
-    const page = filter.page || 1;
-    const pageSize = filter.pageSize || 20;
-    const skip = (page - 1) * pageSize;
+    const page = filter.page || 1
+    const pageSize = filter.pageSize || 20
+    const skip = (page - 1) * pageSize
 
     // Fetch the grading system for the school
-    const gradingSystem = schoolId 
+    const gradingSystem = schoolId
       ? await prisma.gradingSystem.findFirst({
           where: { schoolId, isDefault: true },
           include: {
             levels: {
-              orderBy: { minScore: 'asc' }
-            }
-          }
+              orderBy: { minScore: "asc" },
+            },
+          },
         })
-      : null;
+      : null
 
     // Helper function to calculate grade based on total score
     function calculateGrade(totalScore: number): { grade: string; remark: string } {
       if (!gradingSystem?.levels || gradingSystem.levels.length === 0) {
-        return { grade: "N/A", remark: "No grading system" };
+        return { grade: "N/A", remark: "No grading system" }
       }
 
       // Sort grade levels by minScore descending to find the correct grade
-      const sortedLevels = [...gradingSystem.levels].sort((a, b) => b.minScore - a.minScore);
-      
+      const sortedLevels = [...gradingSystem.levels].sort((a, b) => b.minScore - a.minScore)
+
       for (const level of sortedLevels) {
         if (totalScore >= level.minScore && totalScore <= level.maxScore) {
-          return { grade: level.grade, remark: level.remark };
+          return { grade: level.grade, remark: level.remark }
         }
       }
-      
+
       // If no grade found, return lowest grade or default
-      const lowestGrade = sortedLevels[sortedLevels.length - 1];
-      return { grade: lowestGrade?.grade || "F9", remark: lowestGrade?.remark || "Fail" };
+      const lowestGrade = sortedLevels[sortedLevels.length - 1]
+      return { grade: lowestGrade?.grade || "F9", remark: lowestGrade?.remark || "Fail" }
     }
 
     // Query students with pagination
@@ -398,12 +724,12 @@ export async function getStudents(filter: {
       },
       skip,
       take: pageSize,
-    });
+    })
 
     // Get total count for pagination
     const totalStudents = await prisma.student.count({
       where: whereClause,
-    });
+    })
 
     // Fetch unique classes for filtering
     const classes = await prisma.class.findMany({
@@ -413,7 +739,7 @@ export async function getStudents(filter: {
         name: true,
       },
       orderBy: [{ name: "asc" }],
-    });
+    })
 
     // Transform the data for the frontend
     const formattedStudents = students.map((student) => ({
@@ -440,30 +766,30 @@ export async function getStudents(filter: {
       registrationDate: student.createdAt.toISOString().split("T")[0],
       recentAssessments: student.assessments.map((a) => {
         // Calculate total score from individual components
-        const ca1 = a.ca1 || 0;
-        const ca2 = a.ca2 || 0;
-        const ca3 = a.ca3 || 0;
-        const exam = a.exam || 0;
-        const totalScore = ca1 + ca2 + ca3 + exam;
-        
+        const ca1 = a.ca1 || 0
+        const ca2 = a.ca2 || 0
+        const ca3 = a.ca3 || 0
+        const exam = a.exam || 0
+        const totalScore = ca1 + ca2 + ca3 + exam
+
         // Calculate grade dynamically using grading system
-        const gradeInfo = calculateGrade(totalScore);
-        
+        const gradeInfo = calculateGrade(totalScore)
+
         // Handle special cases
-        let displayScore = totalScore.toString();
-        let displayGrade = gradeInfo.grade;
-        
+        let displayScore = totalScore.toString()
+        let displayGrade = gradeInfo.grade
+
         if (a.isAbsent) {
-          displayScore = "ABS";
-          displayGrade = "ABS";
+          displayScore = "ABS"
+          displayGrade = "ABS"
         } else if (a.isExempt) {
-          displayScore = "EXM";
-          displayGrade = "EXM";
+          displayScore = "EXM"
+          displayGrade = "EXM"
         } else if (!a.isPublished) {
-          displayScore = "UNPUB";
-          displayGrade = "UNPUB";
+          displayScore = "UNPUB"
+          displayGrade = "UNPUB"
         }
-        
+
         return {
           id: a.id,
           subject: a.subject?.name || "N/A",
@@ -478,7 +804,7 @@ export async function getStudents(filter: {
           isAbsent: a.isAbsent,
           isExempt: a.isExempt,
           isPublished: a.isPublished,
-        };
+        }
       }),
       recentPayments: student.payments.map((p) => ({
         id: p.id,
@@ -486,7 +812,7 @@ export async function getStudents(filter: {
         status: p.status,
         paymentDate: p.paymentDate.toISOString().split("T")[0],
       })),
-    }));
+    }))
 
     return {
       success: true,
@@ -500,28 +826,25 @@ export async function getStudents(filter: {
           totalPages: Math.ceil(totalStudents / pageSize),
         },
       },
-    };
+    }
   } catch (error) {
-    console.error("Error fetching students:", error);
+    console.error("Error fetching students:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to fetch students",
-    };
+    }
   }
 }
-
 
 // Get a specific student by ID
 export async function getStudent(id: string) {
   try {
-    const session = await auth();
-
+    const session = await auth()
     if (!session?.user) {
-      return { success: false, error: "Unauthorized" };
+      return { success: false, error: "Unauthorized" }
     }
 
-    let student;
-
+    let student
     if (session.user.role === "SUPER_ADMIN" || session.user.role === "ADMIN") {
       student = await prisma.student.findUnique({
         where: { id },
@@ -539,15 +862,20 @@ export async function getStudent(id: string) {
               isActive: true,
             },
           },
-          currentClassTerm: {
+          classTerms: {
             include: {
-              class: true,
-              term: {
+              classTerm: {
                 include: {
-                  session: true,
+                  class: true,
+                  term: {
+                    include: {
+                      session: true,
+                    },
+                  },
                 },
               },
             },
+            orderBy: { createdAt: "desc" },
           },
           parents: {
             include: {
@@ -564,27 +892,26 @@ export async function getStudent(id: string) {
               },
             },
           },
-          classTerms: {
+          assessments: {
             include: {
-              classTerm: {
-                include: {
-                  class: true,
-                  term: {
-                    include: {
-                      session: true,
+              subject: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+              term: {
+                select: {
+                  id: true,
+                  name: true,
+                  session: {
+                    select: {
+                      id: true,
+                      name: true,
                     },
                   },
                 },
               },
-            },
-          },
-          assessments: {
-            select: {
-              id: true,
-              totalScore: true,
-              grade: true,
-              remarks: true,
-              createdAt: true,
             },
             orderBy: { createdAt: "desc" },
           },
@@ -599,31 +926,26 @@ export async function getStudent(id: string) {
             orderBy: { paymentDate: "desc" },
           },
         },
-      });
+      })
     } else if (session.user.role === "TEACHER") {
       const teacher = await prisma.teacher.findUnique({
         where: { userId: session.user.id },
         select: { id: true },
-      });
-
+      })
       if (!teacher) {
-        return { success: false, error: "Teacher record not found" };
+        return { success: false, error: "Teacher record not found" }
       }
 
       const teacherClassTerms = await prisma.teacherClassTerm.findMany({
         where: { teacherId: teacher.id },
         select: { classTermId: true },
-      });
-
-      const classTermIds = teacherClassTerms.map((tct) => tct.classTermId);
+      })
+      const classTermIds = teacherClassTerms.map((tct) => tct.classTermId)
 
       student = await prisma.student.findFirst({
         where: {
           id,
-          OR: [
-            { currentClassTermId: { in: classTermIds } },
-            { classTerms: { some: { classTermId: { in: classTermIds } } } },
-          ],
+          classTerms: { some: { classTermId: { in: classTermIds } } },
         },
         include: {
           user: {
@@ -639,15 +961,20 @@ export async function getStudent(id: string) {
               isActive: true,
             },
           },
-          currentClassTerm: {
+          classTerms: {
             include: {
-              class: true,
-              term: {
+              classTerm: {
                 include: {
-                  session: true,
+                  class: true,
+                  term: {
+                    include: {
+                      session: true,
+                    },
+                  },
                 },
               },
             },
+            orderBy: { createdAt: "desc" },
           },
           parents: {
             include: {
@@ -664,27 +991,26 @@ export async function getStudent(id: string) {
               },
             },
           },
-          classTerms: {
+          assessments: {
             include: {
-              classTerm: {
-                include: {
-                  class: true,
-                  term: {
-                    include: {
-                      session: true,
+              subject: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+              term: {
+                select: {
+                  id: true,
+                  name: true,
+                  session: {
+                    select: {
+                      id: true,
+                      name: true,
                     },
                   },
                 },
               },
-            },
-          },
-          assessments: {
-            select: {
-              id: true,
-              totalScore: true,
-              grade: true,
-              remarks: true,
-              createdAt: true,
             },
             orderBy: { createdAt: "desc" },
           },
@@ -699,15 +1025,14 @@ export async function getStudent(id: string) {
             orderBy: { paymentDate: "desc" },
           },
         },
-      });
+      })
     } else if (session.user.role === "PARENT") {
       const parent = await prisma.parent.findUnique({
         where: { userId: session.user.id },
         select: { id: true },
-      });
-
+      })
       if (!parent) {
-        return { success: false, error: "Parent record not found" };
+        return { success: false, error: "Parent record not found" }
       }
 
       const studentParent = await prisma.studentParent.findFirst({
@@ -715,10 +1040,9 @@ export async function getStudent(id: string) {
           parentId: parent.id,
           studentId: id,
         },
-      });
-
+      })
       if (!studentParent) {
-        return { success: false, error: "Unauthorized to view this student" };
+        return { success: false, error: "Unauthorized to view this student" }
       }
 
       student = await prisma.student.findUnique({
@@ -735,16 +1059,6 @@ export async function getStudent(id: string) {
               address: true,
               phone: true,
               isActive: true,
-            },
-          },
-          currentClassTerm: {
-            include: {
-              class: true,
-              term: {
-                include: {
-                  session: true,
-                },
-              },
             },
           },
           classTerms: {
@@ -760,14 +1074,28 @@ export async function getStudent(id: string) {
                 },
               },
             },
+            orderBy: { createdAt: "desc" },
           },
           assessments: {
-            select: {
-              id: true,
-              totalScore: true,
-              grade: true,
-              remarks: true,
-              createdAt: true,
+            include: {
+              subject: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+              term: {
+                select: {
+                  id: true,
+                  name: true,
+                  session: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
             },
             orderBy: { createdAt: "desc" },
           },
@@ -782,15 +1110,14 @@ export async function getStudent(id: string) {
             orderBy: { paymentDate: "desc" },
           },
         },
-      });
+      })
     } else if (session.user.role === "STUDENT") {
       const studentRecord = await prisma.student.findFirst({
         where: { userId: session.user.id },
         select: { id: true },
-      });
-
+      })
       if (!studentRecord || studentRecord.id !== id) {
-        return { success: false, error: "Unauthorized to view this student" };
+        return { success: false, error: "Unauthorized to view this student" }
       }
 
       student = await prisma.student.findUnique({
@@ -809,15 +1136,20 @@ export async function getStudent(id: string) {
               isActive: true,
             },
           },
-          currentClassTerm: {
+          classTerms: {
             include: {
-              class: true,
-              term: {
+              classTerm: {
                 include: {
-                  session: true,
+                  class: true,
+                  term: {
+                    include: {
+                      session: true,
+                    },
+                  },
                 },
               },
             },
+            orderBy: { createdAt: "desc" },
           },
           parents: {
             include: {
@@ -834,27 +1166,26 @@ export async function getStudent(id: string) {
               },
             },
           },
-          classTerms: {
+          assessments: {
             include: {
-              classTerm: {
-                include: {
-                  class: true,
-                  term: {
-                    include: {
-                      session: true,
+              subject: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+              term: {
+                select: {
+                  id: true,
+                  name: true,
+                  session: {
+                    select: {
+                      id: true,
+                      name: true,
                     },
                   },
                 },
               },
-            },
-          },
-          assessments: {
-            select: {
-              id: true,
-              totalScore: true,
-              grade: true,
-              remarks: true,
-              createdAt: true,
             },
             orderBy: { createdAt: "desc" },
           },
@@ -869,11 +1200,11 @@ export async function getStudent(id: string) {
             orderBy: { paymentDate: "desc" },
           },
         },
-      });
+      })
     }
 
     if (!student) {
-      return { success: false, error: "Student not found" };
+      return { success: false, error: "Student not found" }
     }
 
     // Format the student data for the frontend
@@ -892,15 +1223,16 @@ export async function getStudent(id: string) {
       phone: student.user.phone || "",
       year: student.year || null,
       isActive: student.user.isActive,
-      currentClass: student.currentClassTerm
-        ? {
-            id: student.currentClassTerm.classId,
-            name: student.currentClassTerm.class.name,
-            termId: student.currentClassTerm.termId,
-            termName: student.currentClassTerm.term.name,
-            sessionName: student.currentClassTerm.term.session.name,
-          }
-        : null,
+      currentClass:
+        student.classTerms.length > 0
+          ? {
+              id: student.classTerms[0].classTerm.classId,
+              name: student.classTerms[0].classTerm.class.name,
+              termId: student.classTerms[0].classTerm.termId,
+              termName: student.classTerms[0].classTerm.term.name,
+              sessionName: student.classTerms[0].classTerm.term.session.name,
+            }
+          : null,
       parents: student.parents
         ? student.parents.map((sp) => ({
             id: sp.parentId,
@@ -917,13 +1249,29 @@ export async function getStudent(id: string) {
         startDate: sct.classTerm.term.startDate,
         endDate: sct.classTerm.term.endDate,
       })),
-      assessments: student.assessments.map((a) => ({
-        id: a.id,
-        totalScore: a.totalScore || "N/A",
-        grade: a.grade || "N/A",
-        remarks: a.remarks || "",
-        createdAt: a.createdAt.toISOString().split("T")[0],
-      })),
+      assessments: student.assessments.map((a) => {
+        const ca1 = a.ca1 || 0
+        const ca2 = a.ca2 || 0
+        const ca3 = a.ca3 || 0
+        const exam = a.exam || 0
+        const totalScore = ca1 + ca2 + ca3 + exam
+
+        return {
+          id: a.id,
+          subject: a.subject?.name || "N/A",
+          ca1: a.ca1,
+          ca2: a.ca2,
+          ca3: a.ca3,
+          exam: a.exam,
+          totalScore: a.isAbsent ? "ABS" : a.isExempt ? "EXM" : !a.isPublished ? "UNPUB" : totalScore.toString(),
+          term: a.term?.name || "N/A",
+          session: a.term?.session?.name || "N/A",
+          isAbsent: a.isAbsent,
+          isExempt: a.isExempt,
+          isPublished: a.isPublished,
+          createdAt: a.createdAt.toISOString().split("T")[0],
+        }
+      }),
       payments: student.payments.map((p) => ({
         id: p.id,
         amount: p.amount,
@@ -932,18 +1280,18 @@ export async function getStudent(id: string) {
         receiptNo: p.receiptNo,
       })),
       createdAt: student.createdAt,
-    };
+    }
 
     return {
       success: true,
       data: formattedStudent,
-    };
+    }
   } catch (error) {
-    console.error(`Error fetching student with ID ${id}:`, error);
+    console.error(`Error fetching student with ID ${id}:`, error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to fetch student",
-    };
+    }
   }
 }
 
@@ -964,14 +1312,13 @@ export async function authenticateParent(identifier: string, password: string) {
           },
         },
       },
-    });
+    })
 
     if (!credential) {
-      return { success: false, error: "Invalid credentials" };
+      return { success: false, error: "Invalid credentials" }
     }
 
-    const isPasswordValid = await verifyPassword(password, credential.passwordHash);
-
+    const isPasswordValid = await verifyPassword(password, credential.passwordHash)
     if (!isPasswordValid) {
       await prisma.loginAttempt.create({
         data: {
@@ -980,16 +1327,15 @@ export async function authenticateParent(identifier: string, password: string) {
           ipAddress: "127.0.0.1",
           status: "FAILED_PASSWORD",
         },
-      });
-
-      return { success: false, error: "Invalid credentials" };
+      })
+      return { success: false, error: "Invalid credentials" }
     }
 
     if (!credential.user.parent) {
-      return { success: false, error: "Account is not a parent account" };
+      return { success: false, error: "Account is not a parent account" }
     }
 
-    const parentId = credential.user.parent.id;
+    const parentId = credential.user.parent.id
     const children = await prisma.studentParent.findMany({
       where: { parentId },
       include: {
@@ -1001,15 +1347,21 @@ export async function authenticateParent(identifier: string, password: string) {
                 lastName: true,
               },
             },
-            currentClassTerm: {
+            classTerms: {
               include: {
-                class: true,
+                classTerm: {
+                  include: {
+                    class: true,
+                  },
+                },
               },
+              orderBy: { createdAt: "desc" },
+              take: 1,
             },
           },
         },
       },
-    });
+    })
 
     await prisma.loginAttempt.create({
       data: {
@@ -1018,10 +1370,9 @@ export async function authenticateParent(identifier: string, password: string) {
         ipAddress: "127.0.0.1",
         status: "SUCCESS",
       },
-    });
+    })
 
-    const sessionToken = crypto.randomBytes(32).toString("hex");
-
+    const sessionToken = crypto.randomBytes(32).toString("hex")
     await prisma.loginSession.create({
       data: {
         userId: credential.userId,
@@ -1031,7 +1382,7 @@ export async function authenticateParent(identifier: string, password: string) {
         issuedAt: new Date(),
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       },
-    });
+    })
 
     const parentData = {
       id: parentId,
@@ -1043,99 +1394,43 @@ export async function authenticateParent(identifier: string, password: string) {
       children: children.map((sp) => ({
         id: sp.student.id,
         name: `${sp.student.user.firstName} ${sp.student.user.lastName}`,
-        class: sp.student.currentClassTerm?.class.name || "Not Assigned",
+        class: sp.student.classTerms.length > 0 ? sp.student.classTerms[0].classTerm.class.name : "Not Assigned",
         relationship: sp.relationship,
       })),
       sessionToken,
-    };
+    }
 
-    return { success: true, data: parentData };
+    return { success: true, data: parentData }
   } catch (error) {
-    console.error("Error authenticating parent:", error);
+    console.error("Error authenticating parent:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Invalid credentials",
-    };
-  }
-}
-
-// Get current session and term
-
-export async function getCurrentSessionAndTerm() {
-  try {
-    const session = await prisma.session.findFirst({
-      where: { isCurrent: true },
-      include: {
-        terms: {
-          where: { isCurrent: true },
-          take: 1,
-        },
-      },
-    });
-
-    if (!session || !session.terms[0]) {
-      return { success: false, error: "No active session or term found" };
     }
-
-    return {
-      success: true,
-      data: {
-        sessionId: session.id,
-        sessionName: session.name,
-        termId: session.terms[0].id,
-        termName: session.terms[0].name,
-      },
-    };
-  } catch (error) {
-    console.error("Error fetching current session and term:", error);
-    return { success: false, error: "Failed to fetch current session and term" };
   }
 }
-
-// Get all classes for a school
-
-export async function getClasses() {
-  try {
-    const classes = await prisma.class.findMany({
-      select: {
-        id: true,
-        name: true,
-        level: true,
-      },
-    });
-
-    return {
-      success: true,
-      data: classes,
-    };
-  } catch (error) {
-    console.error("Error fetching classes:", error);
-    return { success: false, error: "Failed to fetch classes" };
-  }
-}
-
 
 // Search for parents
-export async function searchParents(query: string = "") {
+export async function searchParents(query = "") {
   try {
-    const session = await auth();
+    const session = await auth()
     if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      return { success: false, error: "Unauthorized" };
+      return { success: false, error: "Unauthorized" }
     }
 
-    let schoolId: string | undefined;
+    let schoolId: string | undefined
     if (session.user.role === "ADMIN") {
       const admin = await prisma.admin.findUnique({
         where: { userId: session.user.id },
         select: { schoolId: true },
-      });
-      schoolId = admin?.schoolId;
+      })
+      schoolId = admin?.schoolId
       if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
+        return { success: false, error: "Admin not associated with a school" }
       }
     }
 
-    const normalizedQuery = query.toLowerCase();
+    const normalizedQuery = query.toLowerCase()
     const parents = await prisma.parent.findMany({
       where: {
         ...(schoolId ? { schoolId } : {}),
@@ -1168,7 +1463,7 @@ export async function searchParents(query: string = "") {
         },
       },
       take: 10,
-    });
+    })
 
     const formattedParents = parents.map((parent) => ({
       id: parent.id,
@@ -1182,14 +1477,14 @@ export async function searchParents(query: string = "") {
       state: parent.user.state,
       lga: parent.user.lga,
       address: parent.user.address,
-    }));
+    }))
 
-    return { success: true, data: formattedParents };
+    return { success: true, data: formattedParents }
   } catch (error) {
-    console.error("Error searching for parents:", error);
+    console.error("Error searching for parents:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to search for parents",
-    };
+    }
   }
 }

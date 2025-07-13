@@ -18,14 +18,12 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Stepper, Step, StepDescription, StepTitle } from "@/components/student-management/stepper"
 import { ParentSearchDialog } from "@/components/student-management/parent-search-dialog"
-import { createStudent, getCurrentSessionAndTerm, getClasses } from "@/app/actions/student-management"
+import { createStudent, getCurrentSessionAndTerm, getClasses, generateAdmissionNumber } from "@/app/actions/student-management"
 import { FormSkeleton } from "@/components/ui/loading-skeleton"
-import { Gender } from "@prisma/client";
-
+import { Gender } from "@prisma/client"
 
 // Define the form schema for student registration
 const studentFormSchema = z.object({
-  // Personal Information
   firstName: z.string().min(2, { message: "First name must be at least 2 characters." }),
   lastName: z.string().min(2, { message: "Last name must be at least 2 characters." }),
   dateOfBirth: z.string().refine((val) => !isNaN(Date.parse(val)), {
@@ -35,20 +33,12 @@ const studentFormSchema = z.object({
   state: z.string().optional(),
   lga: z.string().optional(),
   address: z.string().optional(),
-
-  // Academic Information
   classId: z.string().min(1, { message: "Please select a class." }),
   termId: z.string().min(1, { message: "Please select a term." }),
   year: z.number().int().min(2000).max(new Date().getFullYear() + 1).optional(),
-
-  // Contact Information
   phone: z.string().optional(),
-
-  // Parent/Guardian Information
   parentId: z.string().optional(),
   relationship: z.string().optional(),
-
-  // Account Information
   isActive: z.boolean().default(true),
   createLoginCredentials: z.boolean().default(true),
 })
@@ -69,12 +59,12 @@ export default function StudentForm() {
   const [currentSession, setCurrentSession] = useState<{ id: string; name: string } | null>(null)
   const [currentTerm, setCurrentTerm] = useState<{ id: string; name: string } | null>(null)
   const [classes, setClasses] = useState<ClassOption[]>([])
+  const [lastAdmissionNo, setLastAdmissionNo] = useState("")
   const [isLoading, setIsLoading] = useState(true)
-  const [generatedAdmissionNo, setGeneratedAdmissionNo] = useState("")
   const router = useRouter()
   const currentYear = new Date().getFullYear()
 
-  // Fetch current session, term, and classes when component mounts
+  // Fetch current session, term, classes, and admission number when component mounts
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true)
@@ -90,8 +80,6 @@ export default function StudentForm() {
             id: sessionResult.data.termId,
             name: sessionResult.data.termName,
           })
-
-          // Update the form with the current term ID
           form.setValue("termId", sessionResult.data.termId)
         } else {
           toast.error("Error", {
@@ -109,9 +97,6 @@ export default function StudentForm() {
           })
         }
 
-        // Generate admission number
-        const regNumber = `STD/${currentYear}/${Math.floor(1000 + Math.random() * 9000)}`
-        setGeneratedAdmissionNo(regNumber)
       } catch (error) {
         console.error("Error fetching data:", error)
         toast.error("Error", {
@@ -132,7 +117,7 @@ export default function StudentForm() {
       firstName: "",
       lastName: "",
       dateOfBirth: "",
-      gender: undefined, // Explicitly undefined to match schema
+      gender: undefined,
       state: "",
       lga: "",
       address: "",
@@ -149,9 +134,9 @@ export default function StudentForm() {
 
   // Handle form submission
   async function onSubmit(data: StudentFormValues) {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-  
+    if (isSubmitting) return
+    setIsSubmitting(true)
+
     try {
       const studentData = {
         firstName: data.firstName,
@@ -165,46 +150,38 @@ export default function StudentForm() {
         classId: data.classId,
         termId: data.termId,
         year: currentYear,
-        admissionNo: generatedAdmissionNo,
-        parentId: selectedParent?.id, // Always pass parentId
+        parentId: selectedParent?.id,
         relationship: data.relationship || "PARENT",
         isActive: true,
-        credentials: data.createLoginCredentials
-          ? [
-              {
-                type: "REGISTRATION_NUMBER",
-                value: generatedAdmissionNo,
-                passwordHash: currentYear.toString(),
-                isPrimary: true,
-              },
-            ]
-          : [],
-      };
-  
-      const result = await createStudent(studentData);
-  
+        createLoginCredentials: data.createLoginCredentials,
+      }
+
+      const result = await createStudent(studentData)
+
       if (result.success) {
+        setLastAdmissionNo(result.data?.admissionNo || "") 
+
         toast.success("Student Registered Successfully", {
-          description: `Registration Number: ${generatedAdmissionNo}`,
-        });
+            description: `Registration Number: ${result.data?.admissionNo}`,
+          })
         if (selectedParent) {
           toast.success("Parent Assigned", {
             description: `Parent: ${selectedParent.firstName} ${selectedParent.lastName}`,
-          });
+          })
         }
-        router.push("/dashboard/admin/students");
+        router.push("/dashboard/admin/students")
       } else {
         toast.error("Registration Failed", {
           description: result.error || "There was an error registering the student. Please try again.",
-        });
+        })
       }
     } catch (error) {
-      console.error("Error registering student:", error);
+      console.error("Error registering student:", error)
       toast.error("Registration Failed", {
         description: "There was an error registering the student. Please try again.",
-      });
+      })
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false)
     }
   }
 
@@ -255,9 +232,7 @@ export default function StudentForm() {
   }
 
   if (isLoading) {
-    return (
-        <FormSkeleton />
-    )
+    return <FormSkeleton />
   }
 
   return (
@@ -431,7 +406,6 @@ export default function StudentForm() {
                       </div>
                     </motion.div>
                   )}
-
                   {step === 2 && (
                     <motion.div
                       key="step2"
@@ -509,7 +483,6 @@ export default function StudentForm() {
                       </div>
                     </motion.div>
                   )}
-
                   {step === 3 && (
                     <motion.div
                       key="step3"
@@ -525,7 +498,6 @@ export default function StudentForm() {
                         <p className="text-sm text-muted-foreground mb-4">
                           Search for an existing parent/guardian or create a new one.
                         </p>
-
                         <div className="flex flex-wrap items-center gap-2 mb-4">
                           <Button
                             type="button"
@@ -536,7 +508,6 @@ export default function StudentForm() {
                             <Search size={16} />
                             Search for Parent/Guardian
                           </Button>
-
                           <Button
                             type="button"
                             variant="outline"
@@ -549,7 +520,6 @@ export default function StudentForm() {
                             Create New
                           </Button>
                         </div>
-
                         {selectedParent && (
                           <div className="bg-background p-4 rounded-lg border">
                             <div className="flex items-center gap-3">
@@ -576,7 +546,6 @@ export default function StudentForm() {
                           </div>
                         )}
                       </div>
-
                       {selectedParent && (
                         <FormField
                           control={form.control}
@@ -617,16 +586,15 @@ export default function StudentForm() {
                       <div className="bg-muted p-4 rounded-lg">
                         <h3 className="font-medium mb-2">Account Information</h3>
                         <p className="text-sm text-muted-foreground mb-4">Set up login credentials for the student.</p>
-
                         <div className="space-y-4">
                           <div className="bg-background p-4 rounded-lg border">
                             <h4 className="text-sm font-medium mb-2">Admission Number (Login ID)</h4>
-                            <p className="text-sm mb-1">{generatedAdmissionNo}</p>
+                          
                             <p className="text-xs text-muted-foreground">
                               This will be used as the student's login ID.
                             </p>
+                            <p className="text-sm">{lastAdmissionNo || "Generated after submission"}</p>
                           </div>
-
                           <div className="bg-background p-4 rounded-lg border">
                             <h4 className="text-sm font-medium mb-2">Default Password</h4>
                             <p className="text-sm mb-1">{currentYear}</p>
@@ -634,7 +602,6 @@ export default function StudentForm() {
                               The student will be required to change this password on first login.
                             </p>
                           </div>
-
                           <FormField
                             control={form.control}
                             name="createLoginCredentials"
@@ -652,7 +619,6 @@ export default function StudentForm() {
                               </FormItem>
                             )}
                           />
-
                           <FormField
                             control={form.control}
                             name="isActive"
@@ -672,7 +638,6 @@ export default function StudentForm() {
                       </div>
                     </motion.div>
                   )}
-
                   {step === 5 && (
                     <motion.div
                       key="step5"
@@ -685,7 +650,6 @@ export default function StudentForm() {
                     >
                       <div className="bg-muted p-4 rounded-lg">
                         <h3 className="font-medium mb-4">Review Student Information</h3>
-
                         <div className="space-y-4">
                           <div>
                             <h4 className="text-sm font-medium mb-2">Personal Information</h4>
@@ -724,9 +688,7 @@ export default function StudentForm() {
                               </div>
                             </div>
                           </div>
-
                           <Separator />
-
                           <div>
                             <h4 className="text-sm font-medium mb-2">Academic Information</h4>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -748,15 +710,9 @@ export default function StudentForm() {
                                 <p className="text-xs text-muted-foreground">Admission Year</p>
                                 <p className="text-sm">{form.getValues("year") || "Not specified"}</p>
                               </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground">Admission Number</p>
-                                <p className="text-sm">{generatedAdmissionNo}</p>
-                              </div>
                             </div>
                           </div>
-
                           <Separator />
-
                           <div>
                             <h4 className="text-sm font-medium mb-2">Parent/Guardian Information</h4>
                             {selectedParent ? (
@@ -785,8 +741,6 @@ export default function StudentForm() {
                                     </div>
                                   )}
                                 </div>
-
-                                {/* Show parent credentials if this is a new parent */}
                                 {selectedParent.id.startsWith("new-") && selectedParent.credentials && (
                                   <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
                                     <p className="text-xs font-medium text-yellow-800">Login Credentials</p>
@@ -811,9 +765,7 @@ export default function StudentForm() {
                               <p className="text-sm text-muted-foreground">No parent/guardian selected</p>
                             )}
                           </div>
-
                           <Separator />
-
                           <div>
                             <h4 className="text-sm font-medium mb-2">Account Information</h4>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -825,11 +777,15 @@ export default function StudentForm() {
                                 <p className="text-xs text-muted-foreground">Account Status</p>
                                 <p className="text-sm">{form.getValues("isActive") ? "Active" : "Inactive"}</p>
                               </div>
-                              {form.getValues("createLoginCredentials") && (
+                               <div>
+                          <h4 className="text-sm font-medium mb-2">Account Information</h4>
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+
+                            {form.getValues("createLoginCredentials") && lastAdmissionNo && (
                                 <>
                                   <div>
                                     <p className="text-xs text-muted-foreground">Login ID</p>
-                                    <p className="text-sm">{generatedAdmissionNo}</p>
+                                    <p className="text-sm">{lastAdmissionNo}</p>
                                   </div>
                                   <div>
                                     <p className="text-xs text-muted-foreground">Default Password</p>
@@ -837,6 +793,8 @@ export default function StudentForm() {
                                   </div>
                                 </>
                               )}
+                          </div>
+                        </div>
                             </div>
                           </div>
                         </div>
@@ -844,12 +802,10 @@ export default function StudentForm() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-
                 <div className="flex justify-between mt-6">
                   <Button type="button" variant="outline" onClick={() => setStep(step - 1)} disabled={step === 1}>
                     Previous
                   </Button>
-
                   {step < 5 ? (
                     <Button type="button" onClick={goToNextStep}>
                       Next
@@ -876,7 +832,6 @@ export default function StudentForm() {
           </CardContent>
         </Card>
       </motion.div>
-
       <ParentSearchDialog
         open={isParentDialogOpen}
         onOpenChange={setIsParentDialogOpen}

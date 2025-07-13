@@ -1,77 +1,55 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { Loader2, Eye, EyeOff, CalendarIcon, Search } from "lucide-react"
-import { useRouter } from "next/navigation"
-import { format } from "date-fns"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { createAdmin } from "@/app/actions/user-management"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
-import { cn } from "@/lib/utils"
+import { createAdminUser } from "@/app/actions/user-management"
 
-// Define the form schema with validation
 const adminFormSchema = z.object({
-  firstName: z.string().min(2, {
-    message: "First name must be at least 2 characters.",
-  }),
-  lastName: z.string().min(2, {
-    message: "Last name must be at least 2 characters.",
-  }),
-  email: z.string().email({
-    message: "Please enter a valid email address.",
-  }),
-  password: z.string().min(8, {
-    message: "Password must be at least 8 characters.",
-  }),
+  firstName: z.string().min(2, { message: "First name must be at least 2 characters." }),
+  lastName: z.string().min(2, { message: "Last name must be at least 2 characters." }),
+  email: z.string().email({ message: "Please enter a valid email address." }),
   phone: z.string().optional(),
-  dateOfBirth: z.date().optional(),
-  avatarUrl: z.string().url().optional().or(z.literal("")),
-  schoolId: z.string().min(1, {
-    message: "Please select a school.",
-  }),
-  permissions: z.array(z.string()).min(1, {
-    message: "Please select at least one permission.",
-  }),
-  isActive: z.boolean().default(true),
+  schoolId: z.string().min(1, { message: "Please select a school." }),
+  permissions: z.array(z.string()).min(1, { message: "Please select at least one permission." }),
 })
 
 type AdminFormValues = z.infer<typeof adminFormSchema>
 
-// Define available permissions
-const availablePermissions = [
-  { id: "manage_students", label: "Manage Students" },
-  { id: "manage_teachers", label: "Manage Teachers" },
-  { id: "manage_classes", label: "Manage Classes" },
-  { id: "manage_subjects", label: "Manage Subjects" },
-  { id: "manage_attendance", label: "Manage Attendance" },
-  { id: "manage_grades", label: "Manage Grades" },
-  { id: "manage_fees", label: "Manage Fees" },
-  { id: "view_reports", label: "View Reports" },
-]
-
-interface AdminCreationFormProps {
-  schools: {
-    id: string
-    name: string
-    code: string
-  }[]
+interface School {
+  id: string
+  name: string
+  code: string
 }
 
+interface AdminCreationFormProps {
+  schools: School[]
+}
+
+const availablePermissions = [
+  { id: "manage_students", label: "Manage Students", description: "Create, edit, and manage student records" },
+  { id: "manage_teachers", label: "Manage Teachers", description: "Create, edit, and manage teacher accounts" },
+  { id: "manage_classes", label: "Manage Classes", description: "Create and manage class structures" },
+  { id: "manage_subjects", label: "Manage Subjects", description: "Create and manage school subjects" },
+  { id: "manage_assessments", label: "Manage Assessments", description: "Oversee student assessments and grades" },
+  { id: "manage_payments", label: "Manage Payments", description: "Handle fee structures and payments" },
+  { id: "view_reports", label: "View Reports", description: "Access school reports and analytics" },
+  { id: "manage_sessions", label: "Manage Sessions", description: "Create and manage academic sessions" },
+]
+
 export function AdminCreationForm({ schools }: AdminCreationFormProps) {
-  const [isLoading, setIsLoading] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
 
   const form = useForm<AdminFormValues>({
@@ -80,70 +58,48 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
       firstName: "",
       lastName: "",
       email: "",
-      password: "",
       phone: "",
-      avatarUrl: "",
       schoolId: "",
-      permissions: ["view_reports"],
-      isActive: true,
+      permissions: [],
     },
   })
 
-  // Filter schools based on search query
-  const filteredSchools = schools.filter(
-    (school) =>
-      school.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      school.code.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
-
   async function onSubmit(data: AdminFormValues) {
-    if (isLoading) return; // Prevent multiple submissions
-    setIsLoading(true)
-
+    setIsSubmitting(true)
     try {
-      await createAdmin({
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        password: data.password,
-        phone: data.phone,
-        dateOfBirth: data.dateOfBirth,
-        avatarUrl: data.avatarUrl,
-        schoolId: data.schoolId,
-        permissions: data.permissions.join(","),
-        isActive: data.isActive,
-      })
+      const result = await createAdminUser(data)
 
-      toast.success("Administrator created successfully")
-      // Immediately start the navigation
-      router.push("/dashboard/super-admin/users/admins")
-      // Disable form inputs
-      form.reset(data)
-    } catch (error: any) {
-      console.error("Failed to create administrator:", error)
-      toast.error(error.message || "Failed to create administrator")
-      setIsLoading(false) // Only reset loading state if there's an error
+      if (result.success) {
+        toast.success("Admin Created", {
+          description: `${data.firstName} ${data.lastName} has been created successfully. Default password: ${result.data.defaultPassword}`,
+        })
+        router.push("/dashboard/super-admin/users/admins")
+      } else {
+        toast.error("Error", { description: result.error })
+      }
+    } catch (error) {
+      toast.error("Error", { description: "Failed to create admin. Please try again." })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   return (
-    <Card>
+    <Card className="w-full max-w-4xl mx-auto">
       <CardHeader>
-        <CardTitle>Administrator Information</CardTitle>
-        <CardDescription>Enter the details for the new administrator</CardDescription>
+        <CardTitle>Create Administrator Account</CardTitle>
+        <CardDescription>Add a new administrator to manage a school</CardDescription>
       </CardHeader>
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardContent className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
+      <CardContent>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
                 name="firstName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      First Name <span className="text-destructive">*</span>
-                    </FormLabel>
+                    <FormLabel>First Name</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter first name" {...field} />
                     </FormControl>
@@ -151,15 +107,12 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
                   </FormItem>
                 )}
               />
-
               <FormField
                 control={form.control}
                 name="lastName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Last Name <span className="text-destructive">*</span>
-                    </FormLabel>
+                    <FormLabel>Last Name</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter last name" {...field} />
                     </FormControl>
@@ -169,15 +122,13 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
               />
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Email Address <span className="text-destructive">*</span>
-                    </FormLabel>
+                    <FormLabel>Email Address</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter email address" type="email" {...field} />
                     </FormControl>
@@ -186,147 +137,45 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
                   </FormItem>
                 )}
               />
-
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Password <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <div className="relative">
-                      <FormControl>
-                        <Input placeholder="Enter password" type={showPassword ? "text" : "password"} {...field} />
-                      </FormControl>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-0 top-0 h-full px-3 py-2 text-muted-foreground"
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
-                      </Button>
-                    </div>
-                    <FormDescription>Password must be at least 8 characters</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-2">
               <FormField
                 control={form.control}
                 name="phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Number</FormLabel>
+                    <FormLabel>Phone Number (Optional)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter phone number (optional)" {...field} value={field.value || ""} />
+                      <Input placeholder="Enter phone number" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              <FormField
-                control={form.control}
-                name="dateOfBirth"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Date of Birth</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date (optional)</span>}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={field.onChange}
-                          disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
             </div>
-
-            <div className="grid gap-6 md:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="avatarUrl"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Avatar URL</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter avatar URL (optional)" {...field} value={field.value || ""} />
-                  </FormControl>
-                  <FormDescription>URL to the administrator's profile picture</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             <FormField
               control={form.control}
               name="schoolId"
               render={({ field }) => (
-                <FormItem className="w-full sm:w-[400px]">
-                  <FormLabel>
-                    School <span className="text-destructive">*</span>
-                  </FormLabel>
+                <FormItem>
+                  <FormLabel>Assign to School</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger>
                         <SelectValue placeholder="Select a school" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <div className="sticky top-0 p-2 bg-background z-10 border-b">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Search schools..."
-                            className="pl-8"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      {filteredSchools.length === 0 ? (
-                        <div className="text-center py-4 text-sm text-muted-foreground">No schools found</div>
-                      ) : (
-                        filteredSchools.map((school) => (
-                          <SelectItem key={school.id} value={school.id}>
-                            {school.name} ({school.code})
-                          </SelectItem>
-                        ))
-                      )}
+                      {schools.map((school) => (
+                        <SelectItem key={school.id} value={school.id}>
+                          {school.name} ({school.code})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
-                  <FormDescription>The school this administrator will manage</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            </div>
-
-
 
             <FormField
               control={form.control}
@@ -334,12 +183,10 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
               render={() => (
                 <FormItem>
                   <div className="mb-4">
-                    <FormLabel>
-                      Permissions <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormDescription>Select the permissions for this administrator</FormDescription>
+                    <FormLabel className="text-base">Permissions</FormLabel>
+                    <FormDescription>Select the permissions this administrator should have</FormDescription>
                   </div>
-                  <div className="grid gap-2 md:grid-cols-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {availablePermissions.map((permission) => (
                       <FormField
                         key={permission.id}
@@ -347,7 +194,10 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
                         name="permissions"
                         render={({ field }) => {
                           return (
-                            <FormItem key={permission.id} className="flex flex-row items-start space-x-3 space-y-0">
+                            <FormItem
+                              key={permission.id}
+                              className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4"
+                            >
                               <FormControl>
                                 <Checkbox
                                   checked={field.value?.includes(permission.id)}
@@ -358,7 +208,10 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
                                   }}
                                 />
                               </FormControl>
-                              <FormLabel className="font-normal">{permission.label}</FormLabel>
+                              <div className="space-y-1 leading-none">
+                                <FormLabel className="font-medium">{permission.label}</FormLabel>
+                                <FormDescription className="text-sm">{permission.description}</FormDescription>
+                              </div>
                             </FormItem>
                           )
                         }}
@@ -370,40 +223,24 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="isActive"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                  <FormControl>
-                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel>Active Account</FormLabel>
-                    <FormDescription>If checked, the administrator can log in immediately</FormDescription>
-                  </div>
-                </FormItem>
-              )}
-            />
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button type="button" variant="outline" onClick={() => router.push("/dashboard/super-admin/users/admins")}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                "Create Administrator"
-              )}
-            </Button>
-          </CardFooter>
-        </form>
-      </Form>
+            <div className="flex justify-end space-x-4">
+              <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create Administrator"
+                )}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </CardContent>
     </Card>
   )
 }
-

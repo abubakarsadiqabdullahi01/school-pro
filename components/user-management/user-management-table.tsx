@@ -1,14 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { format } from "date-fns"
-import { ChevronDown, Download, Edit, MoreHorizontal, Search, Trash2, UserPlus } from "lucide-react"
-
+import Link from "next/link"
+import { MoreHorizontal, Eye, Edit, Power, PowerOff, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,13 +16,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useRouter } from "next/navigation"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-
-interface Column {
-  key: string
-  label: string
-}
+import { toggleUserStatus } from "@/app/actions/user-management"
+import { toast } from "sonner"
 
 interface User {
   id: string
@@ -35,7 +29,12 @@ interface User {
   role: string
   status: string
   createdAt: Date
-  [key: string]: any
+  [key: string]: any // For additional columns like admissionNo, class, etc.
+}
+
+interface Column {
+  key: string
+  label: string
 }
 
 interface UserManagementTableProps {
@@ -46,131 +45,109 @@ interface UserManagementTableProps {
 
 export function UserManagementTable({ users, userType, columns }: UserManagementTableProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const router = useRouter()
+  const [isLoading, setIsLoading] = useState<string | null>(null)
 
-  // Filter users based on search query
   const filteredUsers = users.filter(
     (user) =>
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase()),
+      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (user.admissionNo && user.admissionNo.toLowerCase().includes(searchQuery.toLowerCase())),
   )
 
-  // Format date for display
-  const formatDate = (date: Date) => {
-    return format(new Date(date), "MMM d, yyyy")
-  }
-
-  // Get status badge
-  const getStatusBadge = (status: string) => {
-    if (status === "Active") {
-      return (
-        <Badge variant="outline" className="bg-green-50 text-green-700 hover:bg-green-50">
-          Active
-        </Badge>
-      )
-    } else {
-      return (
-        <Badge variant="outline" className="bg-red-50 text-red-700 hover:bg-red-50">
-          Inactive
-        </Badge>
-      )
+  const handleToggleStatus = async (userId: string) => {
+    setIsLoading(userId)
+    try {
+      const result = await toggleUserStatus(userId, userType)
+      if (result.success) {
+        toast.success("Success", { description: result.message })
+      } else {
+        toast.error("Error", { description: result.error })
+      }
+    } catch (error) {
+      toast.error("Error", { description: "Failed to update user status" })
+    } finally {
+      setIsLoading(null)
     }
   }
 
-  // Get user initials for avatar fallback
-  const getUserInitials = (user: User) => {
-    if (user.firstName && user.lastName) {
-      return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+  const getAddUserLink = () => {
+    switch (userType) {
+      case "admin":
+        return "/dashboard/super-admin/users/admins/add"
+      default:
+        return "#"
     }
-
-    // If firstName and lastName aren't available, use the name field
-    const nameParts = user.name.split(" ")
-    if (nameParts.length >= 2) {
-      return `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-    }
-    return user.name.charAt(0).toUpperCase()
   }
 
-  // Handle edit user
-  const handleEditUser = (userId: string) => {
-    router.push(`/dashboard/super-admin/users/edit/${userId}`)
-  }
-
-  // Handle view user
-  const handleViewUser = (userId: string) => {
-    router.push(`/dashboard/super-admin/users/view/${userId}`)
-  }
-
-  // Add a new handler function for adding a user
-  const handleAddUser = () => {
-    router.push(`/dashboard/super-admin/users/${userType}s/add`)
-  }
+  const canAddUser = userType === "admin"
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:w-96">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="capitalize">{userType} Management</CardTitle>
+          <CardDescription>Manage {userType} accounts across all schools</CardDescription>
+        </div>
+        {canAddUser && (
+          <Button asChild>
+            <Link href={getAddUserLink()}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Add {userType.charAt(0).toUpperCase() + userType.slice(1)}
+            </Link>
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className="mb-4">
           <Input
-            type="search"
-            placeholder={`Search ${userType}s...`}
-            className="w-full pl-8"
+            placeholder={`Search ${userType}s by name, email${userType === "student" ? ", or admission number" : ""}...`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            className="max-w-sm"
           />
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline">
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </Button>
-          <Button onClick={handleAddUser}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Add {userType.charAt(0).toUpperCase() + userType.slice(1)}
-          </Button>
-        </div>
-      </div>
 
-      <Card>
-        <div className="overflow-x-auto">
+        <div className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[50px]"></TableHead>
                 {columns.map((column) => (
-                  <TableHead key={column.key} className="whitespace-nowrap">
-                    <div className="flex items-center gap-1">
-                      {column.label}
-                      <ChevronDown className="h-4 w-4" />
-                    </div>
-                  </TableHead>
+                  <TableHead key={column.key}>{column.label}</TableHead>
                 ))}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length + 2} className="h-24 text-center">
-                    No users found.
-                  </TableCell>
-                </TableRow>
-              ) : (
+              {filteredUsers.length > 0 ? (
                 filteredUsers.map((user) => (
                   <TableRow key={user.id}>
-                    <TableCell>
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={user.avatarUrl || ""} alt={user.name} />
-                        <AvatarFallback>{getUserInitials(user)}</AvatarFallback>
-                      </Avatar>
-                    </TableCell>
                     {columns.map((column) => (
-                      <TableCell key={`${user.id}-${column.key}`} className="whitespace-nowrap">
-                        {column.key === "status"
-                          ? getStatusBadge(user[column.key])
-                          : column.key === "createdAt"
-                            ? formatDate(user[column.key])
-                            : user[column.key]}
+                      <TableCell key={column.key}>
+                        {column.key === "name" ? (
+                          <div className="flex items-center gap-3">
+                            {user.avatarUrl ? (
+                              <img
+                                src={user.avatarUrl || "/placeholder.svg"}
+                                alt={user.name}
+                                className="h-8 w-8 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+                                <span className="text-xs font-medium">
+                                  {user.firstName?.[0]}
+                                  {user.lastName?.[0]}
+                                </span>
+                              </div>
+                            )}
+                            <span className="font-medium">{user.name}</span>
+                          </div>
+                        ) : column.key === "status" ? (
+                          <Badge variant={user.status === "Active" ? "default" : "secondary"}>{user.status}</Badge>
+                        ) : column.key === "createdAt" ? (
+                          new Date(user.createdAt).toLocaleDateString()
+                        ) : (
+                          user[column.key] || "N/A"
+                        )}
                       </TableCell>
                     ))}
                     <TableCell className="text-right">
@@ -183,27 +160,51 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onClick={() => handleViewUser(user.id)}>View details</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEditUser(user.id)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
+                          {/* <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/super-admin/users/${userType}s/${user.id}`}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Details
+                            </Link>
                           </DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/super-admin/users/${userType}s/${user.id}/edit`}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit {userType.charAt(0).toUpperCase() + userType.slice(1)}
+                            </Link>
+                          </DropdownMenuItem> */}
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-destructive focus:text-destructive">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
+                          <DropdownMenuItem
+                            onClick={() => handleToggleStatus(user.id)}
+                            disabled={isLoading === user.id}
+                          >
+                            {user.status === "Active" ? (
+                              <>
+                                <PowerOff className="mr-2 h-4 w-4" />
+                                Deactivate
+                              </>
+                            ) : (
+                              <>
+                                <Power className="mr-2 h-4 w-4" />
+                                Activate
+                              </>
+                            )}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={columns.length + 1} className="h-24 text-center">
+                    {searchQuery ? `No ${userType}s found matching your search.` : `No ${userType}s found.`}
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
         </div>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   )
 }
-

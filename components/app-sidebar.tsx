@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import Image from "next/image"
 import {
   BarChart3,
   BookOpen,
@@ -14,17 +15,14 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
-  MessageSquare,
   User2,
   School,
   Settings,
   User,
   UserCog,
   Users,
-  
- ScreenShare,
+  ScreenShare,
 } from "lucide-react"
-
 import {
   Sidebar,
   SidebarContent,
@@ -39,13 +37,21 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
 } from "@/components/ui/sidebar"
-import { SidebarMenuButton } from "@/components/ui/sidebar-menu-button" 
+import { SidebarMenuButton } from "@/components/ui/sidebar-menu-button"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Role } from "@prisma/client"
 
-export function AppSidebar({ userRole }: { userRole: Role | null }) {
+interface AppSidebarProps {
+  userRole: string | null // Change from Role to string
+  schoolInfo?: {
+    name: string
+    code: string
+    logoUrl?: string | null
+  } | null
+}
+
+export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
   const pathname = usePathname()
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     overview: true,
@@ -55,30 +61,17 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
     academics: true,
     children: true,
     account: true,
-    resultsCompilation: true, // Updated key
+    resultsCompilation: true,
   })
 
-  // Convert Prisma Role enum to string format used in component
-  const getRoleString = (role: Role | null): string | null => {
+  // Convert string role to the format used in component
+  const getRoleString = (role: string | null): string | null => {
     if (!role) return null
-
-    switch (role) {
-      case Role.SUPER_ADMIN:
-        return "super-admin"
-      case Role.ADMIN:
-        return "admin"
-      case Role.TEACHER:
-        return "teacher"
-      case Role.STUDENT:
-        return "student"
-      case Role.PARENT:
-        return "parent"
-      default:
-        return null
-    }
+    // Convert to lowercase and replace underscores with hyphens
+    return role.toLowerCase().replace("_", "-")
   }
 
-  const roleString = getRoleString(userRole as Role)
+  const roleString = getRoleString(userRole)
 
   const toggleGroup = (group: string) => {
     setOpenGroups((prev) => ({
@@ -91,12 +84,53 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
     window.location.href = "/api/auth/signout?callbackUrl=/auth/login"
   }
 
+  // Generate school abbreviation from school name
+  const getSchoolAbbreviation = (schoolName: string): string => {
+    return schoolName
+      .split(" ")
+      .map((word) => word.charAt(0).toUpperCase())
+      .join("")
+      .slice(0, 3) // Limit to 3 characters
+  }
+
   return (
     <Sidebar>
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-4 py-2">
-          <School className="h-6 w-6 text-primary" />
-          <span className="text-xl font-bold">SchoolPro</span>
+        <div className="flex items-center gap-3 px-4 py-2">
+          {/* School Logo and Info for non-super-admin roles */}
+          {roleString !== "super-admin" && schoolInfo ? (
+            <>
+              {schoolInfo.logoUrl ? (
+                <div className="flex-shrink-0">
+                  <Image
+                    src={schoolInfo.logoUrl || "/placeholder.svg"}
+                    alt={`${schoolInfo.name} Logo`}
+                    width={32}
+                    height={32}
+                    className="rounded-md object-contain"
+                    onError={(e) => {
+                      console.error("Failed to load school logo:", schoolInfo.logoUrl)
+                      e.currentTarget.style.display = "none"
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="flex-shrink-0 h-8 w-8 bg-primary/10 rounded-md flex items-center justify-center">
+                  <span className="text-xs font-bold text-primary">{getSchoolAbbreviation(schoolInfo.name)}</span>
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold truncate">{schoolInfo.name}</div>
+                <div className="text-xs text-muted-foreground">{schoolInfo.code}</div>
+              </div>
+            </>
+          ) : (
+            /* Default SchoolPro branding for super-admin */
+            <>
+              <School className="h-6 w-6 text-primary flex-shrink-0" />
+              <span className="text-xl font-bold">SchoolPro</span>
+            </>
+          )}
         </div>
       </SidebarHeader>
 
@@ -154,10 +188,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/sessions"}
-                              >
+                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/super-admin/sessions"}>
                                 <Link href="/dashboard/super-admin/sessions">All Sessions</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
@@ -173,6 +204,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -187,10 +219,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/terms"}
-                              >
+                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/super-admin/terms"}>
                                 <Link href="/dashboard/super-admin/terms">All Terms</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
@@ -206,6 +235,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -220,10 +250,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/schools"}
-                              >
+                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/super-admin/schools"}>
                                 <Link href="/dashboard/super-admin/schools">View All</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
@@ -239,6 +266,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -260,91 +288,42 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                                 <Link href="/dashboard/super-admin/users/admins">Admins</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
+                            {/* <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
                                 isActive={pathname === "/dashboard/super-admin/users/teachers"}
                               >
                                 <Link href="/dashboard/super-admin/users/teachers">Teachers</Link>
                               </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/users/students"}
-                              >
-                                <Link href="/dashboard/super-admin/users/students">Students</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
+                            </SidebarMenuSubItem> */}
+                            {/* <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
                                 isActive={pathname === "/dashboard/super-admin/users/parents"}
                               >
                                 <Link href="/dashboard/super-admin/users/parents">Parents</Link>
                               </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
+                            </SidebarMenuSubItem> */}
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
-                    <Collapsible>
-                      <SidebarMenuItem>
-                        <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
-                            <div className="flex items-center">
-                              <BookOpenCheck className="h-4 w-4 mr-2" />
-                              <span>Results Compilation</span>
-                            </div>
-                            <ChevronDown className="h-4 w-4 ml-2" />
-                          </SidebarMenuButton>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <SidebarMenuSub>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/compiler/subject-results"}
-                              >
-                                <Link href="/dashboard/super-admin/compiler/subject-results">Subject Results</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/compiler/class-results"}
-                              >
-                                <Link href="/dashboard/super-admin/compiler/class-results">Class Results</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/compiler/continuous-assessments"}
-                              >
-                                <Link href="/dashboard/super-admin/compiler/continuous-assessments">Continuous Assessments</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/super-admin/compiler/students-transition"}
-                              >
-                                <Link href="/dashboard/super-admin/compiler/students-transition">Students Transition</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          </SidebarMenuSub>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible>
+
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/super-admin/system" isActive={pathname === "/dashboard/super-admin/system"}>
+                      <SidebarMenuButton
+                        href="/dashboard/super-admin/system"
+                        isActive={pathname === "/dashboard/super-admin/system"}
+                      >
                         <Settings className="h-4 w-4" />
                         <span>System Settings</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/super-admin/analytics" isActive={pathname === "/dashboard/super-admin/analytics"}>
+                      <SidebarMenuButton
+                        href="/dashboard/super-admin/analytics"
+                        isActive={pathname === "/dashboard/super-admin/analytics"}
+                      >
                         <BarChart3 className="h-4 w-4" />
                         <span>Analytics</span>
                       </SidebarMenuButton>
@@ -370,12 +349,16 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton href="/dashboard/admin/calendar" isActive={pathname === "/dashboard/admin/calendar"}>
-                      <Calendar className="h-4 w-4" />
-                      <span>Calendar</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/admin/calendar"
+                        isActive={pathname === "/dashboard/admin/calendar"}
+                      >
+                        <Calendar className="h-4 w-4" />
+                        <span>Calendar</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -403,6 +386,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -430,7 +414,8 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
-                    <Collapsible>
+
+                    {/* <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
                           <SidebarMenuButton className="justify-between">
@@ -444,10 +429,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/admin/school-sessions"}
-                              >
+                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/school-sessions"}>
                                 <Link href="/dashboard/admin/school-sessions">View Sessions</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
@@ -462,7 +444,8 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </Collapsible> */}
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -520,6 +503,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -534,10 +518,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/admin/school-terms"}
-                              >
+                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/school-terms"}>
                                 <Link href="/dashboard/admin/school-terms">View Terms</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
@@ -553,6 +534,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -580,12 +562,17 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/admin/class-terms" isActive={pathname === "/dashboard/admin/class-terms"}>
+                      <SidebarMenuButton
+                        href="/dashboard/admin/class-terms"
+                        isActive={pathname === "/dashboard/admin/class-terms"}
+                      >
                         <ClipboardList className="h-4 w-4" />
                         <span>Class Terms</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -613,6 +600,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -640,60 +628,16 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
-                    {/* <Collapsible>
-                      <SidebarMenuItem>
-                        <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
-                            <div className="flex items-center">
-                              <DollarSign className="h-4 w-4 mr-2" />
-                              <span>Finance</span>
-                            </div>
-                            <ChevronDown className="h-4 w-4 ml-2" />
-                          </SidebarMenuButton>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <SidebarMenuSub>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/finance/fees"}>
-                                <Link href="/dashboard/admin/finance/fees">Fees Collection</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/finance/expenses"}>
-                                <Link href="/dashboard/admin/finance/expenses">Expenses</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/finance/reports"}>
-                                <Link href="/dashboard/admin/finance/reports">Reports</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          </SidebarMenuSub>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible> */}
-                    <Collapsible>
-                      <SidebarMenuItem>
-                        <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
-                            <div className="flex items-center">
-                              <Settings className="h-4 w-4 mr-2" />
-                              <span>School Settings</span>
-                            </div>
-                            <ChevronDown className="h-4 w-4 ml-2" />
-                          </SidebarMenuButton>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <SidebarMenuSub>
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/school-settings/grading-systems"}>
-                                <Link href="/dashboard/admin/school-settings/grading-systems">Grading Systems</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          </SidebarMenuSub>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible>
+
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/admin/school-settings"
+                        isActive={pathname.startsWith("/dashboard/admin/school-settings")}
+                      >
+                        <Settings className="h-4 w-4" />
+                        <span>School Settings</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -714,25 +658,37 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                 <SidebarGroupContent>
                   <SidebarMenu>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/teacher/my-classes" isActive={pathname === "/dashboard/teacher/my-classes"}>
+                      <SidebarMenuButton
+                        href="/dashboard/teacher/my-classes"
+                        isActive={pathname === "/dashboard/teacher/my-classes"}
+                      >
                         <BookOpen className="h-4 w-4" />
                         <span>My Classes</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/teacher/attendance" isActive={pathname === "/dashboard/teacher/attendance"}>
+                      <SidebarMenuButton
+                        href="/dashboard/teacher/attendance"
+                        isActive={pathname === "/dashboard/teacher/attendance"}
+                      >
                         <ClipboardList className="h-4 w-4" />
                         <span>Attendance</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/teacher/assignments" isActive={pathname === "/dashboard/teacher/assignments"}>
+                      <SidebarMenuButton
+                        href="/dashboard/teacher/assignments"
+                        isActive={pathname === "/dashboard/teacher/assignments"}
+                      >
                         <FileText className="h-4 w-4" />
                         <span>Assignments</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/teacher/grades" isActive={pathname === "/dashboard/teacher/grades"}>
+                      <SidebarMenuButton
+                        href="/dashboard/teacher/grades"
+                        isActive={pathname === "/dashboard/teacher/grades"}
+                      >
                         <BookOpenCheck className="h-4 w-4" />
                         <span>Grades</span>
                       </SidebarMenuButton>
@@ -757,25 +713,37 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                 <SidebarGroupContent>
                   <SidebarMenu>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/student/my-classes" isActive={pathname === "/dashboard/student/my-classes"}>
+                      <SidebarMenuButton
+                        href="/dashboard/student/my-classes"
+                        isActive={pathname === "/dashboard/student/my-classes"}
+                      >
                         <BookOpen className="h-4 w-4" />
                         <span>My Classes</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/student/grades" isActive={pathname === "/dashboard/student/grades"}>
+                      <SidebarMenuButton
+                        href="/dashboard/student/grades"
+                        isActive={pathname === "/dashboard/student/grades"}
+                      >
                         <BookOpenCheck className="h-4 w-4" />
                         <span>Grades</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/student/attendance" isActive={pathname === "/dashboard/student/attendance"}>
+                      <SidebarMenuButton
+                        href="/dashboard/student/attendance"
+                        isActive={pathname === "/dashboard/student/attendance"}
+                      >
                         <ClipboardList className="h-4 w-4" />
                         <span>Attendance</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/student/timetable" isActive={pathname === "/dashboard/student/timetable"}>
+                      <SidebarMenuButton
+                        href="/dashboard/student/timetable"
+                        isActive={pathname === "/dashboard/student/timetable"}
+                      >
                         <Calendar className="h-4 w-4" />
                         <span>Timetable</span>
                       </SidebarMenuButton>
@@ -800,19 +768,28 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                 <SidebarGroupContent>
                   <SidebarMenu>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/parent/my-children" isActive={pathname === "/dashboard/parent/my-children"}>
+                      <SidebarMenuButton
+                        href="/dashboard/parent/my-children"
+                        isActive={pathname === "/dashboard/parent/my-children"}
+                      >
                         <Users className="h-4 w-4" />
                         <span>My Children</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/parent/academic-progress" isActive={pathname === "/dashboard/parent/academic-progress"}>
+                      <SidebarMenuButton
+                        href="/dashboard/parent/academic-progress"
+                        isActive={pathname === "/dashboard/parent/academic-progress"}
+                      >
                         <BookOpenCheck className="h-4 w-4" />
                         <span>Academic Progress</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/parent/attendance" isActive={pathname === "/dashboard/parent/attendance"}>
+                      <SidebarMenuButton
+                        href="/dashboard/parent/attendance"
+                        isActive={pathname === "/dashboard/parent/attendance"}
+                      >
                         <ClipboardList className="h-4 w-4" />
                         <span>Attendance</span>
                       </SidebarMenuButton>
@@ -848,12 +825,12 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
                       <span>Profile</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                  <SidebarMenuItem>
+                  {/* <SidebarMenuItem>
                     <SidebarMenuButton href="/dashboard/settings" isActive={pathname === "/dashboard/settings"}>
                       <Settings className="h-4 w-4" />
                       <span>Settings</span>
                     </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  </SidebarMenuItem> */}
                 </SidebarMenu>
               </SidebarGroupContent>
             </CollapsibleContent>
@@ -863,7 +840,7 @@ export function AppSidebar({ userRole }: { userRole: Role | null }) {
 
       <SidebarFooter>
         <div className="px-3 py-2">
-          <Button variant="outline" className="w-full justify-start gap-2" onClick={handleLogout}>
+          <Button variant="outline" className="w-full justify-start gap-2 bg-transparent" onClick={handleLogout}>
             <LogOut className="h-4 w-4" />
             <span>Log out</span>
           </Button>

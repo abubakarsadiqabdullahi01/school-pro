@@ -1,5 +1,7 @@
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+
 }
 
 datasource db {
@@ -57,6 +59,7 @@ model Student {
   updatedAt   DateTime            @updatedAt
 
   @@index([schoolId])
+  @@index([admissionNo])
   @@index([year])
   @@index([createdAt])
 }
@@ -216,26 +219,48 @@ model LoginSession {
 }
 
 model School {
-  id             String          @id @default(uuid())
-  name           String
-  code           String          @unique
-  address        String
-  phone          String
-  email          String
-  website        String?
-  logoUrl        String?
-  isActive       Boolean         @default(true)
-  sessions       Session[]
-  classes        Class[]
-  subjects       Subject[]
-  students       Student[]
-  teachers       Teacher[]
-  parents        Parent[]
-  admins         Admin[]
-  gradingSystems GradingSystem[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id                      String            @id @default(uuid())
+  name                    String
+  code                    String            @unique
+  address                 String
+  phone                   String
+  email                   String
+  website                 String?
+  logoUrl                 String?
+  isActive                Boolean           @default(true)
+
+  admissionPrefix         String            @default("STD")
+  admissionFormat         String            @default("{PREFIX}-{YEAR}-{NUMBER}") // <-- NEW
+  admissionSequenceStart  Int               @default(1)
+
+  sessions                Session[]
+  classes                 Class[]
+  subjects                Subject[]
+  students                Student[]
+  teachers                Teacher[]
+  parents                 Parent[]
+  admins                  Admin[]
+  gradingSystems          GradingSystem[]
+  admissionSequences      AdmissionSequence[] @relation("SchoolToAdmissionSequence")
+
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
 }
+
+
+model AdmissionSequence {
+  id            String   @id @default(uuid())
+  schoolId      String
+  year          Int
+  lastSequence  Int      @default(0)
+  school        School   @relation("SchoolToAdmissionSequence", fields: [schoolId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([schoolId, year])
+  @@index([schoolId, year])
+}
+
 
 model Session {
   id        String   @id @default(uuid())

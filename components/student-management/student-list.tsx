@@ -1,14 +1,13 @@
-"use client";
+"use client"
 
-import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
-import { motion } from "framer-motion";
-import { Download, MoreHorizontal, Search, UserPlus } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useState, useEffect, useCallback } from "react"
+import Link from "next/link"
+import { motion } from "framer-motion"
+import { Download, MoreHorizontal, Search, UserPlus } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,120 +15,163 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
-import { getStudents } from "@/app/actions/student-management";
-import { toast } from "sonner";
-import { debounce } from "lodash";
-import { TableSkeleton } from "@/components/ui/loading-skeleton";
+} from "@/components/ui/dropdown-menu"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import { getStudents, toggleStudentStatus } from "@/app/actions/student-management"
+import { toast } from "sonner"
+import { debounce } from "lodash"
+import { TableSkeleton } from "@/components/ui/loading-skeleton"
 
 interface Student {
-  id: string;
-  admissionNo: string;
-  firstName: string;
-  lastName: string;
-  fullName: string;
-  class: string;
-  gender: string;
-  state: string;
-  lga: string;
-  address: string;
-  year: number | null;
-  parentName?: string;
-  registrationDate: string;
-  isActive: boolean;
+  id: string
+  admissionNo: string
+  firstName: string
+  lastName: string
+  fullName: string
+  class: string
+  gender: string
+  state: string
+  lga: string
+  address: string
+  year: number | null
+  parentName?: string
+  registrationDate: string
+  isActive: boolean
   recentAssessments: {
-    id: string;
-    subject: string;
-    totalScore: string; // Can be number or "ABS", "EXM", "UNPUB"
-    grade: string;
-    remark: string;
-    term: string;
-    ca1?: number;
-    ca2?: number;
-    ca3?: number;
-    exam?: number;
-    isAbsent: boolean;
-    isExempt: boolean;
-    isPublished: boolean;
-  }[];
+    id: string
+    subject: string
+    totalScore: string // Can be number or "ABS", "EXM", "UNPUB"
+    grade: string
+    remark: string
+    term: string
+    ca1?: number
+    ca2?: number
+    ca3?: number
+    exam?: number
+    isAbsent: boolean
+    isExempt: boolean
+    isPublished: boolean
+  }[]
   recentPayments: {
-    id: string;
-    amount: number;
-    paymentDate: string;
-    status: string;
-  }[];
+    id: string
+    amount: number
+    paymentDate: string
+    status: string
+  }[]
 }
 
 interface ClassOption {
-  id: string;
-  name: string;
+  id: string
+  name: string
 }
 
 interface PaginationData {
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 export default function StudentList() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [classFilter, setClassFilter] = useState<string>("all");
-  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "not_assigned">("all");
-  const [students, setStudents] = useState<Student[]>([]);
-  const [classes, setClasses] = useState<ClassOption[]>([]);
-  const [pagination, setPagination] = useState<PaginationData>({ page: 1, pageSize: 20, total: 0, totalPages: 1 });
-  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("")
+  const [classFilter, setClassFilter] = useState<string>("all")
+  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "not_assigned">("all")
+  const [students, setStudents] = useState<Student[]>([])
+  const [classes, setClasses] = useState<ClassOption[]>([])
+  const [pagination, setPagination] = useState<PaginationData>({ page: 1, pageSize: 20, total: 0, totalPages: 1 })
+  const [isLoading, setIsLoading] = useState(true)
+  const [togglingStudents, setTogglingStudents] = useState<Set<string>>(new Set())
 
   // Debounced search handler
   const debouncedSearch = useCallback(
     debounce((query: string) => {
-      setSearchQuery(query);
+      setSearchQuery(query)
     }, 300),
-    []
-  );
+    [],
+  )
 
   // Fetch students when filters or page change
   useEffect(() => {
     const fetchStudents = async () => {
-      setIsLoading(true);
+      setIsLoading(true)
       try {
         const result = await getStudents({
           classId: classFilter !== "all" ? classFilter : undefined,
           assignmentStatus: assignmentFilter,
           page: pagination.page,
           pageSize: pagination.pageSize,
-        });
+        })
         if (result.success && result.data) {
-          setStudents(result.data.students);
-          setClasses(result.data.classes);
-          setPagination(result.data.pagination);
+          setStudents(result.data.students)
+          setClasses(result.data.classes)
+          setPagination(result.data.pagination)
         } else {
           toast.error("Error", {
             description: result.error || "Failed to fetch students",
-          });
+          })
         }
       } catch (error) {
-        console.error("Error fetching students:", error);
+        console.error("Error fetching students:", error)
         toast.error("Error", {
           description: "Failed to fetch students. Please try again.",
-        });
+        })
       } finally {
-        setIsLoading(false);
+        setIsLoading(false)
       }
-    };
+    }
 
-    fetchStudents();
-  }, [classFilter, assignmentFilter, pagination.page]);
+    fetchStudents()
+  }, [classFilter, assignmentFilter, pagination.page])
 
   // Filter students based on search query (client-side)
-  const filteredStudents = students.filter((student) =>
-    student.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    student.admissionNo.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredStudents = students.filter(
+    (student) =>
+      student.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      student.admissionNo.toLowerCase().includes(searchQuery.toLowerCase()),
+  )
+
+  // Handle student status toggle
+  const handleToggleStudentStatus = async (studentId: string) => {
+    setTogglingStudents((prev) => new Set(prev).add(studentId))
+
+    try {
+      const result = await toggleStudentStatus(studentId)
+      if (result.success) {
+        // Update the student in the local state
+        setStudents((prev) =>
+          prev.map((student) => (student.id === studentId ? { ...student, isActive: result.data.isActive } : student)),
+        )
+
+        toast.success("Success", {
+          description: result.data.message,
+        })
+      } else {
+        toast.error("Error", {
+          description: result.error || "Failed to update student status",
+        })
+      }
+    } catch (error) {
+      console.error("Error toggling student status:", error)
+      toast.error("Error", {
+        description: "Failed to update student status. Please try again.",
+      })
+    } finally {
+      setTogglingStudents((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(studentId)
+        return newSet
+      })
+    }
+  }
 
   return (
     <motion.div
@@ -194,7 +236,6 @@ export default function StudentList() {
               </Button>
             </div>
           </div>
-
           {isLoading ? (
             <div>
               <TableSkeleton />
@@ -209,13 +250,14 @@ export default function StudentList() {
                       <TableHead>Name</TableHead>
                       <TableHead>Class</TableHead>
                       <TableHead>Gender</TableHead>
-                      <TableHead>State</TableHead>
+                      {/* <TableHead>State</TableHead> */}
                       <TableHead>LGA</TableHead>
                       <TableHead>Address</TableHead>
                       <TableHead>Year</TableHead>
                       <TableHead>Parent/Guardian</TableHead>
                       <TableHead>Recent Assessment</TableHead>
-                      <TableHead>Recent Payment</TableHead>
+                      {/* <TableHead>Recent Payment</TableHead> */}
+                      <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -234,46 +276,50 @@ export default function StudentList() {
                                 student.gender === "MALE"
                                   ? "default"
                                   : student.gender === "FEMALE"
-                                  ? "secondary"
-                                  : "outline"
+                                    ? "secondary"
+                                    : "outline"
                               }
                             >
                               {student.gender}
                             </Badge>
                           </TableCell>
-                          <TableCell>{student.state}</TableCell>
+                          {/* <TableCell>{student.state}</TableCell> */}
                           <TableCell>{student.lga}</TableCell>
                           <TableCell>{student.address}</TableCell>
                           <TableCell>{student.year || "N/A"}</TableCell>
                           <TableCell>{student.parentName || "Not Assigned"}</TableCell>
                           <TableCell>
-  {student.recentAssessments.length > 0 ? (
-    <div className="text-sm">
-      <div className="font-medium">
-        {student.recentAssessments[0].subject}: {student.recentAssessments[0].totalScore}
-      </div>
-      <div className="text-muted-foreground">
-        Grade: {student.recentAssessments[0].grade}
-      </div>
-      {student.recentAssessments[0].totalScore !== "ABS" && 
-       student.recentAssessments[0].totalScore !== "EXM" && 
-       student.recentAssessments[0].totalScore !== "UNPUB" && (
-        <div className="text-xs text-muted-foreground">
-          CA: {(student.recentAssessments[0].ca1 || 0) + (student.recentAssessments[0].ca2 || 0) + (student.recentAssessments[0].ca3 || 0)} | 
-          Exam: {student.recentAssessments[0].exam || 0}
-        </div>
-      )}
-    </div>
-  ) : (
-    "No assessments"
-  )}
-</TableCell>
-                          <TableCell>
-                            {student.recentPayments.length > 0 ? (
-                              `${student.recentPayments[0].feeName}: ${student.recentPayments[0].amount} (${student.recentPayments[0].status})`
+                            {student.recentAssessments.length > 0 ? (
+                              <div className="text-sm">
+                                <div className="font-medium">
+                                  {student.recentAssessments[0].subject}: {student.recentAssessments[0].totalScore}
+                                </div>
+                                <div className="text-muted-foreground">Grade: {student.recentAssessments[0].grade}</div>
+                                {student.recentAssessments[0].totalScore !== "ABS" &&
+                                  student.recentAssessments[0].totalScore !== "EXM" &&
+                                  student.recentAssessments[0].totalScore !== "UNPUB" && (
+                                    <div className="text-xs text-muted-foreground">
+                                      CA:{" "}
+                                      {(student.recentAssessments[0].ca1 || 0) +
+                                        (student.recentAssessments[0].ca2 || 0) +
+                                        (student.recentAssessments[0].ca3 || 0)}{" "}
+                                      | Exam: {student.recentAssessments[0].exam || 0}
+                                    </div>
+                                  )}
+                              </div>
                             ) : (
-                              "N/A"
+                              "No assessments"
                             )}
+                          </TableCell>
+                          {/* <TableCell>
+                            {student.recentPayments.length > 0
+                              ? `₦${student.recentPayments[0].amount.toLocaleString()} (${student.recentPayments[0].status})`
+                              : "N/A"}
+                          </TableCell> */}
+                          <TableCell>
+                            <Badge variant={student.isActive ? "default" : "destructive"}>
+                              {student.isActive ? "Active" : "Inactive"}
+                            </Badge>
                           </TableCell>
                           <TableCell className="text-right">
                             <DropdownMenu>
@@ -286,14 +332,10 @@ export default function StudentList() {
                               <DropdownMenuContent align="end">
                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                 <DropdownMenuItem asChild>
-                                  <Link href={`/dashboard/admin/students/${student.id}`}>
-                                    View Details
-                                  </Link>
+                                  <Link href={`/dashboard/admin/students/${student.id}`}>View Details</Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem asChild>
-                                  <Link href={`/dashboard/admin/students/${student.id}/edit`}>
-                                    Edit Student
-                                  </Link>
+                                  <Link href={`/dashboard/admin/students/${student.id}/edit`}>Edit Student</Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem asChild>
@@ -301,14 +343,17 @@ export default function StudentList() {
                                     View Academic Records
                                   </Link>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/dashboard/admin/students/${student.id}/payments`}>
-                                    View Payment History
-                                  </Link>
-                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-destructive">
-                                  Deactivate Student
+                                <DropdownMenuItem
+                                  onClick={() => handleToggleStudentStatus(student.id)}
+                                  disabled={togglingStudents.has(student.id)}
+                                  className={student.isActive ? "text-destructive" : "text-green-600"}
+                                >
+                                  {togglingStudents.has(student.id)
+                                    ? "Updating..."
+                                    : student.isActive
+                                      ? "Deactivate Student"
+                                      : "Activate Student"}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -317,7 +362,7 @@ export default function StudentList() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={12} className="h-24 text-center">
+                        <TableCell colSpan={13} className="h-24 text-center">
                           {searchQuery || classFilter !== "all" || assignmentFilter !== "all"
                             ? "No students found matching your filters."
                             : "No students found in the system."}
@@ -344,9 +389,7 @@ export default function StudentList() {
                     {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
                       <PaginationItem key={page}>
                         <PaginationLink
-                          onClick={() =>
-                            setPagination((prev) => ({ ...prev, page }))
-                          }
+                          onClick={() => setPagination((prev) => ({ ...prev, page }))}
                           isActive={page === pagination.page}
                         >
                           {page}
@@ -372,5 +415,5 @@ export default function StudentList() {
         </CardContent>
       </Card>
     </motion.div>
-  );
+  )
 }

@@ -1,215 +1,303 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
-import { prisma } from "@/lib/db"
 import { auth } from "@/auth"
+import { prisma } from "@/lib/db"
+import { revalidatePath } from "next/cache"
 
-// Create a new academic session
-export async function createSession({
-  name,
-  schoolId,
-  startDate,
-  endDate,
-  isCurrent,
-}: {
+// Create a new session
+export async function createSession(data: {
   name: string
   schoolId: string
   startDate: Date
   endDate: Date
   isCurrent: boolean
 }) {
-  // Verify the current user is authorized to create sessions
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
   try {
-    // If this is set as current, we need to update any existing current sessions
-    if (isCurrent) {
-      // Find any current sessions for this school and set them to not current
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    // Check if session name already exists for this school
+    const existingSession = await prisma.session.findFirst({
+      where: {
+        name: data.name,
+        schoolId: data.schoolId,
+      },
+    })
+
+    if (existingSession) {
+      return { success: false, error: "Session name already exists for this school" }
+    }
+
+    // If setting as current, deactivate other current sessions for this school
+    if (data.isCurrent) {
       await prisma.session.updateMany({
         where: {
-          schoolId,
+          schoolId: data.schoolId,
           isCurrent: true,
         },
-        data: {
-          isCurrent: false,
-        },
+        data: { isCurrent: false },
       })
     }
 
-    // Create the session
     const newSession = await prisma.session.create({
       data: {
-        name,
-        schoolId,
-        startDate,
-        endDate,
-        isCurrent,
+        name: data.name,
+        schoolId: data.schoolId,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        isCurrent: data.isCurrent,
       },
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
-    revalidatePath("/dashboard/admin/school-sessions")
-    return { success: true, sessionId: newSession.id }
+    return { success: true, data: newSession, message: "Session created successfully" }
   } catch (error) {
-    console.error("Failed to create session:", error)
-    throw new Error("Failed to create academic session")
+    console.error("Error creating session:", error)
+    return { success: false, error: "Failed to create session" }
   }
 }
 
-// Update an existing academic session
-export async function updateSession({
-  id,
-  name,
-  startDate,
-  endDate,
-  isCurrent,
-}: {
+// Update session
+export async function updateSession(data: {
   id: string
   name: string
+  schoolId: string
   startDate: Date
   endDate: Date
   isCurrent: boolean
 }) {
-  // Verify the current user is authorized to update sessions
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
   try {
-    // Get the session to update
-    const sessionToUpdate = await prisma.session.findUnique({
-      where: { id },
-      select: { schoolId: true, isCurrent: true },
-    })
-
-    if (!sessionToUpdate) {
-      throw new Error("Session not found")
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
     }
 
-    // If this is being set as current and wasn't before, update other sessions
-    if (isCurrent && !sessionToUpdate.isCurrent) {
-      // Find any current sessions for this school and set them to not current
+    // Check if session name already exists for another session in this school
+    const existingSession = await prisma.session.findFirst({
+      where: {
+        name: data.name,
+        schoolId: data.schoolId,
+        id: { not: data.id },
+      },
+    })
+
+    if (existingSession) {
+      return { success: false, error: "Session name already exists for this school" }
+    }
+
+    // If setting as current, deactivate other current sessions for this school
+    if (data.isCurrent) {
       await prisma.session.updateMany({
         where: {
-          schoolId: sessionToUpdate.schoolId,
+          schoolId: data.schoolId,
           isCurrent: true,
-          id: { not: id },
+          id: { not: data.id },
         },
-        data: {
-          isCurrent: false,
-        },
+        data: { isCurrent: false },
       })
     }
 
-    // Update the session
-    await prisma.session.update({
-      where: { id },
+    const updatedSession = await prisma.session.update({
+      where: { id: data.id },
       data: {
-        name,
-        startDate,
-        endDate,
-        isCurrent,
+        name: data.name,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        isCurrent: data.isCurrent,
       },
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
-    revalidatePath(`/dashboard/super-admin/sessions/${id}`)
-    revalidatePath("/dashboard/admin/school-sessions")
-    return { success: true }
+    return { success: true, data: updatedSession, message: "Session updated successfully" }
   } catch (error) {
-    console.error("Failed to update session:", error)
-    throw new Error("Failed to update academic session")
+    console.error("Error updating session:", error)
+    return { success: false, error: "Failed to update session" }
   }
 }
 
-// Delete an academic session
+// Delete session
 export async function deleteSession(id: string) {
-  // Verify the current user is authorized to delete sessions
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
   try {
-    // Check if session exists
-    const sessionToDelete = await prisma.session.findUnique({
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    // Check if session has terms
+    const sessionWithTerms = await prisma.session.findUnique({
       where: { id },
       include: {
-        terms: {
-          select: { id: true },
+        _count: {
+          select: { terms: true },
         },
       },
     })
 
-    if (!sessionToDelete) {
-      throw new Error("Session not found")
+    if (!sessionWithTerms) {
+      return { success: false, error: "Session not found" }
     }
 
-    // Delete all terms associated with this session
-    if (sessionToDelete.terms.length > 0) {
-      await prisma.term.deleteMany({
-        where: {
-          sessionId: id,
-        },
-      })
+    if (sessionWithTerms.isCurrent) {
+      return { success: false, error: "Cannot delete current session" }
     }
 
-    // Delete the session
+    if (sessionWithTerms._count.terms > 0) {
+      return { success: false, error: "Cannot delete session with existing terms" }
+    }
+
     await prisma.session.delete({
       where: { id },
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
-    revalidatePath("/dashboard/admin/school-sessions")
-    return { success: true }
+    return { success: true, message: "Session deleted successfully" }
   } catch (error) {
-    console.error("Failed to delete session:", error)
-    throw new Error("Failed to delete academic session")
+    console.error("Error deleting session:", error)
+    return { success: false, error: "Failed to delete session" }
   }
 }
 
-// Set a session as the current session
-export async function setCurrentSession(id: string, schoolId: string) {
-  // Verify the current user is authorized to update sessions
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
+// Set current session
+export async function setCurrentSession(sessionId: string, schoolId: string) {
   try {
-    // Find any current sessions for this school and set them to not current
-    await prisma.session.updateMany({
-      where: {
-        schoolId,
-        isCurrent: true,
-        id: { not: id },
-      },
-      data: {
-        isCurrent: false,
-      },
-    })
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
 
-    // Set the selected session as current
-    await prisma.session.update({
-      where: { id },
-      data: {
-        isCurrent: true,
-      },
+    await prisma.$transaction(async (tx) => {
+      // Deactivate all current sessions for this school
+      await tx.session.updateMany({
+        where: {
+          schoolId: schoolId,
+          isCurrent: true,
+        },
+        data: { isCurrent: false },
+      })
+
+      // Set the selected session as current
+      await tx.session.update({
+        where: { id: sessionId },
+        data: { isCurrent: true },
+      })
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
-    revalidatePath("/dashboard/admin/school-sessions")
-    return { success: true }
+    return { success: true, message: "Current session updated successfully" }
   } catch (error) {
-    console.error("Failed to set current session:", error)
-    throw new Error("Failed to set current session")
+    console.error("Error setting current session:", error)
+    return { success: false, error: "Failed to update current session" }
+  }
+}
+
+// Get session details
+export async function getSession(id: string) {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const sessionData = await prisma.session.findUnique({
+      where: { id },
+      include: {
+        school: {
+          select: {
+            name: true,
+            code: true,
+          },
+        },
+        terms: {
+          orderBy: { startDate: "asc" },
+        },
+        _count: {
+          select: {
+            terms: true,
+          },
+        },
+      },
+    })
+
+    if (!sessionData) {
+      return { success: false, error: "Session not found" }
+    }
+
+    return { success: true, data: sessionData }
+  } catch (error) {
+    console.error("Error fetching session:", error)
+    return { success: false, error: "Failed to fetch session details" }
+  }
+}
+
+// Get all sessions with formatting
+export async function getSessions() {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const sessions = await prisma.session.findMany({
+      include: {
+        school: {
+          select: {
+            name: true,
+            code: true,
+          },
+        },
+        _count: {
+          select: {
+            terms: true,
+          },
+        },
+      },
+      orderBy: [{ isCurrent: "desc" }, { school: { name: "asc" } }, { startDate: "desc" }],
+    })
+
+    const formattedSessions = sessions.map((session) => ({
+      id: session.id,
+      name: session.name,
+      school: session.school.name,
+      schoolCode: session.school.code,
+      schoolId: session.schoolId,
+      startDate: session.startDate,
+      endDate: session.endDate,
+      isCurrent: session.isCurrent,
+      termsCount: session._count.terms,
+      studentsCount: 0, // This would need to be calculated based on your needs
+      createdAt: session.createdAt,
+    }))
+
+    return { success: true, data: formattedSessions }
+  } catch (error) {
+    console.error("Error fetching sessions:", error)
+    return { success: false, error: "Failed to fetch sessions" }
+  }
+}
+
+// Get schools for session creation
+export async function getSchoolsForSession() {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const schools = await prisma.school.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+      },
+      orderBy: { name: "asc" },
+    })
+
+    return { success: true, data: schools }
+  } catch (error) {
+    console.error("Error fetching schools:", error)
+    return { success: false, error: "Failed to fetch schools" }
   }
 }

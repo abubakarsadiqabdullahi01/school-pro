@@ -1,246 +1,319 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
-import { prisma } from "@/lib/db"
 import { auth } from "@/auth"
+import { prisma } from "@/lib/db"
+import { revalidatePath } from "next/cache"
 
 // Create a new term
-export async function createTerm({
-  name,
-  sessionId,
-  startDate,
-  endDate,
-  isCurrent,
-}: {
+export async function createTerm(data: {
   name: string
   sessionId: string
   startDate: Date
   endDate: Date
   isCurrent: boolean
 }) {
-  // Verify the current user is authorized to create terms
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
   try {
-    // Get the session to ensure it exists and to get the schoolId
-    const academicSession = await prisma.session.findUnique({
-      where: { id: sessionId },
-      select: { id: true },
-    })
-
-    if (!academicSession) {
-      throw new Error("Session not found")
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
     }
 
-    // If this is set as current, we need to update any existing current terms
-    if (isCurrent) {
-      // Find any current terms for this session and set them to not current
-      await prisma.term.updateMany({
-        where: {
-          sessionId,
-          isCurrent: true,
-        },
-        data: {
-          isCurrent: false,
-        },
-      })
-    }
-
-    // Create the term
-    const newTerm = await prisma.term.create({
-      data: {
-        name,
-        sessionId,
-        startDate,
-        endDate,
-        isCurrent,
+    // Check if term name already exists for this session
+    const existingTerm = await prisma.term.findFirst({
+      where: {
+        name: data.name,
+        sessionId: data.sessionId,
       },
     })
 
-    if(session.user.role === "SUPER_ADMIN") {
-      revalidatePath("/dashboard/super-admin/terms")
-      revalidatePath(`/dashboard/super-admin/sessions/${sessionId}`)
+    if (existingTerm) {
+      return { success: false, error: "Term name already exists for this session" }
     }
 
-    revalidatePath("/dashboard/admin/school-terms") // Admin only
-    revalidatePath(`/dashboard/admin/school-terms/${sessionId}`) // Admin only
-    revalidatePath("/dashboard/admin/school-terms")
-    return { success: true, termId: newTerm.id }
-  } catch (error) {
-    console.error("Failed to create term:", error)
-    throw new Error("Failed to create term")
-  }
-}
-
-// Update an existing term
-export async function updateTerm({
-  id,
-  name,
-  startDate,
-  endDate,
-  isCurrent,
-}: {
-  id: string
-  name: string
-  startDate: Date
-  endDate: Date
-  isCurrent: boolean
-}) {
-  // Verify the current user is authorized to update terms
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
-  try {
-    // Get the term to update
-    const termToUpdate = await prisma.term.findUnique({
-      where: { id },
-      select: { sessionId: true, isCurrent: true },
+    // Validate that term dates are within session dates
+    const sessionData = await prisma.session.findUnique({
+      where: { id: data.sessionId },
+      select: { startDate: true, endDate: true },
     })
 
-    if (!termToUpdate) {
-      throw new Error("Term not found")
+    if (!sessionData) {
+      return { success: false, error: "Session not found" }
     }
 
-    // If this is being set as current and wasn't before, update other terms
-    if (isCurrent && !termToUpdate.isCurrent) {
-      // Find any current terms for this session and set them to not current
+    if (data.startDate < sessionData.startDate || data.endDate > sessionData.endDate) {
+      return { success: false, error: "Term dates must be within the session date range" }
+    }
+
+    // If setting as current, deactivate other current terms for this session
+    if (data.isCurrent) {
       await prisma.term.updateMany({
         where: {
-          sessionId: termToUpdate.sessionId,
+          sessionId: data.sessionId,
           isCurrent: true,
-          id: { not: id },
         },
-        data: {
-          isCurrent: false,
-        },
+        data: { isCurrent: false },
       })
     }
 
-    // Update the term
-    await prisma.term.update({
-      where: { id },
+    const newTerm = await prisma.term.create({
       data: {
-        name,
-        startDate,
-        endDate,
-        isCurrent,
+        name: data.name,
+        sessionId: data.sessionId,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        isCurrent: data.isCurrent,
       },
     })
 
     revalidatePath("/dashboard/super-admin/terms")
-    revalidatePath(`/dashboard/super-admin/terms/${id}`)
-    revalidatePath(`/dashboard/super-admin/sessions/${termToUpdate.sessionId}`)
-    revalidatePath("/dashboard/admin/school-terms")
-    return { success: true }
+    return { success: true, data: newTerm, message: "Term created successfully" }
   } catch (error) {
-    console.error("Failed to update term:", error)
-    throw new Error("Failed to update term")
+    console.error("Error creating term:", error)
+    return { success: false, error: "Failed to create term" }
   }
 }
 
-// Delete a term
-export async function deleteTerm(id: string) {
-  // Verify the current user is authorized to delete terms
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
+// Update term
+export async function updateTerm(data: {
+  id: string
+  name: string
+  sessionId: string
+  startDate: Date
+  endDate: Date
+  isCurrent: boolean
+}) {
   try {
-    // Check if term exists
-    const termToDelete = await prisma.term.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        sessionId: true,
-        classTerms: { select: { id: true } },
-        assessments: { select: { id: true } },
-        feeStructures: { select: { id: true } },
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    // Check if term name already exists for another term in this session
+    const existingTerm = await prisma.term.findFirst({
+      where: {
+        name: data.name,
+        sessionId: data.sessionId,
+        id: { not: data.id },
       },
     })
 
-    if (!termToDelete) {
-      throw new Error("Term not found")
+    if (existingTerm) {
+      return { success: false, error: "Term name already exists for this session" }
     }
 
-    // Delete all related data
-    if (termToDelete.classTerms.length > 0) {
-      await prisma.classTerm.deleteMany({
-        where: { termId: id },
+    // Validate that term dates are within session dates
+    const sessionData = await prisma.session.findUnique({
+      where: { id: data.sessionId },
+      select: { startDate: true, endDate: true },
+    })
+
+    if (!sessionData) {
+      return { success: false, error: "Session not found" }
+    }
+
+    if (data.startDate < sessionData.startDate || data.endDate > sessionData.endDate) {
+      return { success: false, error: "Term dates must be within the session date range" }
+    }
+
+    // If setting as current, deactivate other current terms for this session
+    if (data.isCurrent) {
+      await prisma.term.updateMany({
+        where: {
+          sessionId: data.sessionId,
+          isCurrent: true,
+          id: { not: data.id },
+        },
+        data: { isCurrent: false },
       })
     }
 
-    if (termToDelete.assessments.length > 0) {
-      await prisma.assessment.deleteMany({
-        where: { termId: id },
-      })
+    const updatedTerm = await prisma.term.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        isCurrent: data.isCurrent,
+      },
+    })
+
+    revalidatePath("/dashboard/super-admin/terms")
+    return { success: true, data: updatedTerm, message: "Term updated successfully" }
+  } catch (error) {
+    console.error("Error updating term:", error)
+    return { success: false, error: "Failed to update term" }
+  }
+}
+
+// Delete term
+export async function deleteTerm(id: string) {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
     }
 
-    if (termToDelete.feeStructures.length > 0) {
-      await prisma.feeStructure.deleteMany({
-        where: { termId: id },
-      })
+    // Check if term has assessments or other related data
+    const termWithData = await prisma.term.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            assessments: true,
+            classTerms: true,
+            feeStructures: true,
+          },
+        },
+      },
+    })
+
+    if (!termWithData) {
+      return { success: false, error: "Term not found" }
     }
 
-    // Delete the term
+    if (termWithData.isCurrent) {
+      return { success: false, error: "Cannot delete current term" }
+    }
+
+    const totalRelatedData =
+      termWithData._count.assessments + termWithData._count.classTerms + termWithData._count.feeStructures
+
+    if (totalRelatedData > 0) {
+      return {
+        success: false,
+        error: "Cannot delete term with existing data (assessments, classes, or fee structures)",
+      }
+    }
+
     await prisma.term.delete({
       where: { id },
     })
 
     revalidatePath("/dashboard/super-admin/terms")
-    revalidatePath(`/dashboard/super-admin/sessions/${termToDelete.sessionId}`)
-    revalidatePath("/dashboard/admin/school-terms")
-    return { success: true }
+    return { success: true, message: "Term deleted successfully" }
   } catch (error) {
-    console.error("Failed to delete term:", error)
-    throw new Error("Failed to delete term")
+    console.error("Error deleting term:", error)
+    return { success: false, error: "Failed to delete term" }
   }
 }
 
-// Set a term as the current term
-export async function setCurrentTerm(id: string, sessionId: string) {
-  // Verify the current user is authorized to update terms
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
+// Set current term
+export async function setCurrentTerm(termId: string, sessionId: string) {
   try {
-    // Find any current terms for this session and set them to not current
-    await prisma.term.updateMany({
-      where: {
-        sessionId,
-        isCurrent: true,
-        id: { not: id },
-      },
-      data: {
-        isCurrent: false,
-      },
-    })
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
 
-    // Set the selected term as current
-    await prisma.term.update({
-      where: { id },
-      data: {
-        isCurrent: true,
-      },
+    await prisma.$transaction(async (tx) => {
+      // Deactivate all current terms for this session
+      await tx.term.updateMany({
+        where: {
+          sessionId: sessionId,
+          isCurrent: true,
+        },
+        data: { isCurrent: false },
+      })
+
+      // Set the selected term as current
+      await tx.term.update({
+        where: { id: termId },
+        data: { isCurrent: true },
+      })
     })
 
     revalidatePath("/dashboard/super-admin/terms")
-    revalidatePath(`/dashboard/super-admin/sessions/${sessionId}`)
-    revalidatePath("/dashboard/admin/school-terms")
-    return { success: true }
+    return { success: true, message: "Current term updated successfully" }
   } catch (error) {
-    console.error("Failed to set current term:", error)
-    throw new Error("Failed to set current term")
+    console.error("Error setting current term:", error)
+    return { success: false, error: "Failed to update current term" }
+  }
+}
+
+// Get term details
+export async function getTerm(id: string) {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const termData = await prisma.term.findUnique({
+      where: { id },
+      include: {
+        session: {
+          include: {
+            school: {
+              select: {
+                name: true,
+                code: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            assessments: true,
+            classTerms: true,
+            feeStructures: true,
+          },
+        },
+      },
+    })
+
+    if (!termData) {
+      return { success: false, error: "Term not found" }
+    }
+
+    return { success: true, data: termData }
+  } catch (error) {
+    console.error("Error fetching term:", error)
+    return { success: false, error: "Failed to fetch term details" }
+  }
+}
+
+// Get all terms with formatting
+export async function getTerms() {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const terms = await prisma.term.findMany({
+      include: {
+        session: {
+          include: {
+            school: {
+              select: {
+                name: true,
+                code: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ isCurrent: "desc" }, { session: { school: { name: "asc" } } }, { startDate: "desc" }],
+    })
+
+    const formattedTerms = terms.map((term) => ({
+      id: term.id,
+      name: term.name,
+      sessionId: term.sessionId,
+      sessionName: term.session.name,
+      schoolId: term.session.schoolId,
+      schoolName: term.session.school.name,
+      schoolCode: term.session.school.code,
+      startDate: term.startDate,
+      endDate: term.endDate,
+      isCurrent: term.isCurrent,
+      studentsCount: 0, // This would need to be calculated based on your needs
+      createdAt: term.createdAt,
+    }))
+
+    return { success: true, data: formattedTerms }
+  } catch (error) {
+    console.error("Error fetching terms:", error)
+    return { success: false, error: "Failed to fetch terms" }
   }
 }

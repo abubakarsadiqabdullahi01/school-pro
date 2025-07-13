@@ -5,15 +5,13 @@ import { TermForm } from "@/components/session-management/term-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 
 interface CreateTermPageProps {
-  searchParams: { 
+  searchParams: {
     sessionId?: string
-    [key: string]: string | string[] | undefined 
+    [key: string]: string | string[] | undefined
   }
 }
 
-export default async function CreateTermPage({
-  searchParams,
-}: CreateTermPageProps) {
+export default async function CreateTermPage({ searchParams }: CreateTermPageProps) {
   const session = await auth()
 
   // Check if user is super admin
@@ -59,7 +57,6 @@ export default async function CreateTermPage({
         },
       },
     })
-
     if (sessionDetails) {
       selectedSession = {
         id: sessionDetails.id,
@@ -83,7 +80,6 @@ export default async function CreateTermPage({
               : "Add a new academic term to a session"}
           </p>
         </div>
-
         <TermForm sessions={formattedSessions} preselectedSessionId={sessionId} />
       </div>
     </PageTransition>

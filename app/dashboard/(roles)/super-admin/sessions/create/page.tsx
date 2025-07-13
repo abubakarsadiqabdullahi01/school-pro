@@ -30,7 +30,6 @@ export default async function CreateSessionPage() {
           <h2 className="text-3xl font-bold tracking-tight">Create Academic Session</h2>
           <p className="text-muted-foreground">Add a new academic session to a school</p>
         </div>
-
         <SessionForm schools={schools} />
       </div>
     </PageTransition>
