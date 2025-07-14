@@ -15,6 +15,8 @@ import {
   MoreHorizontal,
   UserCheck,
   UserX,
+  Loader2,
+  Power,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -31,7 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { toggleUserStatus } from "@/app/actions/user-management"
+import { toggleUserStatus, resetAdminPassword } from "@/app/actions/user-management"
 import { motion } from "framer-motion"
 
 interface AdminDetailsProps {
@@ -67,12 +69,13 @@ interface AdminDetailsProps {
 
 export function AdminDetails({ admin }: AdminDetailsProps) {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
   const router = useRouter()
 
   const handleToggleStatus = async () => {
     try {
       setIsUpdatingStatus(true)
-      const result = await toggleUserStatus(admin.user.id)
+      const result = await toggleUserStatus(admin.user.id, "admin") // Pass userType
 
       if (result.success) {
         toast.success("Success", { description: result.message })
@@ -84,6 +87,24 @@ export function AdminDetails({ admin }: AdminDetailsProps) {
       toast.error("Error", { description: "Failed to update admin status" })
     } finally {
       setIsUpdatingStatus(false)
+    }
+  }
+
+  const handleResetPassword = async () => {
+    setIsResettingPassword(true)
+    try {
+      const result = await resetAdminPassword(admin.id)
+      if (result.success && result.data && result.data.newPassword) {
+        toast.success("Success", { description: `New password: ${result.data.newPassword}` })
+      } else if (result.success) {
+        toast.success("Success", { description: "Password reset successfully." })
+      } else {
+        toast.error("Error", { description: result.error })
+      }
+    } catch (error) {
+      toast.error("Error", { description: "Failed to reset password" })
+    } finally {
+      setIsResettingPassword(false)
     }
   }
 
@@ -131,6 +152,19 @@ export function AdminDetails({ admin }: AdminDetailsProps) {
             <DropdownMenuItem onClick={() => router.push(`/dashboard/super-admin/users/admins/${admin.id}/edit`)}>
               <Edit className="mr-2 h-4 w-4" />
               Edit Admin
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleResetPassword} disabled={isResettingPassword}>
+              {isResettingPassword ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Resetting...
+                </>
+              ) : (
+                <>
+                  <Power className="mr-2 h-4 w-4" />
+                  Reset Password
+                </>
+              )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -315,7 +349,7 @@ export function AdminDetails({ admin }: AdminDetailsProps) {
               <div className="flex flex-wrap gap-2">
                 {formatPermissions(admin.permissions).map((permission, index) => (
                   <Badge key={index} variant="secondary">
-                    {permission}
+                    {permission.replace(/_/g, " ")} {/* Format permission string */}
                   </Badge>
                 ))}
               </div>

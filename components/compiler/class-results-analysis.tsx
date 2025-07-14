@@ -3,7 +3,14 @@
 import { useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Chart, ChartContainer, ChartBars, ChartBar, ChartXAxis, ChartYAxis, ChartTooltip } from "@/components/ui/chart"
+import {
+  Chart,
+  ChartContainer,
+  ChartBar,
+  ChartXAxis,
+  ChartYAxis,
+  ChartTooltip,
+} from "@/components/ui/chart"
 
 interface ClassResultsAnalysisProps {
   results: Array<{
@@ -181,7 +188,7 @@ export function ClassResultsAnalysis({
               <Chart className="h-[300px]">
                 <ChartTooltip />
                 <ChartContainer>
-                  <ChartBars>
+                  <>
                     {gradeDistribution.map(({ grade, count }) => (
                       <ChartBar
                         key={grade}
@@ -200,7 +207,7 @@ export function ClassResultsAnalysis({
                         }
                       />
                     ))}
-                  </ChartBars>
+                  </>
                   <ChartXAxis />
                   <ChartYAxis />
                 </ChartContainer>
@@ -219,7 +226,7 @@ export function ClassResultsAnalysis({
               <Chart className="h-[300px]">
                 <ChartTooltip />
                 <ChartContainer>
-                  <ChartBars>
+                  <>
                     {subjectPerformance.map((subject) => (
                       <ChartBar
                         key={subject.id}
@@ -236,7 +243,7 @@ export function ClassResultsAnalysis({
                         }
                       />
                     ))}
-                  </ChartBars>
+                  </>
                   <ChartXAxis />
                   <ChartYAxis />
                 </ChartContainer>
@@ -287,13 +294,13 @@ export function ClassResultsAnalysis({
               <Chart className="h-[300px]">
                 <ChartTooltip />
                 <ChartContainer>
-                  <ChartBars>
+                  <>
                     <ChartBar value={genderDistribution.male} name="Male" color="blue" />
                     <ChartBar value={genderDistribution.female} name="Female" color="pink" />
                     {genderDistribution.other > 0 && (
                       <ChartBar value={genderDistribution.other} name="Other" color="gray" />
                     )}
-                  </ChartBars>
+                  </>
                   <ChartXAxis />
                   <ChartYAxis />
                 </ChartContainer>

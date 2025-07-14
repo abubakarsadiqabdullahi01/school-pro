@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toggleUserStatus } from "@/app/actions/user-management"
 import { toast } from "sonner"
+import Image from "next/image"
 
 interface User {
   id: string
@@ -29,8 +30,9 @@ interface User {
   role: string
   status: string
   createdAt: Date
-  [key: string]: any // For additional columns like admissionNo, class, etc.
+  [key: string]: any
 }
+
 
 interface Column {
   key: string
@@ -39,7 +41,7 @@ interface Column {
 
 interface UserManagementTableProps {
   users: User[]
-  userType: string
+  userType: string // e.g., "admin", "teacher", "student", "parent"
   columns: Column[]
 }
 
@@ -74,12 +76,18 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
     switch (userType) {
       case "admin":
         return "/dashboard/super-admin/users/admins/add"
+      case "teacher":
+        return "/dashboard/super-admin/users/teachers/add"
+      case "student":
+        return "/dashboard/admin/students/add"
+      case "parent":
+        return "/dashboard/admin/parents/add"
       default:
         return "#"
     }
   }
 
-  const canAddUser = userType === "admin"
+  const canAddUser = userType === "admin" || userType === "teacher" || userType === "student" || userType === "parent"
 
   return (
     <Card>
@@ -106,7 +114,6 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
             className="max-w-sm"
           />
         </div>
-
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -126,16 +133,18 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
                         {column.key === "name" ? (
                           <div className="flex items-center gap-3">
                             {user.avatarUrl ? (
-                              <img
+                              <Image
                                 src={user.avatarUrl || "/placeholder.svg"}
                                 alt={user.name}
                                 className="h-8 w-8 rounded-full object-cover"
+                                width={32}
+                                height={32}
                               />
                             ) : (
                               <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
                                 <span className="text-xs font-medium">
-                                  {user.firstName?.[0]}
-                                  {user.lastName?.[0]}
+                                  {user.firstName?.[0] || ""}
+                                  {user.lastName?.[0] || ""}
                                 </span>
                               </div>
                             )}
@@ -160,7 +169,7 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          {/* <DropdownMenuItem asChild>
+                          <DropdownMenuItem asChild>
                             <Link href={`/dashboard/super-admin/users/${userType}s/${user.id}`}>
                               <Eye className="mr-2 h-4 w-4" />
                               View Details
@@ -171,7 +180,7 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
                               <Edit className="mr-2 h-4 w-4" />
                               Edit {userType.charAt(0).toUpperCase() + userType.slice(1)}
                             </Link>
-                          </DropdownMenuItem> */}
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => handleToggleStatus(user.id)}

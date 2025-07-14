@@ -198,8 +198,21 @@ export async function toggleUserStatus(userId: string, userType: string) {
       data: { isActive: !user.isActive },
     })
 
-    // Revalidate relevant pages
-    revalidatePath(`/dashboard/super-admin/users/${userType}s`)
+    // Revalidate relevant pages based on userType
+    switch (userType) {
+      case "admin":
+        revalidatePath(`/dashboard/super-admin/users/admins`)
+        revalidatePath(`/dashboard/super-admin/users/admins/${userId}`)
+        break
+      case "student":
+        revalidatePath(`/dashboard/admin/students`)
+        revalidatePath(`/dashboard/admin/students/${userId}`)
+        break
+      // Add other user types as needed
+      default:
+        revalidatePath(`/dashboard/super-admin/users`)
+        break
+    }
 
     return {
       success: true,
@@ -332,44 +345,262 @@ export async function deleteUser(userId: string, userType: string) {
 }
 
 export async function getAdminDetailsById(adminId: string) {
-  if (!adminId) return null
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
 
-  const admin = await prisma.admin.findUnique({
-    where: { id: adminId },
-    include: {
-      user: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          avatarUrl: true,
-          dateOfBirth: true,
-          phone: true,
-          gender: true,
-          state: true,
-          lga: true,
-          address: true,
-          isActive: true,
-          createdAt: true,
-          updatedAt: true,
-          credentials: {
-            where: { type: "EMAIL" },
-            select: { value: true },
+    if (!adminId) return { success: false, error: "Admin ID is required" }
+
+    const admin = await prisma.admin.findUnique({
+      where: { id: adminId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatarUrl: true,
+            dateOfBirth: true,
+            phone: true,
+            gender: true,
+            state: true,
+            lga: true,
+            address: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true,
+            credentials: {
+              where: { type: "EMAIL" },
+              select: { value: true },
+            },
+          },
+        },
+        school: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            address: true,
+            phone: true,
+            email: true,
           },
         },
       },
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-          address: true,
-          phone: true,
-          email: true,
+    })
+
+    if (!admin) {
+      return { success: false, error: "Admin not found" }
+    }
+
+    return { success: true, data: admin }
+  } catch (error) {
+    console.error("Error fetching admin details:", error)
+    return { success: false, error: "Failed to fetch admin details" }
+  }
+}
+
+export async function updateAdmin(
+  adminId: string,
+  data: {
+    firstName: string
+    lastName: string
+    email: string
+    phone: string | null
+    dateOfBirth: Date | null
+    gender: string | null
+    state: string | null
+    lga: string | null
+    address: string | null
+    schoolId: string | null
+    permissions: string[]
+  },
+) {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { id: adminId },
+      include: { user: { include: { credentials: true } } },
+    })
+
+    if (!admin) {
+      return { success: false, error: "Admin not found" }
+    }
+
+    // Check if email is taken by another user
+    const existingCredential = await prisma.credential.findFirst({
+      where: {
+        value: data.email,
+        userId: { not: admin.userId },
+      },
+    })
+
+    if (existingCredential) {
+      return { success: false, error: "Email already exists" }
+    }
+
+    // Handle schoolId - convert "NO_SCHOOL" to null
+    const finalSchoolId = data.schoolId === "NO_SCHOOL" ? null : data.schoolId
+
+    // Check if school exists if schoolId is provided
+    if (finalSchoolId) {
+      const school = await prisma.school.findUnique({
+        where: { id: finalSchoolId },
+      })
+
+      if (!school) {
+        return { success: false, error: "School not found" }
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Update user details
+      await tx.user.update({
+        where: { id: admin.userId },
+        data: {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone,
+          dateOfBirth: data.dateOfBirth,
+          gender: data.gender,
+          state: data.state,
+          lga: data.lga,
+          address: data.address,
+        },
+      })
+
+      // Update email if changed
+      const currentCredential = admin.user.credentials.find((cred) => cred.type === "EMAIL")
+      if (currentCredential && currentCredential.value !== data.email) {
+        await tx.credential.update({
+          where: { id: currentCredential.id },
+          data: { value: data.email },
+        })
+      }
+
+      // Update admin record
+      await tx.admin.update({
+        where: { id: adminId },
+        data: {
+          schoolId: finalSchoolId,
+          permissions: JSON.stringify(data.permissions),
+        },
+      })
+    })
+
+    revalidatePath("/dashboard/super-admin/users/admins")
+    revalidatePath(`/dashboard/super-admin/users/admins/${adminId}`)
+
+    return {
+      success: true,
+      message: "Admin updated successfully",
+    }
+  } catch (error) {
+    console.error("Error updating admin user:", error)
+    return {
+      success: false,
+      error: "Failed to update admin user",
+    }
+  }
+}
+
+// Reset admin password
+export async function resetAdminPassword(adminId: string) {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const admin = await prisma.admin.findUnique({
+      where: { id: adminId },
+      include: { user: { include: { credentials: true } } },
+    })
+
+    if (!admin) {
+      return { success: false, error: "Admin not found" }
+    }
+
+    const newPassword = "password123" // A default password, consider generating a random one
+    const passwordHash = await bcrypt.hash(newPassword, 10)
+
+    await prisma.credential.update({
+      where: { userId_type: { userId: admin.userId, type: "EMAIL" } },
+      data: { passwordHash },
+    })
+
+    revalidatePath(`/dashboard/super-admin/users/admins/${adminId}`)
+
+    return {
+      success: true,
+      data: { newPassword },
+      message: "Password reset successfully",
+    }
+  } catch (error) {
+    console.error("Error resetting admin password:", error)
+    return {
+      success: false,
+      error: "Failed to reset password",
+    }
+  }
+}
+
+export async function getAdminUsers() {
+  try {
+    const session = await auth()
+    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const users = await prisma.user.findMany({
+      where: { role: "ADMIN" },
+      include: {
+        admin: {
+          include: {
+            school: {
+              select: {
+                name: true,
+                code: true,
+              },
+            },
+          },
+        },
+        credentials: {
+          where: {
+            type: "EMAIL",
+            isPrimary: true,
+          },
+          select: {
+            value: true,
+          },
         },
       },
-    },
-  })
+      orderBy: {
+        firstName: "asc",
+      },
+    })
 
-  return admin
+    const formattedUsers = users.map((user) => ({
+      id: user.admin?.id || user.id, // Use admin.id if available, otherwise user.id
+      name: `${user.firstName} ${user.lastName}`,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      avatarUrl: user.avatarUrl,
+      email: user.credentials[0]?.value || "No email",
+      role: "Admin",
+      school: user.admin?.school ? `${user.admin.school.name} (${user.admin.school.code})` : "Not assigned",
+      status: user.isActive ? "Active" : "Inactive",
+      createdAt: user.createdAt,
+    }))
+
+    return { success: true, data: formattedUsers }
+  } catch (error) {
+    console.error("Error fetching admin users:", error)
+    return { success: false, error: "Failed to fetch admin users" }
+  }
 }

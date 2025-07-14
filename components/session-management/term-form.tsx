@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Calendar } from "@/components/ui/calendar"
 import { cn } from "@/lib/utils"
 import { createTerm, updateTerm } from "@/app/actions/term-management"
 import { motion } from "framer-motion"
@@ -59,8 +60,8 @@ interface TermFormProps {
     id: string
     name: string
     sessionId: string
-    startDate: Date
-    endDate: Date
+    startDate: Date | string
+    endDate: Date | string
     isCurrent: boolean
   }
 }
@@ -73,19 +74,28 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
 
   const isEditMode = !!termData
 
+  // Helper to validate and convert dates
+  const parseDate = (date: Date | string | undefined): Date | undefined => {
+    if (!date) return undefined
+    const parsed = new Date(date)
+    return !isNaN(parsed.getTime()) ? parsed : undefined
+  }
+
   const form = useForm<TermFormValues>({
     resolver: zodResolver(termFormSchema),
     defaultValues: {
       name: termData?.name || "",
       sessionId: termData?.sessionId || preselectedSessionId || "",
-      startDate: termData?.startDate ? new Date(termData.startDate) : undefined,
-      endDate: termData?.endDate ? new Date(termData.endDate) : undefined,
+      startDate: parseDate(termData?.startDate),
+      endDate: parseDate(termData?.endDate),
       isCurrent: termData?.isCurrent || false,
     },
   })
 
   // Filter sessions based on search query
-  const filteredSessions = sessions.filter((session) => session.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredSessions = sessions.filter((session) =>
+    session.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   // Update selected session when sessionId changes
   useEffect(() => {
@@ -101,7 +111,6 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
   // Handle session change
   const handleSessionChange = (sessionId: string) => {
     form.setValue("sessionId", sessionId)
-    // Reset dates when session changes
     form.setValue("startDate", undefined)
     form.setValue("endDate", undefined)
     const session = sessions.find((s) => s.id === sessionId)
@@ -113,9 +122,15 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
   async function onSubmit(data: TermFormValues) {
     setIsLoading(true)
     try {
-      // Validate that term dates are within session dates
       if (selectedSession) {
-        if (data.startDate < selectedSession.startDate || data.endDate > selectedSession.endDate) {
+        const sessionStart = parseDate(selectedSession.startDate)
+        const sessionEnd = parseDate(selectedSession.endDate)
+        if (!sessionStart || !sessionEnd) {
+          toast.error("Error", { description: "Invalid session dates" })
+          setIsLoading(false)
+          return
+        }
+        if (data.startDate < sessionStart || data.endDate > sessionEnd) {
           toast.error("Error", { description: "Term dates must be within the session date range" })
           setIsLoading(false)
           return
@@ -170,8 +185,8 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                 Creating term for session <strong>{selectedSession.name}</strong>
                 <br />
                 <span className="text-sm text-muted-foreground">
-                  Session period: {format(new Date(selectedSession.startDate), "MMM d, yyyy")} to{" "}
-                  {format(new Date(selectedSession.endDate), "MMM d, yyyy")}
+                  Session period: {format(parseDate(selectedSession.startDate) || new Date(), "MMM d, yyyy")} to{" "}
+                  {format(parseDate(selectedSession.endDate) || new Date(), "MMM d, yyyy")}
                 </span>
               </AlertDescription>
             </Alert>
@@ -215,17 +230,20 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                       Academic Session <span className="text-destructive">*</span>
                     </FormLabel>
                     <Select
-                      onValueChange={handleSessionChange}
+                      onValueChange={(value) => {
+                        field.onChange(value)
+                        handleSessionChange(value)
+                      }}
                       defaultValue={field.value}
                       disabled={isEditMode || !!preselectedSessionId}
                     >
                       <FormControl>
-                        <SelectTrigger className="h-12 text-base">
+                        <SelectTrigger className="w-full h-12 text-base">
                           <SelectValue placeholder="Select a session" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <div className="sticky top-0 p-2 bg-background z-10 border-b">
+                        <div className="sticky top-0 z-10 bg-background p-2 border-b">
                           <div className="relative">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
@@ -237,19 +255,18 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                           </div>
                         </div>
                         {filteredSessions.length === 0 ? (
-                          <div className="text-center py-4 text-sm text-muted-foreground">No sessions found</div>
+                          <div className="text-center py-4 text-sm text-muted-foreground">
+                            No sessions found
+                          </div>
                         ) : (
                           filteredSessions.map((session) => (
                             <SelectItem key={session.id} value={session.id} className="py-3">
-                              <div className="flex items-center gap-2">
-                                <Clock className="h-4 w-4 text-muted-foreground" />
-                                <div>
-                                  <div className="font-medium">{session.name}</div>
-                                  <div className="text-sm text-muted-foreground">
-                                    {format(new Date(session.startDate), "MMM yyyy")} -{" "}
-                                    {format(new Date(session.endDate), "MMM yyyy")}
-                                  </div>
-                                </div>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{session.name}</span>
+                                <span className="text-sm text-muted-foreground">
+                                  {format(parseDate(session.startDate) || new Date(), "MMM yyyy")} –{" "}
+                                  {format(parseDate(session.endDate) || new Date(), "MMM yyyy")}
+                                </span>
                               </div>
                             </SelectItem>
                           ))
@@ -258,8 +275,8 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                     </Select>
                     <FormDescription>
                       {isEditMode || preselectedSessionId
-                        ? "Session cannot be changed after term creation"
-                        : "Select the academic session this term belongs to"}
+                        ? "Session cannot be changed after term creation."
+                        : "Select the academic session this term belongs to."}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -274,8 +291,8 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                     <div className="space-y-1">
                       <p className="font-medium">Session Date Range:</p>
                       <p className="text-sm">
-                        {format(new Date(selectedSession.startDate), "MMMM d, yyyy")} to{" "}
-                        {format(new Date(selectedSession.endDate), "MMMM d, yyyy")}
+                        {format(parseDate(selectedSession.startDate) || new Date(), "MMMM d, yyyy")} to{" "}
+                        {format(parseDate(selectedSession.endDate) || new Date(), "MMMM d, yyyy")}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Note: Term dates must be within this session date range.
@@ -302,7 +319,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                               variant={"outline"}
                               className={cn(
                                 "h-12 text-base pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground",
+                                !field.value && "text-muted-foreground"
                               )}
                             >
                               {field.value ? (
@@ -320,19 +337,19 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                           </FormControl>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
-                          <div className="Calendar">
-                            <div className="mode-single">
-                              <div className="selected">{field.value}</div>
-                              <div className="onSelect">{field.onChange}</div>
-                              <div className="initialFocus">true</div>
-                              <div className="disabled">
-                                {(date) => {
-                                  if (!selectedSession) return false
-                                  return date < selectedSession.startDate || date > selectedSession.endDate
-                                }}
-                              </div>
-                            </div>
-                          </div>
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            disabled={(date) => {
+                              if (!selectedSession) return false
+                              const sessionStart = parseDate(selectedSession.startDate)
+                              const sessionEnd = parseDate(selectedSession.endDate)
+                              if (!sessionStart || !sessionEnd) return true
+                              return date < sessionStart || date > sessionEnd
+                            }}
+                            initialFocus
+                          />
                         </PopoverContent>
                       </Popover>
                       <FormDescription>When the academic term begins</FormDescription>
@@ -356,7 +373,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                               variant={"outline"}
                               className={cn(
                                 "h-12 text-base pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground",
+                                !field.value && "text-muted-foreground"
                               )}
                             >
                               {field.value ? (
@@ -374,22 +391,20 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                           </FormControl>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
-                          <div className="Calendar">
-                            <div className="mode-single">
-                              <div className="selected">{field.value}</div>
-                              <div className="onSelect">{field.onChange}</div>
-                              <div className="initialFocus">true</div>
-                              <div className="disabled">
-                                {(date) => {
-                                  const startDate = form.getValues("startDate")
-                                  if (!selectedSession) return startDate ? date < startDate : false
-                                  return (
-                                    date < (startDate || selectedSession.startDate) || date > selectedSession.endDate
-                                  )
-                                }}
-                              </div>
-                            </div>
-                          </div>
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            disabled={(date) => {
+                              const startDate = form.getValues("startDate")
+                              if (!selectedSession) return startDate ? date <= startDate : false
+                              const sessionStart = parseDate(selectedSession.startDate)
+                              const sessionEnd = parseDate(selectedSession.endDate)
+                              if (!sessionStart || !sessionEnd) return true
+                              return date < (startDate || sessionStart) || date > sessionEnd
+                            }}
+                            initialFocus
+                          />
                         </PopoverContent>
                       </Popover>
                       <FormDescription>When the academic term ends</FormDescription>

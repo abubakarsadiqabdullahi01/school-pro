@@ -49,37 +49,6 @@ interface ClassResultsTermlyProps {
   classLevels: ClassLevel[]
 }
 
-interface Student {
-  id: string
-  admissionNo: string
-  fullName: string
-  gender: string
-  studentClassTermId: string
-}
-
-interface Subject {
-  id: string
-  name: string
-  code: string
-}
-
-interface StudentResult {
-  studentId: string
-  studentName: string
-  admissionNo: string
-  gender: string
-  subjects: Record<
-    string,
-    {
-      score: number | null
-      grade: string | null
-    }
-  >
-  totalScore: number
-  averageScore: number
-  grade: string
-  position: number
-}
 
 export function ClassResultsTermlyComponent({
   schoolId,
@@ -592,7 +561,7 @@ const handlePrint = async () => {
                                     <TooltipTrigger asChild>
                                       <div
                                         className="flex flex-col items-center justify-center cursor-pointer"
-                                        onClick={() => requestSort(subject_${subject.id})}
+                                        onClick={() => requestSort(`subject_${subject.id}`)}
                                       >
                                         <span>{subject.code}</span>
                                         <ArrowUpDown className="h-3 w-3 mt-1" />
@@ -642,7 +611,7 @@ const handlePrint = async () => {
                           {sortedResults.map((result) => (
                             <TableRow key={result.studentId} className="hover:bg-gray-100">
                               <TableCell className="text-center font-medium sticky left-0 bg-white z-10">
-                                {result.position === 0 ? "-" : ${result.position}${getOrdinalSuffix(result.position)}}
+                                {result.position === 0 ? "-" : `${result.position}${getOrdinalSuffix(result.position)}`}
                               </TableCell>
                               <TableCell className="text-center sticky left-[60px] bg-white z-10">
                                 {result.admissionNo}
@@ -659,7 +628,7 @@ const handlePrint = async () => {
                                     <div className="flex flex-col items-center">
                                       <span>{result.subjects[subject.id]?.score.toFixed(1)}</span>
                                       {result.subjects[subject.id]?.grade && (
-                                        <Badge className={text-xs mt-1 ${getGradeColor(result.subjects[subject.id]?.grade)}}>
+                                        <Badge className={`text-xs mt-1 ${getGradeColor(result.subjects[subject.id]?.grade)}`}>
                                           {result.subjects[subject.id]?.grade}
                                         </Badge>
                                       )}

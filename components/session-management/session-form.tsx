@@ -169,21 +169,30 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
                 )}
               />
 
-              {/* School Selection */}
-              <FormField
-                control={form.control}
-                name="schoolId"
-                render={({ field }) => (
+            {/* School Selection */}
+            <FormField
+              control={form.control}
+              name="schoolId"
+              render={({ field }) => {
+                const selectedSchool = filteredSchools.find((s) => s.id === field.value)
+
+                return (
                   <FormItem>
                     <FormLabel className="text-base font-semibold">
                       School <span className="text-destructive">*</span>
                     </FormLabel>
+
                     <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isEditMode}>
                       <FormControl>
-                        <SelectTrigger className="h-12 text-base">
-                          <SelectValue placeholder="Select a school" />
+                        <SelectTrigger className="w-full h-14 text-base">
+                          <span>
+                            {selectedSchool
+                              ? `${selectedSchool.name} (${selectedSchool.code})`
+                              : "Select a school"}
+                          </span>
                         </SelectTrigger>
                       </FormControl>
+
                       <SelectContent>
                         <div className="sticky top-0 p-2 bg-background z-10 border-b">
                           <div className="relative">
@@ -196,6 +205,7 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
                             />
                           </div>
                         </div>
+
                         {filteredSchools.length === 0 ? (
                           <div className="text-center py-4 text-sm text-muted-foreground">No schools found</div>
                         ) : (
@@ -213,6 +223,7 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
                         )}
                       </SelectContent>
                     </Select>
+
                     <FormDescription>
                       {isEditMode
                         ? "School cannot be changed after session creation"
@@ -220,8 +231,9 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
-                )}
-              />
+                )
+              }}
+            />
 
               {/* Date Range */}
               <div className="grid gap-6 md:grid-cols-2">

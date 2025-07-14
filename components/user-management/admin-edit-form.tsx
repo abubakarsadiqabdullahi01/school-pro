@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -19,7 +19,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { updateAdmin } from "@/app/actions/user-management"
-import { motion } from "framer-motion"
 
 const adminEditSchema = z.object({
   firstName: z.string().min(2, "First name must be at least 2 characters"),
@@ -45,7 +44,8 @@ const availablePermissions = [
   { id: "MANAGE_ASSESSMENTS", label: "Manage Assessments" },
   { id: "MANAGE_PAYMENTS", label: "Manage Payments" },
   { id: "VIEW_REPORTS", label: "View Reports" },
-  { id: "MANAGE_SETTINGS", label: "Manage Settings" },
+  { id: "MANAGE_SESSIONS", label: "Manage Sessions" },
+  { id: "MANAGE_SETTINGS", label: "Manage System Settings" },
 ]
 
 const nigerianStates = [
@@ -117,33 +117,44 @@ interface AdminEditFormProps {
   }[]
 }
 
+// Helper function to safely parse permissions
+const parsePermissions = (permissions: string): string[] => {
+  try {
+    const parsed = JSON.parse(permissions)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+// Helper function to convert null values to empty strings
+const sanitizeValue = (value: string | null | undefined): string => {
+  return value ?? ""
+}
+
 export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
   const router = useRouter()
 
-  // Parse permissions
-  const parsePermissions = (permissions: string) => {
-    try {
-      const parsed = JSON.parse(permissions)
-      return Array.isArray(parsed) ? parsed : [permissions]
-    } catch {
-      return [permissions]
-    }
-  }
+  // Ensure component is mounted before rendering form to prevent hydration issues
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const form = useForm<AdminEditFormValues>({
     resolver: zodResolver(adminEditSchema),
     defaultValues: {
-      firstName: admin.user.firstName,
-      lastName: admin.user.lastName,
+      firstName: sanitizeValue(admin.user.firstName),
+      lastName: sanitizeValue(admin.user.lastName),
       email: admin.user.credentials[0]?.value || "",
-      phone: admin.user.phone || "",
+      phone: sanitizeValue(admin.user.phone),
       dateOfBirth: admin.user.dateOfBirth ? new Date(admin.user.dateOfBirth) : undefined,
-      gender: (admin.user.gender as "MALE" | "FEMALE" | "OTHER") || undefined,
-      state: admin.user.state || nigerianStates[0], // Updated default value to be a non-empty string
-      lga: admin.user.lga || "",
-      address: admin.user.address || "",
-      schoolId: admin.school?.id || "",
+      gender: (admin.user.gender as "MALE" | "FEMALE" | "OTHER") || "UNKNOWN",
+      state: sanitizeValue(admin.user.state),
+      lga: sanitizeValue(admin.user.lga),
+      address: sanitizeValue(admin.user.address),
+      schoolId: admin.school?.id || "NO_SCHOOL",
       permissions: parsePermissions(admin.permissions),
     },
   })
@@ -163,216 +174,213 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
       })
 
       if (result.success) {
-        toast.success("Success", { description: "Administrator updated successfully" })
+        toast.success("Administrator updated successfully")
         router.push(`/dashboard/super-admin/users/admins/${admin.id}`)
         router.refresh()
       } else {
-        toast.error("Error", { description: result.error })
+        toast.error(result.error || "Failed to update administrator")
       }
     } catch (error: any) {
       console.error("Failed to update admin:", error)
-      toast.error("Error", { description: error.message || "Failed to update administrator" })
+      toast.error(error.message || "Failed to update administrator")
     } finally {
       setIsLoading(false)
     }
   }
 
-  return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+  const handleCancel = () => {
+    router.push(`/dashboard/super-admin/users/admins/${admin.id}`)
+  }
+
+  // Show loading state until component is mounted to prevent hydration mismatch
+  if (!isMounted) {
+    return (
       <Card className="max-w-4xl mx-auto">
-        <CardHeader className="space-y-4">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => router.push(`/dashboard/super-admin/users/admins/${admin.id}`)}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <CardTitle className="text-2xl">Edit Administrator</CardTitle>
-              <CardDescription className="text-base">Update administrator information and permissions</CardDescription>
-            </div>
+        <CardContent className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="ml-2">Loading form...</span>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="max-w-4xl mx-auto">
+      <CardHeader className="space-y-4">
+        <div className="flex items-center gap-4">
+          <Button variant="outline" size="icon" onClick={handleCancel}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <CardTitle className="text-2xl">Edit Administrator</CardTitle>
+            <CardDescription className="text-base">Update administrator information and permissions</CardDescription>
           </div>
-        </CardHeader>
+        </div>
+      </CardHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <CardContent className="space-y-8">
-              {/* Personal Information */}
-              <div className="space-y-6">
-                <div className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  <h3 className="text-lg font-semibold">Personal Information</h3>
-                </div>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)}>
+          <CardContent className="space-y-8">
+            {/* Personal Information Section */}
+            <div className="space-y-6">
+              <div className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">Personal Information</h3>
+              </div>
 
-                <div className="grid gap-6 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="firstName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>First Name *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter first name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="lastName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Last Name *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter last name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email Address *</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="Enter email address" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Phone Number</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter phone number" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="dateOfBirth"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>Date of Birth</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant={"outline"}
-                                className={cn(
-                                  "w-full pl-3 text-left font-normal",
-                                  !field.value && "text-muted-foreground",
-                                )}
-                              >
-                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />{" "}
-                                {/* Renamed Calendar to CalendarIcon */}
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="gender"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Gender</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select gender" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="MALE">Male</SelectItem>
-                            <SelectItem value="FEMALE">Female</SelectItem>
-                            <SelectItem value="OTHER">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid gap-6 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="state"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>State</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select state" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {nigerianStates.map((state) => (
-                              <SelectItem key={state} value={state}>
-                                {state}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="lga"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Local Government Area</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter LGA" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+              <div className="grid gap-6 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="firstName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>First Name *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter first name" {...field} value={field.value || ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
-                  name="address"
+                  name="lastName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Address</FormLabel>
+                      <FormLabel>Last Name *</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Enter full address" className="resize-none" {...field} />
+                        <Input placeholder="Enter last name" {...field} value={field.value || ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email Address *</FormLabel>
+                      <FormControl>
+                        <Input type="email" placeholder="Enter email address" {...field} value={field.value || ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone Number</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter phone number" {...field} value={field.value || ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="dateOfBirth"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Date of Birth</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                "w-full pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground",
+                              )}
+                            >
+                              {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="gender"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Gender</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "UNKNOWN"}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select gender" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="UNKNOWN">Select Gender</SelectItem>
+                          <SelectItem value="MALE">Male</SelectItem>
+                          <SelectItem value="FEMALE">Female</SelectItem>
+                          <SelectItem value="OTHER">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="state"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>State</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "NO_STATE"}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select state" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="NO_STATE">Select State</SelectItem>
+                          {nigerianStates.map((state) => (
+                            <SelectItem key={state} value={state}>
+                              {state}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="lga"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Local Government Area</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter LGA" {...field} value={field.value || ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -380,111 +388,126 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
                 />
               </div>
 
-              {/* School Assignment */}
-              <div className="space-y-6">
-                <div className="flex items-center gap-2">
-                  <School className="h-5 w-5" />
-                  <h3 className="text-lg font-semibold">School Assignment</h3>
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="schoolId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Assigned School</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a school" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="">No School Assignment</SelectItem>
-                          {schools.map((school) => (
-                            <SelectItem key={school.id} value={school.id}>
-                              {school.name} ({school.code})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>Select the school this administrator will manage</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {/* Permissions */}
-              <div className="space-y-6">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-5 w-5" />
-                  <h3 className="text-lg font-semibold">Permissions</h3>
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="permissions"
-                  render={() => (
-                    <FormItem>
-                      <FormLabel>Administrator Permissions *</FormLabel>
-                      <FormDescription>Select the permissions this administrator should have</FormDescription>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {availablePermissions.map((permission) => (
-                          <FormField
-                            key={permission.id}
-                            control={form.control}
-                            name="permissions"
-                            render={({ field }) => {
-                              return (
-                                <FormItem key={permission.id} className="flex flex-row items-start space-x-3 space-y-0">
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value?.includes(permission.id)}
-                                      onCheckedChange={(checked) => {
-                                        return checked
-                                          ? field.onChange([...field.value, permission.id])
-                                          : field.onChange(field.value?.filter((value) => value !== permission.id))
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="font-normal">{permission.label}</FormLabel>
-                                </FormItem>
-                              )
-                            }}
-                          />
-                        ))}
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-
-            <CardFooter className="flex justify-between bg-muted/50 rounded-b-lg">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.push(`/dashboard/super-admin/users/admins/${admin.id}`)}
-                disabled={isLoading}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isLoading} className="min-w-[120px]">
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Updating...
-                  </>
-                ) : (
-                  "Update Administrator"
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Address</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Enter full address"
+                        className="resize-none"
+                        {...field}
+                        value={field.value || ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
-              </Button>
-            </CardFooter>
-          </form>
-        </Form>
-      </Card>
-    </motion.div>
+              />
+            </div>
+
+            {/* School Assignment Section */}
+            <div className="space-y-6">
+              <div className="flex items-center gap-2">
+                <School className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">School Assignment</h3>
+              </div>
+
+              <FormField
+                control={form.control}
+                name="schoolId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Assigned School</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "NO_SCHOOL"}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a school" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="NO_SCHOOL">No School Assignment</SelectItem>
+                        {schools.map((school) => (
+                          <SelectItem key={school.id} value={school.id}>
+                            {school.name} ({school.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>Select the school this administrator will manage</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* Permissions Section */}
+            <div className="space-y-6">
+              <div className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">Permissions</h3>
+              </div>
+
+              <FormField
+                control={form.control}
+                name="permissions"
+                render={() => (
+                  <FormItem>
+                    <FormLabel>Administrator Permissions *</FormLabel>
+                    <FormDescription>Select the permissions this administrator should have</FormDescription>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {availablePermissions.map((permission) => (
+                        <FormField
+                          key={permission.id}
+                          control={form.control}
+                          name="permissions"
+                          render={({ field }) => {
+                            return (
+                              <FormItem key={permission.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value?.includes(permission.id) || false}
+                                    onCheckedChange={(checked) => {
+                                      const currentValue = field.value || []
+                                      return checked
+                                        ? field.onChange([...currentValue, permission.id])
+                                        : field.onChange(currentValue.filter((value) => value !== permission.id))
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormLabel className="font-normal">{permission.label}</FormLabel>
+                              </FormItem>
+                            )
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardContent>
+
+          <CardFooter className="flex justify-between bg-muted/50 rounded-b-lg">
+            <Button type="button" variant="outline" onClick={handleCancel} disabled={isLoading}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isLoading} className="min-w-[120px]">
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update Administrator"
+              )}
+            </Button>
+          </CardFooter>
+        </form>
+      </Form>
+    </Card>
   )
 }

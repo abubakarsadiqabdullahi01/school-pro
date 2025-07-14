@@ -2,11 +2,9 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { getSystemStats, getSchoolPerformance } from "@/app/actions/user-management"
 import { SuperAdminDashboard } from "@/components/dashboard/super-admin-dashboard"
-import { PageTransition } from "@/components/dashboard/page-transition"
 
 export default async function SuperAdminDashboardPage() {
   const session = await auth()
-
   if (!session?.user || session.user.role !== "SUPER_ADMIN") {
     redirect("/dashboard")
   }
@@ -16,22 +14,16 @@ export default async function SuperAdminDashboardPage() {
 
   if (!statsResult.success || !performanceResult.success) {
     return (
-      <PageTransition>
-        <div className="flex items-center justify-center h-96">
-          <div className="text-center">
-            <h3 className="text-lg font-semibold text-destructive">Error Loading Dashboard</h3>
-            <p className="text-muted-foreground">
-              {statsResult.error || performanceResult.error || "Failed to load dashboard data"}
-            </p>
-          </div>
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <h3 className="text-lg font-semibold text-destructive">Error Loading Dashboard</h3>
+          <p className="text-muted-foreground">
+            {statsResult.error || performanceResult.error || "Failed to load dashboard data"}
+          </p>
         </div>
-      </PageTransition>
+      </div>
     )
   }
 
-  return (
-    <PageTransition>
-      <SuperAdminDashboard stats={statsResult.data} schoolPerformance={performanceResult.data} />
-    </PageTransition>
-  )
+  return <SuperAdminDashboard stats={statsResult.data} schoolPerformance={performanceResult.data} />
 }
