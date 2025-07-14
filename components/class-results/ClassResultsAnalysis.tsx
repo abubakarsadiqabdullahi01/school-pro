@@ -32,10 +32,6 @@ interface ClassResultsAnalysisProps {
 export function ClassResultsAnalysis({
   results,
   subjects,
-  className,
-  termName,
-  sessionName,
-  summaryStats,
 }: ClassResultsAnalysisProps) {
   // Calculate gender performance comparison
   const genderAnalysis = useMemo(() => {
