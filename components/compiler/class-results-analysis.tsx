@@ -1,51 +1,36 @@
-"use client"
+"use client";
 
-import { useMemo } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Chart,
-  ChartContainer,
-  ChartBar,
-  ChartXAxis,
-  ChartYAxis,
-  ChartTooltip,
-} from "@/components/ui/chart"
+import { useMemo } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { ChartContainer, ChartTooltipContent, ChartLegendContent } from "@/components/ui/chart";
 
 interface ClassResultsAnalysisProps {
   results: Array<{
-    studentId: string
-    studentName: string
-    admissionNo: string
-    gender: string
-    subjects: Record<
-      string,
-      {
-        score: number | null
-        grade: string | null
-      }
-    >
-    totalScore: number
-    averageScore: number
-    grade: string
-    position: number
-  }>
+    studentId: string;
+    studentName: string;
+    admissionNo: string;
+    gender: string;
+    subjects: Record<string, { score: number | null; grade: string | null }>;
+    totalScore: number;
+    averageScore: number;
+    grade: string;
+    position: number;
+  }>;
   subjects: Array<{
-    id: string
-    name: string
-    code: string
-  }>
-  className: string
-  termName: string
-  sessionName: string
+    id: string;
+    name: string;
+    code: string;
+  }>;
+  className: string;
+  termName: string;
+  sessionName: string;
 }
 
 export function ClassResultsAnalysis({
   results,
   subjects,
-  className,
-  termName,
-  sessionName,
 }: ClassResultsAnalysisProps) {
   // Calculate gender distribution
   const genderDistribution = useMemo(() => {
@@ -53,45 +38,60 @@ export function ClassResultsAnalysis({
       male: 0,
       female: 0,
       other: 0,
-    }
+    };
 
     results.forEach((result) => {
-      if (result.gender === "MALE") distribution.male++
-      else if (result.gender === "FEMALE") distribution.female++
-      else distribution.other++
-    })
+      if (result.gender === "MALE") distribution.male++;
+      else if (result.gender === "FEMALE") distribution.female++;
+      else distribution.other++;
+    });
 
-    return distribution
-  }, [results])
+    return [
+      { name: "Male", count: distribution.male, color: "#2563eb" },
+      { name: "Female", count: distribution.female, color: "#ec4899" },
+      ...(distribution.other > 0 ? [{ name: "Other", count: distribution.other, color: "#6b7280" }] : []),
+    ];
+  }, [results]);
 
   // Calculate grade distribution
   const gradeDistribution = useMemo(() => {
-    const distribution: Record<string, number> = {}
+    const distribution: Record<string, number> = {};
 
     results.forEach((result) => {
       if (!distribution[result.grade]) {
-        distribution[result.grade] = 0
+        distribution[result.grade] = 0;
       }
-      distribution[result.grade]++
-    })
+      distribution[result.grade]++;
+    });
 
-    // Sort by grade (A, B, C, etc.)
     return Object.entries(distribution)
       .sort(([gradeA], [gradeB]) => gradeA.localeCompare(gradeB))
-      .map(([grade, count]) => ({ grade, count }))
-  }, [results])
+      .map(([grade, count]) => ({
+        grade,
+        count,
+        color: grade.startsWith("A")
+          ? "#22c55e"
+          : grade.startsWith("B")
+          ? "#3b82f6"
+          : grade.startsWith("C")
+          ? "#eab308"
+          : grade.startsWith("D") || grade.startsWith("E")
+          ? "#f97316"
+          : "#ef4444",
+      }));
+  }, [results]);
 
   // Calculate subject performance
   const subjectPerformance = useMemo(() => {
     return subjects.map((subject) => {
       const scores = results
         .map((result) => result.subjects[subject.id]?.score)
-        .filter((score): score is number => score !== null && score !== undefined)
+        .filter((score): score is number => score !== null && score !== undefined);
 
-      const totalScore = scores.reduce((sum, score) => sum + score, 0)
-      const averageScore = scores.length > 0 ? totalScore / scores.length : 0
-      const passCount = scores.filter((score) => score >= 40).length
-      const passRate = scores.length > 0 ? (passCount / scores.length) * 100 : 0
+      const totalScore = scores.reduce((sum, score) => sum + score, 0);
+      const averageScore = scores.length > 0 ? totalScore / scores.length : 0;
+      const passCount = scores.filter((score) => score >= 40).length;
+      const passRate = scores.length > 0 ? (passCount / scores.length) * 100 : 0;
 
       return {
         id: subject.id,
@@ -101,28 +101,61 @@ export function ClassResultsAnalysis({
         passRate,
         highestScore: Math.max(...scores, 0),
         lowestScore: scores.length > 0 ? Math.min(...scores) : 0,
-      }
-    })
-  }, [results, subjects])
+        color:
+          passRate >= 80
+            ? "#22c55e"
+            : passRate >= 60
+            ? "#3b82f6"
+            : passRate >= 40
+            ? "#eab308"
+            : "#ef4444",
+      };
+    });
+  }, [results, subjects]);
 
   // Calculate class statistics
   const classStats = useMemo(() => {
-    const totalStudents = results.length
-    const averageScores = results.map((r) => r.averageScore)
-    const classAverage = averageScores.reduce((sum, score) => sum + score, 0) / totalStudents
-    const passCount = results.filter((r) => r.averageScore >= 40).length
-    const passRate = (passCount / totalStudents) * 100
+    const totalStudents = results.length;
+    const averageScores = results.map((r) => r.averageScore);
+    const classAverage = averageScores.reduce((sum, score) => sum + score, 0) / totalStudents;
+    const passCount = results.filter((r) => r.averageScore >= 40).length;
+    const passRate = (passCount / totalStudents) * 100;
 
     return {
       totalStudents,
       classAverage,
       passCount,
       passRate,
-      highestAverage: Math.max(...averageScores),
-      lowestAverage: Math.min(...averageScores),
+      highestAverage: Math.max(...averageScores, 0),
+      lowestAverage: Math.min(...averageScores, 0),
       topStudent: results.find((r) => r.position === 1)?.studentName || "N/A",
-    }
-  }, [results])
+    };
+  }, [results]);
+
+  // Chart configurations
+  const gradeChartConfig = gradeDistribution.reduce(
+    (acc, { grade, color }) => ({
+      ...acc,
+      [grade]: { label: grade, color },
+    }),
+    {} as Record<string, { label: string; color: string }>,
+  );
+
+  const subjectChartConfig = subjectPerformance.reduce(
+    (acc, { code, color }) => ({
+      ...acc,
+      [code]: { label: code, color },
+    }),
+    {} as Record<string, { label: string; color: string }>,
+  );
+
+  const genderChartConfig = genderDistribution.reduce(
+    (acc, { name, color }) => ({
+      ...acc,
+      [name]: { label: name, color },
+    }),
+    {} as Record<string, { label: string; color: string }>,
+  );
 
   return (
     <div className="space-y-6">
@@ -134,7 +167,8 @@ export function ClassResultsAnalysis({
           <CardContent>
             <div className="text-2xl font-bold">{classStats.totalStudents}</div>
             <p className="text-xs text-muted-foreground">
-              {genderDistribution.male} Male, {genderDistribution.female} Female
+              {genderDistribution.find((g) => g.name === "Male")?.count} Male,{" "}
+              {genderDistribution.find((g) => g.name === "Female")?.count} Female
             </p>
           </CardContent>
         </Card>
@@ -185,33 +219,16 @@ export function ClassResultsAnalysis({
               <CardDescription>Distribution of grades across the class</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
-              <Chart className="h-[300px]">
-                <ChartTooltip />
-                <ChartContainer>
-                  <>
-                    {gradeDistribution.map(({ grade, count }) => (
-                      <ChartBar
-                        key={grade}
-                        value={count}
-                        name={grade}
-                        color={
-                          grade.startsWith("A")
-                            ? "green"
-                            : grade.startsWith("B")
-                              ? "blue"
-                              : grade.startsWith("C")
-                                ? "yellow"
-                                : grade.startsWith("D") || grade.startsWith("E")
-                                  ? "orange"
-                                  : "red"
-                        }
-                      />
-                    ))}
-                  </>
-                  <ChartXAxis />
-                  <ChartYAxis />
-                </ChartContainer>
-              </Chart>
+              <ChartContainer config={gradeChartConfig}>
+                <BarChart data={gradeDistribution} height={300}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="grade" />
+                  <YAxis />
+                  <Tooltip content={<ChartTooltipContent />} />
+                  <Legend content={<ChartLegendContent />} />
+                  <Bar dataKey="count" />
+                </BarChart>
+              </ChartContainer>
             </CardContent>
           </Card>
         </TabsContent>
@@ -223,31 +240,16 @@ export function ClassResultsAnalysis({
               <CardDescription>Average scores across different subjects</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
-              <Chart className="h-[300px]">
-                <ChartTooltip />
-                <ChartContainer>
-                  <>
-                    {subjectPerformance.map((subject) => (
-                      <ChartBar
-                        key={subject.id}
-                        value={subject.averageScore}
-                        name={subject.code}
-                        color={
-                          subject.passRate >= 80
-                            ? "green"
-                            : subject.passRate >= 60
-                              ? "blue"
-                              : subject.passRate >= 40
-                                ? "yellow"
-                                : "red"
-                        }
-                      />
-                    ))}
-                  </>
-                  <ChartXAxis />
-                  <ChartYAxis />
-                </ChartContainer>
-              </Chart>
+              <ChartContainer config={subjectChartConfig}>
+                <BarChart data={subjectPerformance} height={300}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="code" />
+                  <YAxis />
+                  <Tooltip content={<ChartTooltipContent />} />
+                  <Legend content={<ChartLegendContent />} />
+                  <Bar dataKey="averageScore" />
+                </BarChart>
+              </ChartContainer>
             </CardContent>
           </Card>
 
@@ -291,20 +293,16 @@ export function ClassResultsAnalysis({
               <CardDescription>Distribution of students by gender</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
-              <Chart className="h-[300px]">
-                <ChartTooltip />
-                <ChartContainer>
-                  <>
-                    <ChartBar value={genderDistribution.male} name="Male" color="blue" />
-                    <ChartBar value={genderDistribution.female} name="Female" color="pink" />
-                    {genderDistribution.other > 0 && (
-                      <ChartBar value={genderDistribution.other} name="Other" color="gray" />
-                    )}
-                  </>
-                  <ChartXAxis />
-                  <ChartYAxis />
-                </ChartContainer>
-              </Chart>
+              <ChartContainer config={genderChartConfig}>
+                <BarChart data={genderDistribution} height={300}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip content={<ChartTooltipContent />} />
+                  <Legend content={<ChartLegendContent />} />
+                  <Bar dataKey="count" />
+                </BarChart>
+              </ChartContainer>
             </CardContent>
           </Card>
 
@@ -318,11 +316,11 @@ export function ClassResultsAnalysis({
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Male Students</h3>
                   {(() => {
-                    const maleStudents = results.filter((r) => r.gender === "MALE")
+                    const maleStudents = results.filter((r) => r.gender === "MALE");
                     const maleAvg =
-                      maleStudents.reduce((sum, r) => sum + r.averageScore, 0) / (maleStudents.length || 1)
-                    const malePassCount = maleStudents.filter((r) => r.averageScore >= 40).length
-                    const malePassRate = (malePassCount / (maleStudents.length || 1)) * 100
+                      maleStudents.reduce((sum, r) => sum + r.averageScore, 0) / (maleStudents.length || 1);
+                    const malePassCount = maleStudents.filter((r) => r.averageScore >= 40).length;
+                    const malePassRate = (malePassCount / (maleStudents.length || 1)) * 100;
 
                     return (
                       <div className="space-y-2">
@@ -334,17 +332,17 @@ export function ClassResultsAnalysis({
                           {maleStudents.length > 0 ? Math.min(...maleStudents.map((s) => s.position)) : "N/A"}
                         </p>
                       </div>
-                    )
+                    );
                   })()}
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Female Students</h3>
                   {(() => {
-                    const femaleStudents = results.filter((r) => r.gender === "FEMALE")
+                    const femaleStudents = results.filter((r) => r.gender === "FEMALE");
                     const femaleAvg =
-                      femaleStudents.reduce((sum, r) => sum + r.averageScore, 0) / (femaleStudents.length || 1)
-                    const femalePassCount = femaleStudents.filter((r) => r.averageScore >= 40).length
-                    const femalePassRate = (femalePassCount / (femaleStudents.length || 1)) * 100
+                      femaleStudents.reduce((sum, r) => sum + r.averageScore, 0) / (femaleStudents.length || 1);
+                    const femalePassCount = femaleStudents.filter((r) => r.averageScore >= 40).length;
+                    const femalePassRate = (femalePassCount / (femaleStudents.length || 1)) * 100;
 
                     return (
                       <div className="space-y-2">
@@ -356,7 +354,7 @@ export function ClassResultsAnalysis({
                           {femaleStudents.length > 0 ? Math.min(...femaleStudents.map((s) => s.position)) : "N/A"}
                         </p>
                       </div>
-                    )
+                    );
                   })()}
                 </div>
               </div>
@@ -365,5 +363,5 @@ export function ClassResultsAnalysis({
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }

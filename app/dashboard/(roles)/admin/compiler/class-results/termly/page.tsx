@@ -4,7 +4,6 @@ import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { ClassResultsTermlyComponent } from "@/components/compiler/class-results-termly"
 import type { ClassLevel } from "@prisma/client"
-import { motion } from 'framer-motion';
 
 export default async function AdminClassResultsTermlyPage() {
   const session = await auth()
