@@ -1,4 +1,5 @@
 // app/maintenance/page.tsx
+"use client"
 import { AlertCircle, Server, CloudOff, RefreshCw, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,7 +28,7 @@ export default function MaintenancePage() {
             </div>
           </div>
           <h1 className="text-3xl font-bold text-gray-900">System Maintenance</h1>
-          <p className="text-gray-600">We're currently performing essential maintenance</p>
+          <p className="text-gray-600">We are currently performing essential maintenance</p>
         </div>
 
         {/* Main Card */}
@@ -64,9 +65,9 @@ export default function MaintenancePage() {
             {/* Alert Message */}
             <Alert variant="default" className="bg-slate-50 border-slate-200">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>What's Happening?</AlertTitle>
+              <AlertTitle>What is Happening?</AlertTitle>
               <AlertDescription>
-                We're performing critical system updates to improve performance and security. 
+                We are performing critical system updates to improve performance and security. 
                 This maintenance is essential to ensure the best experience for all users.
               </AlertDescription>
             </Alert>
