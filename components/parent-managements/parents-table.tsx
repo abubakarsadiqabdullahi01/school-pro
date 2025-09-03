@@ -68,12 +68,14 @@ export function ParentsTable({ parents }: ParentsTableProps) {
       parent.phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
       parent.occupation.toLowerCase().includes(searchQuery.toLowerCase())
 
+    const pg = parent.gender ? String(parent.gender).toUpperCase() : null
+
     const matchesGender =
       genderFilter === "all" ||
-      (genderFilter === "MALE" && parent.gender === "MALE") ||
-      (genderFilter === "FEMALE" && parent.gender === "FEMALE") ||
-      (genderFilter === "OTHER" && parent.gender === "OTHER") ||
-      (genderFilter === "UNSPECIFIED" && parent.gender === null)
+      (genderFilter === "MALE" && pg === "MALE") ||
+      (genderFilter === "FEMALE" && pg === "FEMALE") ||
+      (genderFilter === "OTHER" && pg === "OTHER") ||
+      (genderFilter === "UNSPECIFIED" && pg === null)
 
     return matchesSearch && matchesGender
   })
@@ -197,21 +199,17 @@ export function ParentsTable({ parents }: ParentsTableProps) {
                       </TableCell>
                       <TableCell>{parent.occupation || "Not specified"}</TableCell>
                       <TableCell>
-                        {parent.gender ? (
-                          <Badge
-                            variant={
-                              parent.gender === "MALE"
-                                ? "default"
-                                : parent.gender === "FEMALE"
-                                  ? "secondary"
-                                  : "outline"
-                            }
-                          >
-                            {parent.gender === "MALE" ? "Male" : parent.gender === "FEMALE" ? "Female" : "Other"}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">Not specified</Badge>
-                        )}
+                        {(() => {
+                          const g = parent.gender ? String(parent.gender).toUpperCase() : null
+                          if (!g) return <Badge variant="outline">Not specified</Badge>
+                          const variant = g === "MALE" ? "default" : g === "FEMALE" ? "secondary" : "outline"
+                          const label = g === "MALE" ? "Male" : g === "FEMALE" ? "Female" : "Other"
+                          return (
+                            <Badge variant={variant}>
+                              {label}
+                            </Badge>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Badge variant={parent.studentCount > 0 ? "default" : "outline"}>

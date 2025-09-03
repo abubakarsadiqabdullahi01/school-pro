@@ -421,109 +421,118 @@ export async function unlinkStudentFromParent(studentParentId: string) {
   }
 }
 
-// Get detailed parent information with linked students
 export async function getParentDetails(parentId: string) {
-    try {
-      const authResult = await checkAuthorization(["SUPER_ADMIN", "ADMIN"]);
-      if (!authResult.success) return authResult;
-  
-      const schoolResult = await getSchoolId(authResult.user);
-      if (!schoolResult.success) return schoolResult;
-  
-      const parent = await prisma.parent.findUnique({
-        where: { id: parentId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              phone: true,
-              gender: true,
-              state: true,
-              lga: true,
-              address: true,
-              credentials: { where: { type: "EMAIL" }, select: { id: true, value: true } },
-              createdAt: true,
-            },
+  try {
+    const authResult = await checkAuthorization(["SUPER_ADMIN", "ADMIN"]);
+    if (!authResult.success) return authResult;
+
+    const schoolResult = await getSchoolId(authResult.user);
+    if (!schoolResult.success) return schoolResult;
+
+    const parent = await prisma.parent.findUnique({
+      where: { id: parentId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            gender: true,
+            state: true,
+            lga: true,
+            address: true,
+            credentials: { where: { type: "EMAIL" }, select: { id: true, value: true } },
+            createdAt: true,
           },
-          school: {
-            select: { id: true, name: true, code: true },
-          },
-          students: {
-            include: {
-              student: {
-                include: {
-                  user: {
-                    select: { firstName: true, lastName: true, gender: true, dateOfBirth: true },
-                  },
-                  classTerms: {
-                    include: {
-                      classTerm: {
-                        include: {
-                          class: { select: { id: true, name: true } },
-                          term: { select: { id: true, name: true, session: { select: { name: true } } } },
+        },
+        school: {
+          select: { id: true, name: true, code: true },
+        },
+        students: {
+          include: {
+            student: {
+              include: {
+                user: {
+                  select: { firstName: true, lastName: true, gender: true, dateOfBirth: true },
+                },
+                classTerms: {
+                  include: {
+                    classTerm: {
+                      include: {
+                        class: { select: { id: true, name: true } },
+                        term: { 
+                          include: { 
+                            session: { select: { name: true } } 
+                          } 
                         },
                       },
                     },
-                    orderBy: { createdAt: "desc" },
-                    take: 1,
                   },
-                  assessments: {
-                    select: {
-                      id: true,
-                      totalScore: true,
-                      grade: true,
-                      createdAt: true,
-                      classSubject: {
-                        select: {
-                          subject: {
-                            select: {
-                              name: true,
-                            },
-                          },
-                        },
+                  orderBy: { createdAt: "desc" },
+                  take: 1,
+                },
+                assessments: {
+                  include: {
+                    subject: {
+                      select: {
+                        name: true,
                       },
                     },
-                    orderBy: { createdAt: "desc" },
-                    take: 10,
+                    term: {
+                      select: {
+                        name: true,
+                      },
+                    },
                   },
-                  payments: {
-                    select: { id: true, amount: true, status: true, paymentDate: true },
-                    orderBy: { paymentDate: "desc" },
-                    take: 5,
+                  orderBy: { createdAt: "desc" },
+                  take: 10,
+                },
+                payments: {
+                  include: {
+                    feeStructure: {
+                      select: {
+                        name: true,
+                      },
+                    },
                   },
+                  orderBy: { paymentDate: "desc" },
+                  take: 5,
                 },
               },
             },
           },
         },
-      });
-  
-      if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
-        return { success: false, error: "Parent not found or unauthorized" };
-      }
-  
-      const formattedParent = {
-        id: parent.id,
-        userId: parent.userId,
-        firstName: parent.user.firstName,
-        lastName: parent.user.lastName,
-        fullName: `${parent.user.firstName} ${parent.user.lastName}`,
-        email: parent.user.credentials[0]?.value || "",
-        emailCredentialId: parent.user.credentials[0]?.id || "",
-        phone: parent.user.phone || "",
-        occupation: parent.occupation || "",
-        gender: parent.user.gender,
-        state: parent.user.state || "",
-        lga: parent.user.lga || "",
-        address: parent.user.address || "",
-        school: {
-          id: parent.school.id,
-          name: parent.school.name,
-          code: parent.school.code,
-        },
-        students: parent.students.map((sp) => ({
+      },
+    });
+
+    if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
+      return { success: false, error: "Parent not found or unauthorized" };
+    }
+
+    const formattedParent = {
+      id: parent.id,
+      userId: parent.userId,
+      firstName: parent.user.firstName,
+      lastName: parent.user.lastName,
+      fullName: `${parent.user.firstName} ${parent.user.lastName}`,
+      email: parent.user.credentials[0]?.value || "",
+      emailCredentialId: parent.user.credentials[0]?.id || "",
+      phone: parent.user.phone || "",
+      occupation: parent.occupation || "",
+      gender: parent.user.gender,
+      state: parent.user.state || "",
+      lga: parent.user.lga || "",
+      address: parent.user.address || "",
+      school: {
+        id: parent.school.id,
+        name: parent.school.name,
+        code: parent.school.code,
+      },
+      students: parent.students.map((sp) => {
+        const latestClassTerm = sp.student.classTerms[0]?.classTerm;
+        
+        return {
           linkId: sp.id,
           studentId: sp.student.id,
           name: `${sp.student.user.firstName} ${sp.student.user.lastName}`,
@@ -531,36 +540,39 @@ export async function getParentDetails(parentId: string) {
           gender: sp.student.user.gender,
           dateOfBirth: sp.student.user.dateOfBirth?.toISOString(),
           relationship: sp.relationship,
-          class: sp.student.classTerms[0]
+          class: latestClassTerm
             ? {
-                name: sp.student.classTerms[0].classTerm.class.name,
-                term: sp.student.classTerms[0].classTerm.term.name,
-                session: sp.student.classTerms[0].classTerm.term.session.name,
+                name: latestClassTerm.class.name,
+                term: latestClassTerm.term.name,
+                session: latestClassTerm.term.session.name,
               }
             : null,
           assessments: sp.student.assessments.map((a) => ({
             id: a.id,
-            subject: a.classSubject?.subject?.name || "N/A",
-            totalScore: a.totalScore || 0,
-            grade: a.grade || "N/A",
+            subject: a.subject?.name || "N/A",
+            // Calculate total score from individual components
+            totalScore: (a.ca1 || 0) + (a.ca2 || 0) + (a.ca3 || 0) + (a.exam || 0),
+            grade: "N/A", // You might want to calculate this based on your grading system
             date: a.createdAt.toISOString(),
           })),
           payments: sp.student.payments.map((p) => ({
             id: p.id,
             amount: p.amount,
             status: p.status,
+            description: p.feeStructure?.name || "Fee Payment",
             date: p.paymentDate.toISOString(),
           })),
-        })),
-        createdAt: parent.user.createdAt.toISOString(),
-      };
-  
-      return { success: true, data: formattedParent };
-    } catch (error) {
-      console.error("Error fetching parent details:", error);
-      return { success: false, error: error instanceof Error ? error.message : "Failed to fetch parent details" };
-    }
+        };
+      }),
+      createdAt: parent.user.createdAt.toISOString(),
+    };
+
+    return { success: true, data: formattedParent };
+  } catch (error) {
+    console.error("Error fetching parent details:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch parent details" };
   }
+}
 
   // Link a student to a parent
 export async function linkStudentToParent(data: {

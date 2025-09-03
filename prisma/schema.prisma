@@ -84,6 +84,10 @@ model Assessment {
   ca3  Float?
   exam Float?
 
+  // Derived / summary fields
+  grade      String?
+  remark     String?
+
   // Status Flags
   isAbsent    Boolean @default(false)
   isExempt    Boolean @default(false)

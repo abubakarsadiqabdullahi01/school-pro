@@ -134,7 +134,7 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
                           <div className="flex items-center gap-3">
                             {user.avatarUrl ? (
                               <Image
-                                src={user.avatarUrl || "/placeholder.svg"}
+                                src={user.avatarUrl}
                                 alt={user.name}
                                 className="h-8 w-8 rounded-full object-cover"
                                 width={32}

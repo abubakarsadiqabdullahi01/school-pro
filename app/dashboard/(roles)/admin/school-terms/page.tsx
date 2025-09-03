@@ -34,14 +34,12 @@ export default async function AdminSchoolTermsPage() {
   const terms = await prisma.term.findMany({
     where: {
       session: {
-        schoolId: admin.schoolId,
+        schoolId: admin.school.id,
       },
     },
     include: {
       session: {
-        select: {
-          id: true,
-          name: true,
+        include: {
           school: {
             select: {
               id: true,

@@ -182,7 +182,11 @@ export function SubjectResultEntry({
         ca2: assessment.ca2,
         ca3: assessment.ca3,
         exam: assessment.exam,
-        totalScore: assessment.totalScore,
+        totalScore:
+          (assessment.ca1 ?? 0) +
+          (assessment.ca2 ?? 0) +
+          (assessment.ca3 ?? 0) +
+          (assessment.exam ?? 0),
         grade: assessment.grade,
         remark: assessment.remark,
         isAbsent: assessment.isAbsent,
@@ -262,7 +266,11 @@ export function SubjectResultEntry({
       ca2: assessment.ca2,
       ca3: assessment.ca3,
       exam: assessment.exam,
-      totalScore: assessment.totalScore,
+      totalScore:
+          (assessment.ca1 ?? 0) +
+          (assessment.ca2 ?? 0) +
+          (assessment.ca3 ?? 0) +
+          (assessment.exam ?? 0),
       grade: assessment.grade,
       remark: assessment.remark,
       isAbsent: assessment.isAbsent,

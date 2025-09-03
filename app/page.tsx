@@ -4,7 +4,7 @@ import type React from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Book, Calendar, ChevronRight, GraduationCap, LineChart, Loader2, School, Star, Users } from "lucide-react"
+import { Book, Calendar, ChevronRight, GraduationCap, Loader2, School, Star, Users, Mail, Phone, MapPin, Code, Cpu, Database, Cloud, Shield, Zap, CreditCard } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
@@ -33,8 +33,8 @@ const itemVariant = {
 }
 
 function AnimatedSection({ children, className }: { children: React.ReactNode; className?: string }) {
-  const ref = useRef(null)
-  const isInView = useInView(ref, { once: true, amount: 0.2 })
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, amount: 0.2 });
 
   return (
     <motion.section
@@ -46,7 +46,7 @@ function AnimatedSection({ children, className }: { children: React.ReactNode; c
     >
       {children}
     </motion.section>
-  )
+  );
 }
 
 export default function SchoolLandingPage() {
@@ -61,6 +61,52 @@ export default function SchoolLandingPage() {
     }, 300)
   }
 
+  // Expert programmers data
+  const expertProgrammers = [
+    {
+      name: "Sarah Johnson",
+      role: "Full Stack Developer",
+      expertise: "React, Node.js, Cloud Architecture",
+      experience: "8+ years",
+      icon: <Code className="h-6 w-6" />
+    },
+    {
+      name: "Michael Chen",
+      role: "DevOps Engineer",
+      expertise: "AWS, Docker, CI/CD Pipelines",
+      experience: "7+ years",
+      icon: <Cpu className="h-6 w-6" />
+    },
+    {
+      name: "Jessica Williams",
+      role: "Database Architect",
+      expertise: "SQL, MongoDB, Data Optimization",
+      experience: "9+ years",
+      icon: <Database className="h-6 w-6" />
+    },
+    {
+      name: "David Kim",
+      role: "Cloud Solutions Expert",
+      expertise: "Azure, Google Cloud, Scalability",
+      experience: "10+ years",
+      icon: <Cloud className="h-6 w-6" />
+    },
+    {
+      name: "Amanda Rodriguez",
+      role: "Security Specialist",
+      expertise: "Cybersecurity, Encryption, Compliance",
+      experience: "8+ years",
+      icon: <Shield className="h-6 w-6" />
+    },
+    {
+      name: "James Wilson",
+      role: "Performance Engineer",
+      expertise: "Optimization, Load Testing, Caching",
+      experience: "7+ years",
+      icon: <Zap className="h-6 w-6" />
+    }
+  ]
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center">
       {/* Header */}
@@ -68,7 +114,7 @@ export default function SchoolLandingPage() {
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
       >
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
@@ -76,17 +122,17 @@ export default function SchoolLandingPage() {
             <span className="text-xl font-bold">SchoolPro</span>
           </div>
           <nav className="hidden md:flex gap-6">
-            <Link href="#features" className="text-sm font-medium hover:text-primary">
+            <Link href="#features" className="text-sm font-medium hover:text-primary transition-colors">
               Features
             </Link>
-            <Link href="#testimonials" className="text-sm font-medium hover:text-primary">
-              Teachers
+            <Link href="#programmers" className="text-sm font-medium hover:text-primary transition-colors">
+              Our Team
             </Link>
-            <Link href="#pricing" className="text-sm font-medium hover:text-primary">
+            <Link href="#pricing" className="text-sm font-medium hover:text-primary transition-colors">
               Registration
             </Link>
-            <Link href="#" className="text-sm font-medium hover:text-primary">
-              About
+            <Link href="#contact" className="text-sm font-medium hover:text-primary transition-colors">
+              Contact
             </Link>
           </nav>
           <div className="flex items-center gap-4">
@@ -107,7 +153,7 @@ export default function SchoolLandingPage() {
       </motion.header>
 
       {/* Hero Section */}
-      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 xl:py-48">
+      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 xl:py-48 bg-gradient-to-b from-background to-muted/30">
         <div className="container px-4 md:px-6">
           <div className="grid gap-6 lg:grid-cols-2 lg:gap-12 xl:grid-cols-2">
             <div className="flex flex-col justify-center space-y-4">
@@ -116,9 +162,10 @@ export default function SchoolLandingPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.7, delay: 0.2 }}
-                  className="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none"
+                  className="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent"
                 >
                   Modern School Management
+                  <span className="block text-primary mt-2">Reimagined</span>
                 </motion.h1>
                 <motion.p
                   initial={{ opacity: 0, y: 20 }}
@@ -127,7 +174,7 @@ export default function SchoolLandingPage() {
                   className="max-w-[600px] text-muted-foreground md:text-xl"
                 >
                   The comprehensive platform that helps schools manage students, teachers, classes, and administrative
-                  tasks efficiently.
+                  tasks efficiently with cutting-edge technology.
                 </motion.p>
               </div>
               <motion.div
@@ -138,7 +185,7 @@ export default function SchoolLandingPage() {
               >
                 <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                   <Button size="lg" className="gap-1">
-                    Learn More <ChevronRight className="h-4 w-4" />
+                    Get Started <ChevronRight className="h-4 w-4" />
                   </Button>
                 </motion.div>
                 <motion.div
@@ -178,20 +225,56 @@ export default function SchoolLandingPage() {
               transition={{ duration: 0.8, delay: 0.5 }}
               className="flex items-center justify-center"
             >
-              <div className="relative w-full h-[300px] sm:h-[400px] lg:h-[500px] rounded-lg overflow-hidden shadow-xl">
-                <img
-                  src="/landingpage.webp"
-                  alt="SchoolPro Dashboard"
-                  className="object-cover w-full h-full"
-                />
-              </div>
+              <motion.div
+                initial={{ scale: 0.98, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.5 }}
+                className="relative w-full h-[260px] sm:h-[360px] lg:h-[420px] rounded-xl overflow-hidden shadow-2xl flex items-center justify-center bg-gradient-to-tr from-sky-600 via-indigo-600 to-slate-700"
+              >
+                <div className="flex flex-col items-center justify-center text-center text-slate-50 px-5 sm:px-8">
+                  <div className="rounded-xl bg-white/8 p-4 sm:p-6 backdrop-blur-sm shadow-md">
+                    {/* File with code icon (inline SVG) */}
+                    <svg
+                      role="img"
+                      aria-label="File with code icon"
+                      viewBox="0 0 48 48"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-16 sm:h-20 lg:h-24 w-auto"
+                    >
+                      <rect x="4" y="6" width="40" height="36" rx="4" fill="rgba(255,255,255,0.08)" />
+                      <path d="M16 20l-4 4 4 4" stroke="rgba(255,255,255,0.95)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M32 20l4 4-4 4" stroke="rgba(255,255,255,0.95)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M12 12h12" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" strokeLinecap="round"/>
+                      <path d="M12 16h24" stroke="rgba(255,255,255,0.08)" strokeWidth="1.2" strokeLinecap="round"/>
+                    </svg>
+                  </div>
+
+                  <div className="mt-4">
+                    <h3 className="text-xl sm:text-2xl lg:text-3xl font-semibold leading-tight">
+                      SchoolPro Premium
+                    </h3>
+                    <p className="mt-2 text-xs sm:text-sm lg:text-base text-slate-100/90 max-w-xl">
+                      Upgrade for advanced analytics, priority support and customizable reports tailored to your school's structure.
+                    </p>
+                    <div className="mt-4 flex gap-3 items-center justify-center">
+                      <Button size="md" className="bg-white text-indigo-700 hover:bg-white/95">
+                        Get Premium
+                      </Button>
+                      <Button size="md" variant="outline" className="text-slate-100/95 border-white/30">
+                        Learn More
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
             </motion.div>
           </div>
         </div>
       </AnimatedSection>
 
       {/* Features Section */}
-      <AnimatedSection  className="w-full py-12 md:py-24 lg:py-32 bg-muted/50">
+      <AnimatedSection id="features" className="w-full py-12 md:py-24 lg:py-32 bg-muted/30">
         <div className="container px-4 md:px-6">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
@@ -213,9 +296,11 @@ export default function SchoolLandingPage() {
             className="mx-auto grid max-w-5xl items-center gap-6 py-12 lg:grid-cols-3"
           >
             <motion.div variants={itemVariant} whileHover={{ y: -10, transition: { duration: 0.3 } }}>
-              <Card>
+              <Card className="h-full transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
-                  <Book className="h-10 w-10 text-primary mb-2" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                    <Book className="h-6 w-6 text-primary" />
+                  </div>
                   <CardTitle>Student Management</CardTitle>
                   <CardDescription>
                     Easily manage student records, attendance, grades, and performance tracking in one centralized
@@ -225,9 +310,11 @@ export default function SchoolLandingPage() {
               </Card>
             </motion.div>
             <motion.div variants={itemVariant} whileHover={{ y: -10, transition: { duration: 0.3 } }}>
-              <Card>
+              <Card className="h-full transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
-                  <Users className="h-10 w-10 text-primary mb-2" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                    <Users className="h-6 w-6 text-primary" />
+                  </div>
                   <CardTitle>Teacher Management</CardTitle>
                   <CardDescription>
                     Streamline teacher scheduling, performance evaluations, and professional development tracking.
@@ -236,9 +323,11 @@ export default function SchoolLandingPage() {
               </Card>
             </motion.div>
             <motion.div variants={itemVariant} whileHover={{ y: -10, transition: { duration: 0.3 } }}>
-              <Card>
+              <Card className="h-full transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
-                  <Calendar className="h-10 w-10 text-primary mb-2" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                    <Calendar className="h-6 w-6 text-primary" />
+                  </div>
                   <CardTitle>Class Scheduling</CardTitle>
                   <CardDescription>
                     Create and manage class schedules, room assignments, and academic calendars with ease.
@@ -250,8 +339,52 @@ export default function SchoolLandingPage() {
         </div>
       </AnimatedSection>
 
+      {/* Expert Programmers Section */}
+      <AnimatedSection id="programmers" className="w-full py-12 md:py-24 lg:py-32">
+        <div className="container px-4 md:px-6">
+          <div className="flex flex-col items-center justify-center space-y-4 text-center">
+            <div className="space-y-2">
+              <div className="inline-block rounded-lg bg-primary px-3 py-1 text-sm text-primary-foreground">
+                Our Team
+              </div>
+              <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Expert Developers</h2>
+              <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
+                Meet the brilliant minds behind SchoolPro's powerful platform
+              </p>
+            </div>
+          </div>
+          <motion.div
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            className="mx-auto grid max-w-6xl gap-6 py-12 md:grid-cols-2 lg:grid-cols-3"
+          >
+            {expertProgrammers.map((programmer, index) => (
+              <motion.div key={index} variants={itemVariant} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
+                <Card className="h-full transition-all duration-300 hover:shadow-lg">
+                  <CardHeader className="flex flex-col items-center text-center">
+                    <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+                      {programmer.icon}
+                    </div>
+                    <CardTitle>{programmer.name}</CardTitle>
+                    <CardDescription className="text-primary font-medium">{programmer.role}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">{programmer.expertise}</p>
+                    <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-primary/10 text-primary">
+                      {programmer.experience}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </AnimatedSection>
+
       {/* Testimonials Section */}
-      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32">
+      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 bg-muted/30">
         <div className="container px-4 md:px-6">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
@@ -272,7 +405,7 @@ export default function SchoolLandingPage() {
             className="mx-auto grid max-w-5xl gap-6 py-12 lg:grid-cols-2"
           >
             <motion.div variants={itemVariant}>
-              <Card>
+              <Card className="transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <motion.div
@@ -302,11 +435,9 @@ export default function SchoolLandingPage() {
                 </CardContent>
                 <CardFooter>
                   <div className="flex items-center gap-4">
-                    <img
-                      src="/placeholder.svg?height=40&width=40"
-                      alt="Mrs. Emily Johnson"
-                      className="rounded-full h-10 w-10 object-cover"
-                    />
+                    <div className="rounded-full h-10 w-10 bg-primary/10 flex items-center justify-center">
+                      <Users className="h-6 w-6 text-primary" />
+                    </div>
                     <div>
                       <p className="text-sm font-medium">Mrs. Emily Johnson</p>
                       <p className="text-xs text-muted-foreground">Mathematics Teacher, Lincoln High School</p>
@@ -316,7 +447,7 @@ export default function SchoolLandingPage() {
               </Card>
             </motion.div>
             <motion.div variants={itemVariant}>
-              <Card>
+              <Card className="transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <motion.div
@@ -346,11 +477,10 @@ export default function SchoolLandingPage() {
                 </CardContent>
                 <CardFooter>
                   <div className="flex items-center gap-4">
-                    <img
-                      src="/placeholder.svg?height=40&width=40"
-                      alt="Mr. David Rodriguez"
-                      className="rounded-full h-10 w-10 object-cover"
-                    />
+                    <div className="rounded-full h-10 w-10 bg-primary/10 flex items-center justify-center">
+                      <Users className="h-6 w-6 text-primary" />
+                    </div>
+                    
                     <div>
                       <p className="text-sm font-medium">Mr. David Rodriguez</p>
                       <p className="text-xs text-muted-foreground">Science Department Head, Washington Academy</p>
@@ -364,7 +494,7 @@ export default function SchoolLandingPage() {
       </AnimatedSection>
 
       {/* Pricing Section (Registration, Schedule, School Fees) */}
-      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 bg-muted/50">
+      <AnimatedSection id="pricing" className="w-full py-12 md:py-24 lg:py-32">
         <div className="container px-4 md:px-6">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
@@ -385,9 +515,11 @@ export default function SchoolLandingPage() {
             className="mx-auto grid max-w-5xl gap-6 py-12 lg:grid-cols-3"
           >
             <motion.div variants={itemVariant} whileHover={{ y: -10, transition: { duration: 0.3 } }}>
-              <Card>
+              <Card className="h-full transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
-                  <GraduationCap className="h-10 w-10 text-primary mb-2" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                    <GraduationCap className="h-6 w-6 text-primary" />
+                  </div>
                   <CardTitle>Registration</CardTitle>
                   <CardDescription>Student enrollment process and requirements.</CardDescription>
                 </CardHeader>
@@ -420,9 +552,11 @@ export default function SchoolLandingPage() {
               </Card>
             </motion.div>
             <motion.div variants={itemVariant} whileHover={{ y: -10, transition: { duration: 0.3 } }}>
-              <Card>
+              <Card className="h-full transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
-                  <Calendar className="h-10 w-10 text-primary mb-2" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                    <Calendar className="h-6 w-6 text-primary" />
+                  </div>
                   <CardTitle>Schedule</CardTitle>
                   <CardDescription>Academic calendar and daily schedules.</CardDescription>
                 </CardHeader>
@@ -455,9 +589,11 @@ export default function SchoolLandingPage() {
               </Card>
             </motion.div>
             <motion.div variants={itemVariant} whileHover={{ y: -10, transition: { duration: 0.3 } }}>
-              <Card>
+              <Card className="h-full transition-all duration-300 hover:shadow-lg">
                 <CardHeader>
-                  <LineChart className="h-10 w-10 text-primary mb-2" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                    <CreditCard className="h-6 w-6 text-primary" />
+                  </div>
                   <CardTitle>School Fees</CardTitle>
                   <CardDescription>Tuition and additional costs information.</CardDescription>
                 </CardHeader>
@@ -494,13 +630,132 @@ export default function SchoolLandingPage() {
         </div>
       </AnimatedSection>
 
+      {/* QR Code Section */}
+      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 bg-muted/30">
+        <div className="container px-4 md:px-6">
+          <div className="flex flex-col items-center justify-center space-y-4 text-center">
+            <div className="space-y-2">
+              <div className="inline-block rounded-lg bg-primary px-3 py-1 text-sm text-primary-foreground">
+                Digital Access
+              </div>
+              <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Scan to Learn More</h2>
+              <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
+                Use your phone's camera to scan our QR code for instant access to our digital brochure and school information.
+              </p>
+            </div>
+          </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            viewport={{ once: true }}
+            className="flex justify-center py-12"
+          >
+            <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center">
+              <div className="w-48 h-48 bg-gradient-to-r from-blue-400 to-purple-500 rounded-lg flex items-center justify-center">
+                <div className="text-white text-center p-4">
+                  <div className="grid grid-cols-3 gap-1">
+                    {[...Array(9)].map((_, i) => (
+                      <div key={i} className={`w-4 h-4 rounded-full ${i % 4 === 0 ? 'bg-white' : 'bg-transparent border border-white'}`}></div>
+                    ))}
+                  </div>
+                  <p className="text-xs mt-2 font-medium">Scan with your phone</p>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground mt-4">Scan this QR code to visit our website</p>
+            </div>
+          </motion.div>
+        </div>
+      </AnimatedSection>
+
+      {/* Contact Section */}
+      <AnimatedSection id="contact" className="w-full py-12 md:py-24 lg:py-32">
+        <div className="container px-4 md:px-6">
+          <div className="flex flex-col items-center justify-center space-y-4 text-center">
+            <div className="space-y-2">
+              <div className="inline-block rounded-lg bg-primary px-3 py-1 text-sm text-primary-foreground">
+                Contact Us
+              </div>
+              <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Get in Touch</h2>
+              <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
+                Have questions? We'd love to hear from you. Send us a message and we'll respond as soon as possible.
+              </p>
+            </div>
+          </div>
+          <motion.div
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+            className="mx-auto grid max-w-5xl gap-6 py-12 md:grid-cols-3"
+          >
+            <motion.div variants={itemVariant} className="flex flex-col items-center text-center">
+              <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                <Phone className="h-6 w-6 text-primary" />
+              </div>
+              <h3 className="text-lg font-bold">Phone</h3>
+              <p className="text-muted-foreground">+1 (555) 123-4567</p>
+              <p className="text-sm text-muted-foreground mt-2">Mon-Fri from 8am to 5pm</p>
+            </motion.div>
+            
+            <motion.div variants={itemVariant} className="flex flex-col items-center text-center">
+              <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                <Mail className="h-6 w-6 text-primary" />
+              </div>
+              <h3 className="text-lg font-bold">Email</h3>
+              <p className="text-muted-foreground">info@schoolpro.com</p>
+              <p className="text-sm text-muted-foreground mt-2">Send us a message anytime</p>
+            </motion.div>
+            
+            <motion.div variants={itemVariant} className="flex flex-col items-center text-center">
+              <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                <MapPin className="h-6 w-6 text-primary" />
+              </div>
+              <h3 className="text-lg font-bold">Office</h3>
+              <p className="text-muted-foreground">123 Education Ave</p>
+              <p className="text-sm text-muted-foreground mt-2">San Francisco, CA 94103</p>
+            </motion.div>
+          </motion.div>
+          
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            viewport={{ once: true }}
+            className="max-w-2xl mx-auto bg-card rounded-xl p-6 shadow-sm border"
+          >
+            <form className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="name" className="block text-sm font-medium mb-1">Name</label>
+                  <input type="text" id="name" className="w-full px-3 py-2 border rounded-md" placeholder="Your name" />
+                </div>
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium mb-1">Email</label>
+                  <input type="email" id="email" className="w-full px-3 py-2 border rounded-md" placeholder="Your email" />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="subject" className="block text-sm font-medium mb-1">Subject</label>
+                <input type="text" id="subject" className="w-full px-3 py-2 border rounded-md" placeholder="Subject" />
+              </div>
+              <div>
+                <label htmlFor="message" className="block text-sm font-medium mb-1">Message</label>
+                <textarea id="message" rows={4} className="w-full px-3 py-2 border rounded-md" placeholder="Your message"></textarea>
+              </div>
+              <Button type="submit" className="w-full">Send Message</Button>
+            </form>
+          </motion.div>
+        </div>
+      </AnimatedSection>
+
       {/* CTA Section */}
-      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32">
+      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground">
         <div className="container px-4 md:px-6">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
               <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Ready to transform your school?</h2>
-              <p className="max-w-[600px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
+              <p className="max-w-[600px] md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed opacity-90">
                 Join hundreds of schools that use SchoolPro to streamline administration and enhance education.
               </p>
             </div>
@@ -512,12 +767,12 @@ export default function SchoolLandingPage() {
               className="flex flex-col gap-2 min-[400px]:flex-row"
             >
               <motion.div variants={itemVariant} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button size="lg" className="gap-1">
+                <Button size="lg" className="gap-1 bg-background text-foreground hover:bg-background/90">
                   Request Demo <ChevronRight className="h-4 w-4" />
                 </Button>
               </motion.div>
               <motion.div variants={itemVariant} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button size="lg" variant="outline">
+                <Button size="lg" variant="outline" className="border-background text-background hover:bg-background hover:text-foreground">
                   Contact Us
                 </Button>
               </motion.div>
@@ -531,7 +786,7 @@ export default function SchoolLandingPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.2 }}
-        className="w-full py-6 md:py-12 border-t"
+        className="w-full py-6 md:py-12 border-t bg-muted/20"
       >
         <div className="container px-4 md:px-6">
           <div className="grid gap-8 lg:grid-cols-5">
@@ -549,7 +804,7 @@ export default function SchoolLandingPage() {
               <ul className="space-y-2 text-sm">
                 {["Features", "Registration", "Schedule", "School Fees", "Support"].map((item, i) => (
                   <li key={i}>
-                    <Link href="#" className="text-muted-foreground hover:text-foreground">
+                    <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
                       {item}
                     </Link>
                   </li>
@@ -561,7 +816,7 @@ export default function SchoolLandingPage() {
               <ul className="space-y-2 text-sm">
                 {["About Us", "Faculty", "Curriculum", "Events", "Contact"].map((item, i) => (
                   <li key={i}>
-                    <Link href="#" className="text-muted-foreground hover:text-foreground">
+                    <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
                       {item}
                     </Link>
                   </li>
@@ -573,7 +828,7 @@ export default function SchoolLandingPage() {
               <ul className="space-y-2 text-sm">
                 {["Terms", "Privacy", "Cookies", "Accessibility", "Settings"].map((item, i) => (
                   <li key={i}>
-                    <Link href="#" className="text-muted-foreground hover:text-foreground">
+                    <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
                       {item}
                     </Link>
                   </li>
@@ -587,7 +842,7 @@ export default function SchoolLandingPage() {
             </p>
             <div className="flex gap-4">
               {["Facebook", "Twitter", "Instagram", "YouTube"].map((social, i) => (
-                <Link key={i} href="#" className="text-muted-foreground hover:text-foreground">
+                <Link key={i} href="#" className="text-muted-foreground hover:text-foreground transition-colors text-xs">
                   {social}
                 </Link>
               ))}
@@ -598,4 +853,3 @@ export default function SchoolLandingPage() {
     </div>
   )
 }
-

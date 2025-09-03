@@ -12,7 +12,7 @@ export default async function AdminDetailsPage({ params }: { params: { id: strin
     redirect("/dashboard")
   }
 
-  const adminId = params.id
+  const { id: adminId } = await params
   const result = await getAdminDetailsById(adminId)
 
   if (!result.success || !result.data) {

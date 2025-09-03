@@ -20,13 +20,12 @@ import { Badge } from "@/components/ui/badge"
 import { Calendar } from "@/components/ui/calendar"
 import { cn } from "@/lib/utils"
 import { createTerm, updateTerm } from "@/app/actions/term-management"
-import { motion } from "framer-motion"
 
 // Define the form schema with validation
 const termFormSchema = z
   .object({
-    name: z.string().min(2, {
-      message: "Term name must be at least 2 characters.",
+    name: z.string().min(1, {
+      message: "Please select a term.",
     }),
     sessionId: z.string().min(1, {
       message: "Please select a session.",
@@ -111,8 +110,8 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
   // Handle session change
   const handleSessionChange = (sessionId: string) => {
     form.setValue("sessionId", sessionId)
-    form.setValue("startDate", undefined)
-    form.setValue("endDate", undefined)
+    form.setValue("startDate", undefined as unknown as Date)
+    form.setValue("endDate", undefined as unknown as Date)
     const session = sessions.find((s) => s.id === sessionId)
     if (session) {
       setSelectedSession(session)
@@ -154,16 +153,17 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
       } else {
         toast.error("Error", { description: result.error })
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to save term:", error)
-      toast.error("Error", { description: error.message || "Failed to save term" })
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error("Error", { description: message || "Failed to save term" })
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+    <div className="animate-in fade-in duration-500">
       <Card className="max-w-4xl mx-auto">
         <CardHeader className="space-y-4">
           <div className="flex items-center gap-3">
@@ -196,7 +196,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <CardContent className="space-y-8">
-              {/* Term Name */}
+              {/* Term Name - Changed to dropdown */}
               <FormField
                 control={form.control}
                 name="name"
@@ -205,15 +205,20 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                     <FormLabel className="text-base font-semibold">
                       Term Name <span className="text-destructive">*</span>
                     </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="e.g., First Term, Second Term, Third Term"
-                        className="h-12 text-base"
-                        {...field}
-                      />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="w-full h-12 text-base">
+                          <SelectValue placeholder="Select a term" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="First Term">First Term</SelectItem>
+                        <SelectItem value="Second Term">Second Term</SelectItem>
+                        <SelectItem value="Third Term">Third Term</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormDescription>
-                      Enter a descriptive name for the academic term (e.g., "First Term", "Second Term")
+                      Select the academic term (e.g., &quot;First Term&quot;, &quot;Second Term&quot;, &quot;Third Term&quot;)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -341,13 +346,15 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                             mode="single"
                             selected={field.value}
                             onSelect={field.onChange}
-                            disabled={(date) => {
-                              if (!selectedSession) return false
-                              const sessionStart = parseDate(selectedSession.startDate)
-                              const sessionEnd = parseDate(selectedSession.endDate)
-                              if (!sessionStart || !sessionEnd) return true
-                              return date < sessionStart || date > sessionEnd
-                            }}
+                            {...({
+                              disabled: (date: Date) => {
+                                if (!selectedSession) return false
+                                const sessionStart = parseDate(selectedSession.startDate)
+                                const sessionEnd = parseDate(selectedSession.endDate)
+                                if (!sessionStart || !sessionEnd) return true
+                                return date < sessionStart || date > sessionEnd
+                              },
+                            } as any)}
                             initialFocus
                           />
                         </PopoverContent>
@@ -367,46 +374,48 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                         End Date <span className="text-destructive">*</span>
                       </FormLabel>
                       <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant={"outline"}
-                              className={cn(
-                                "h-12 text-base pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                              )}
-                            >
-                              {field.value ? (
-                                <div className="flex items-center gap-2">
-                                  <CalendarIcon className="h-4 w-4" />
-                                  {format(field.value, "PPP")}
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <CalendarIcon className="h-4 w-4" />
-                                  <span>Pick end date</span>
-                                </div>
-                              )}
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            disabled={(date) => {
-                              const startDate = form.getValues("startDate")
-                              if (!selectedSession) return startDate ? date <= startDate : false
-                              const sessionStart = parseDate(selectedSession.startDate)
-                              const sessionEnd = parseDate(selectedSession.endDate)
-                              if (!sessionStart || !sessionEnd) return true
-                              return date < (startDate || sessionStart) || date > sessionEnd
-                            }}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
+                                <PopoverTrigger asChild>
+                                  <FormControl>
+                                    <Button
+                                      variant={"outline"}
+                                      className={cn(
+                                        "h-12 text-base pl-3 text-left font-normal",
+                                        !field.value && "text-muted-foreground"
+                                      )}
+                                    >
+                                      {field.value ? (
+                                        <div className="flex items-center gap-2">
+                                          <CalendarIcon className="h-4 w-4" />
+                                          {format(field.value, "PPP")}
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-2">
+                                          <CalendarIcon className="h-4 w-4" />
+                                          <span>Pick end date</span>
+                                        </div>
+                                      )}
+                                    </Button>
+                                  </FormControl>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={field.value}
+                                    onSelect={field.onChange}
+                                    {...({
+                                      disabled: (date: Date) => {
+                                        const startDate = form.getValues("startDate")
+                                        if (!selectedSession) return startDate ? date <= startDate : false
+                                        const sessionStart = parseDate(selectedSession.startDate)
+                                        const sessionEnd = parseDate(selectedSession.endDate)
+                                        if (!sessionStart || !sessionEnd) return true
+                                        return date < (startDate || sessionStart) || date > sessionEnd
+                                      },
+                                    } as any)}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
                       <FormDescription>When the academic term ends</FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -455,7 +464,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
               </Alert>
             </CardContent>
 
-            <CardFooter className="flex justify-between bg-muted/50 rounded-b-lg">
+            <CardFooter className="flex justify-between bg-muted/50 rounded-b-lg px-6 py-4">
               <Button
                 type="button"
                 variant="outline"
@@ -480,6 +489,6 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
           </form>
         </Form>
       </Card>
-    </motion.div>
+    </div>
   )
 }

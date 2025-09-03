@@ -199,10 +199,10 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
                           <DropdownMenuItem onClick={() => handleViewTerm(term.id)}>View details</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEditTerm(term.id)}>
+                          {/* <DropdownMenuItem onClick={() => handleEditTerm(term.id)}>
                             <Edit className="mr-2 h-4 w-4" />
                             Edit
-                          </DropdownMenuItem>
+                          </DropdownMenuItem> */}
                           {!term.isCurrent && (
                             <DropdownMenuItem
                               onClick={() => handleSetCurrentTerm(term.id, term.sessionId)}

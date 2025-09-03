@@ -17,20 +17,20 @@ export async function searchTeachers(query = "") {
     }
 
     // Get the admin's school ID if applicable
-    let schoolId: string | undefined
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      schoolId = admin?.schoolId
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" }
-      }
-    }
+        let schoolId: string | undefined
+    
+        if (session.user.role === "ADMIN") {
+          const admin = await prisma.admin.findUnique({
+            where: { userId: session.user.id },
+            select: { schoolId: true },
+          })
+    
+          schoolId = admin?.schoolId ?? undefined
+    
+          if (!schoolId) {
+            return { success: false, error: "Admin not associated with a school" }
+          }
+        }
 
     // Search for teachers based on the query
     const teachers = await prisma.teacher.findMany({
@@ -809,3 +809,505 @@ export async function deleteTeacher(teacherId: string) {
       }
     }
   }
+
+  // Get teacher's dashboard data
+export async function getTeacherDashboardData() {
+  try {
+    const session = await auth()
+
+    if (!session?.user || session.user.role !== "TEACHER") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: session.user.id },
+      include: {
+        school: true,
+        teacherClassTerms: {
+          include: {
+            classTerm: {
+              include: {
+                class: true,
+                term: true,
+                students: {
+                  include: {
+                    student: {
+                      include: {
+                        user: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        teacherSubjects: {
+          include: {
+            subject: true,
+          },
+        },
+      },
+    })
+
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" }
+    }
+
+    return { success: true, data: teacher }
+  } catch (error) {
+    console.error("Error fetching teacher dashboard data:", error)
+    return { success: false, error: "Failed to fetch dashboard data" }
+  }
+}
+
+// Get teacher's classes with students
+export async function getTeacherClasses(termId?: string) {
+  try {
+    const session = await auth()
+
+    if (!session?.user || session.user.role !== "TEACHER") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" }
+    }
+
+    const classes = await prisma.teacherClassTerm.findMany({
+      where: {
+        teacherId: teacher.id,
+        ...(termId && { classTerm: { termId } }),
+      },
+      include: {
+        classTerm: {
+          include: {
+            class: true,
+            term: {
+              include: {
+                session: true,
+              },
+            },
+            students: {
+              include: {
+                student: {
+                  include: {
+                    user: true,
+                    transitions: {
+                      orderBy: {
+                        transitionDate: "desc",
+                      },
+                      take: 5,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    return { success: true, data: classes }
+  } catch (error) {
+    console.error("Error fetching teacher classes:", error)
+    return { success: false, error: "Failed to fetch classes" }
+  }
+}
+
+// Get teacher's subjects with class information
+export async function getTeacherSubjects(termId?: string) {
+  try {
+    const session = await auth()
+
+    if (!session?.user || session.user.role !== "TEACHER") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" }
+    }
+
+    const subjects = await prisma.teacherSubject.findMany({
+      where: {
+        teacherId: teacher.id,
+      },
+      include: {
+        subject: {
+          include: {
+            classSubjects: {
+              where: termId
+                ? {
+                    classTerm: {
+                      termId,
+                    },
+                  }
+                : {},
+              include: {
+                classTerm: {
+                  include: {
+                    class: true,
+                    term: {
+                      include: {
+                        session: true,
+                      },
+                    },
+                    students: {
+                      include: {
+                        student: {
+                          include: {
+                            user: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    return { success: true, data: subjects }
+  } catch (error) {
+    console.error("Error fetching teacher subjects:", error)
+    return { success: false, error: "Failed to fetch subjects" }
+  }
+}
+
+// Get assessments for a specific subject and class
+export async function getSubjectAssessments(subjectId: string, classTermId: string, termId: string) {
+  try {
+    const session = await auth()
+
+    if (!session?.user || session.user.role !== "TEACHER") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" }
+    }
+
+    // Verify teacher teaches this subject
+    const teacherSubject = await prisma.teacherSubject.findUnique({
+      where: {
+        teacherId_subjectId: {
+          teacherId: teacher.id,
+          subjectId,
+        },
+      },
+    })
+
+    if (!teacherSubject) {
+      return { success: false, error: "You are not assigned to teach this subject" }
+    }
+
+    const assessments = await prisma.assessment.findMany({
+      where: {
+        subjectId,
+        termId,
+        studentClassTermId: classTermId,
+      },
+      include: {
+        student: {
+          include: {
+            user: true,
+          },
+        },
+        subject: true,
+        editedByUser: {
+          select: {
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: {
+        student: {
+          user: {
+            firstName: "asc",
+          },
+        },
+      },
+    })
+
+    return { success: true, data: assessments }
+  } catch (error) {
+    console.error("Error fetching subject assessments:", error)
+    return { success: false, error: "Failed to fetch assessments" }
+  }
+}
+
+// Update or create assessment
+export async function updateAssessment(data: {
+  studentId: string
+  subjectId: string
+  termId: string
+  studentClassTermId: string
+  ca1?: number | null
+  ca2?: number | null
+  ca3?: number | null
+  exam?: number | null
+  isAbsent?: boolean
+  isExempt?: boolean
+}) {
+  try {
+    const session = await auth()
+
+    if (!session?.user || session.user.role !== "TEACHER") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" }
+    }
+
+    // Verify teacher teaches this subject
+    const teacherSubject = await prisma.teacherSubject.findUnique({
+      where: {
+        teacherId_subjectId: {
+          teacherId: teacher.id,
+          subjectId: data.subjectId,
+        },
+      },
+    })
+
+    if (!teacherSubject) {
+      return { success: false, error: "You are not assigned to teach this subject" }
+    }
+
+    const assessment = await prisma.assessment.upsert({
+      where: {
+        studentId_subjectId_termId: {
+          studentId: data.studentId,
+          subjectId: data.subjectId,
+          termId: data.termId,
+        },
+      },
+      update: {
+        ca1: data.ca1,
+        ca2: data.ca2,
+        ca3: data.ca3,
+        exam: data.exam,
+        isAbsent: data.isAbsent || false,
+        isExempt: data.isExempt || false,
+        editedBy: session.user.id,
+        teacherId: teacher.id,
+      },
+      create: {
+        studentId: data.studentId,
+        subjectId: data.subjectId,
+        termId: data.termId,
+        studentClassTermId: data.studentClassTermId,
+        ca1: data.ca1,
+        ca2: data.ca2,
+        ca3: data.ca3,
+        exam: data.exam,
+        isAbsent: data.isAbsent || false,
+        isExempt: data.isExempt || false,
+        editedBy: session.user.id,
+        teacherId: teacher.id,
+      },
+    })
+
+    revalidatePath("/dashboard/teacher/assessments")
+    return { success: true, data: assessment }
+  } catch (error) {
+    console.error("Error updating assessment:", error)
+    return { success: false, error: "Failed to update assessment" }
+  }
+}
+
+
+// Mark attendance
+export async function markAttendance(data: {
+  studentId: string
+  date: string
+  status: "PRESENT" | "ABSENT" | "LATE"
+}) {
+  try {
+    const session = await auth()
+
+    if (!session?.user || session.user.role !== "TEACHER") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    // Find existing attendance for the student on the given date, then update or create accordingly
+    const existingAttendance = await prisma.attendance.findFirst({
+      where: {
+        studentId: data.studentId,
+        date: new Date(data.date),
+      },
+    })
+
+    let attendance
+    if (existingAttendance) {
+      attendance = await prisma.attendance.update({
+        where: { id: existingAttendance.id },
+        data: { status: data.status },
+      })
+    } else {
+      attendance = await prisma.attendance.create({
+        data: {
+          studentId: data.studentId,
+          date: new Date(data.date),
+          status: data.status,
+        },
+      })
+    }
+
+    revalidatePath("/dashboard/teacher/attendance")
+    return { success: true, data: attendance }
+  } catch (error) {
+    console.error("Error marking attendance:", error)
+    return { success: false, error: "Failed to mark attendance" }
+  }
+}
+
+// Get attendance for a class
+export async function getClassAttendance(classTermId: string, date?: string) {
+  try {
+    const session = await auth()
+
+    if (!session?.user || session.user.role !== "TEACHER") {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" }
+    }
+
+    // Verify teacher is assigned to this class
+    const teacherClassTerm = await prisma.teacherClassTerm.findUnique({
+      where: {
+        teacherId_classTermId: {
+          teacherId: teacher.id,
+          classTermId,
+        },
+      },
+    })
+
+    if (!teacherClassTerm) {
+      return { success: false, error: "You are not assigned to this class" }
+    }
+
+    const targetDate = date ? new Date(date) : new Date()
+
+    const students = await prisma.studentClassTerm.findMany({
+      where: {
+        classTermId,
+      },
+      include: {
+        student: {
+          include: {
+            user: true,
+            attendances: {
+              where: {
+                date: {
+                  gte: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()),
+                  lt: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1),
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        student: {
+          user: {
+            firstName: "asc",
+          },
+        },
+      },
+    })
+
+    return { success: true, data: students }
+  } catch (error) {
+    console.error("Error fetching class attendance:", error)
+    return { success: false, error: "Failed to fetch attendance" }
+  }
+}
+
+export async function resetTeacherPassword(teacherId: string) {
+  try {
+    // Get the current user session
+    const session = await auth()
+
+    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    // Get the admin's school ID if applicable
+    let schoolId: string | undefined
+
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      })
+
+      schoolId = admin?.schoolId
+
+      if (!schoolId) {
+        return { success: false, error: "Admin not associated with a school" }
+      }
+    }
+
+    // Verify the teacher belongs to the admin's school
+    const teacher = await prisma.teacher.findUnique({
+      where: { id: teacherId },
+      select: { schoolId: true, userId: true },
+    })
+
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" }
+    }
+
+    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
+      return { success: false, error: "Unauthorized to reset password for this teacher" }
+    }
+
+    // Generate a new temporary password (current year)
+    const currentYear = new Date().getFullYear().toString()
+    const hashedPassword = await bcrypt.hash(currentYear, 10)
+
+    // Update all credentials for this teacher
+    await prisma.credential.updateMany({
+      where: { userId: teacher.userId },
+      data: { passwordHash: hashedPassword },
+    })
+
+    return {
+      success: true,
+      data: { newPassword: currentYear },
+    }
+  } catch (error) {
+    console.error("Error resetting teacher password:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to reset password",
+    }
+  }
+}

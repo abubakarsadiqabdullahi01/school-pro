@@ -236,7 +236,7 @@ export async function getClassTermResults(classTermId: string) {
         admissionNo: student.admissionNo,
         gender: student.user.gender || "OTHER",
         subjects: subjectScores,
-        totalScore,
+            // totalScore is derived at runtime and not persisted
         averageScore,
         grade: overallGradeResult.grade,
         position: 0, // Will be calculated after sorting

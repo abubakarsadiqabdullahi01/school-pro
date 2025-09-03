@@ -172,24 +172,35 @@ export const ClassResultsTable = memo(function ClassResultsTable({
 
               {/* Subject Scores */}
               {subjects.map((subject) => (
-                <TableCell key={subject.id} className="text-center">
-                  {result.subjects[subject.id]?.score !== null ? (
-                    <div className="flex flex-col items-center">
-                      <span className="font-medium">{result.subjects[subject.id]?.score?.toFixed(0)}</span>
-                      {result.subjects[subject.id]?.grade && (
-                        <Badge className={`text-xs mt-1 ${getGradeColor(result.subjects[subject.id]?.grade)}`}>
-                          {result.subjects[subject.id]?.grade}
-                        </Badge>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-gray-400">-</span>
-                  )}
-                </TableCell>
+              <TableCell key={subject.id} className="text-center">
+                {result.subjects[subject.id]?.score != null ? (
+                  <div className="flex flex-col items-center">
+                    <span className="font-medium">
+                      {Number(result.subjects[subject.id].score).toFixed(0)}
+                    </span>
+                    {result.subjects[subject.id]?.grade && (
+                      <Badge className={`text-xs mt-1 ${getGradeColor(result.subjects[subject.id]?.grade)}`}>
+                        {result.subjects[subject.id]?.grade}
+                      </Badge>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-gray-400">-</span>
+                )}
+              </TableCell>
+
               ))}
 
-              <TableCell className="text-center font-bold">{result.totalScore.toFixed(0)}</TableCell>
-              <TableCell className="text-center font-bold">{result.averageScore.toFixed(1)}</TableCell>
+              <TableCell className="text-center font-bold">
+                {result.totalScore !== undefined && result.totalScore !== null 
+                  ? result.totalScore.toFixed(0) 
+                  : '-'}
+              </TableCell>
+              <TableCell className="text-center font-bold">
+                {result.averageScore !== undefined && result.averageScore !== null 
+                  ? result.averageScore.toFixed(1) 
+                  : '-'}
+              </TableCell>
               <TableCell className="text-center">
                 <Badge className={getGradeColor(result.grade)}>{result.grade}</Badge>
               </TableCell>

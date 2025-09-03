@@ -1,10 +1,12 @@
 import { auth } from "@/auth"
-import { redirect } from "next/navigation"
+import { redirect, notFound } from "next/navigation"
 import { prisma } from "@/lib/db"
-import { notFound } from "next/navigation"
+import Link from "next/link"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { TeacherDetails } from "@/components/teacher-management/teacher-details"
 import { getTeacher } from "@/app/actions/teacher-management"
+import { Button } from "@/components/ui/button"
+import { MoveLeft as MoveLeftIcon } from "lucide-react"
 
 export default async function AdminTeacherDetailsPage({ params }: { params: { id: string } }) {
   const session = await auth()
@@ -39,11 +41,19 @@ export default async function AdminTeacherDetailsPage({ params }: { params: { id
   return (
     <PageTransition>
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">{teacherData.fullName}</h2>
-          <p className="text-muted-foreground">
-            Teacher details for {teacherData.school.name} ({teacherData.school.code})
-          </p>
+        <div className="flex flex-row justify-between">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">{teacherData.fullName}</h2>
+            <p className="text-muted-foreground">
+              Teacher details for {teacherData.school.name} ({teacherData.school.code})
+            </p>
+          </div>
+           <Button variant="outline" asChild>
+            <Link href={`/dashboard/admin/teachers`}>
+              <MoveLeftIcon className="mr-2 h-4 w-4" />
+              Back
+            </Link>
+          </Button>
         </div>
 
         <TeacherDetails teacher={teacherData} />

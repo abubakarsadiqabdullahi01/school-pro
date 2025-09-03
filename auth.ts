@@ -44,6 +44,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
             },
           })
 
+
           if (!credential) {
             console.log("No credential found for:", credentials.identifier)
             // Log failed attempt
@@ -118,6 +119,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
             lastName: credential.user.lastName,
             role: credential.user.role,
             isActive: credential.user.isActive,
+            avatarUrl: credential.user.avatarUrl,
           }
         } catch (error) {
           console.error("Error in authorize callback:", error)

@@ -214,17 +214,17 @@ export function CASheetComponent({
         </CardHeader>
         <CardContent>
           <div className="grid gap-6 md:grid-cols-3">
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="term" className="text-lg font-semibold text-gray-700">
                 Academic Term
               </Label>
               <Select value={selectedTermId} onValueChange={setSelectedTermId}>
-                <SelectTrigger id="term" className="border-gray-300">
+                <SelectTrigger id="term" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a term" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
                   {terms.map((term) => (
-                    <SelectItem key={term.id} value={term.id} className="text-gray-800">
+                    <SelectItem key={term.id} value={term.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors text-gray-800">
                       {term.session.name} - {term.name}
                       {term.isCurrent && " (Current)"}
                     </SelectItem>
@@ -233,17 +233,17 @@ export function CASheetComponent({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="level" className="text-lg font-semibold text-gray-700">
                 Class Level
               </Label>
               <Select value={selectedLevel} onValueChange={setSelectedLevel}>
-                <SelectTrigger id="level" className="border-gray-300">
+                <SelectTrigger id="level" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a level" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
                   {classLevels.map((level) => (
-                    <SelectItem key={level} value={level} className="text-gray-800">
+                    <SelectItem key={level} value={level} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors text-gray-800">
                       {level}
                     </SelectItem>
                   ))}
@@ -251,7 +251,7 @@ export function CASheetComponent({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="class" className="text-lg font-semibold text-gray-700">
                 Class
               </Label>
@@ -260,22 +260,27 @@ export function CASheetComponent({
                 onValueChange={setSelectedClassId}
                 disabled={!selectedTermId || !selectedLevel || isLoadingClasses}
               >
-                <SelectTrigger id="class" className="border-gray-300">
+                <SelectTrigger
+                  id="class"
+                  className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                >
                   {isLoadingClasses ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
+                    <div className="flex items-center justify-center">
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
+                    </div>
                   ) : (
                     <SelectValue placeholder="Select a class" />
                   )}
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
                   {classes?.map((cls) => (
-                    <SelectItem key={cls.id} value={cls.id} className="text-gray-800">
+                    <SelectItem key={cls.id} value={cls.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors text-gray-800">
                       {cls.name}
                       {cls.teacherName && ` (${cls.teacherName})`}
                     </SelectItem>
                   ))}
                   {classes?.length === 0 && (
-                    <SelectItem value="none" disabled className="text-gray-500">
+                    <SelectItem value="none" disabled className="px-3 py-2 text-gray-500 cursor-not-allowed">
                       No classes available for this term and level
                     </SelectItem>
                   )}
@@ -319,17 +324,30 @@ export function CASheetComponent({
                 {/* Logo on the left */}
                 {schoolLogo && (
                   <div className="flex-shrink-0 pl-4">
-                    <Image
-                      src={schoolLogo || "/placeholder.svg"}
-                      alt={`${schoolName} Logo`}
-                      width={90}
-                      height={90}
-                      className="object-contain"
-                      onError={(e) => {
-                        console.error("Failed to load school logo:", schoolLogo)
-                        e.currentTarget.style.display = "none"
-                      }}
-                    />
+                    {schoolLogo ? (
+                      <Image
+                        src={schoolLogo}
+                        alt={`${schoolName} Logo`}
+                        width={90}
+                        height={90}
+                        className="object-contain"
+                      />
+                    ) : (
+                      <div className="h-20 w-20 flex items-center justify-center rounded bg-gray-100 border border-gray-200">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-10 w-10 text-gray-500"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path d="M3 21v-13l9-5 9 5v13" />
+                          <path d="M9 10h.01M15 10h.01" />
+                          <path d="M9 14h6" />
+                        </svg>
+                      </div>
+                    )}
                   </div>
                 )}
 

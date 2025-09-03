@@ -1,5 +1,5 @@
-import { DashboardSkeleton } from "@/components/ui/loading-skeleton"
+import { TableSkeleton } from "@/components/ui/loading-skeleton"
 
-export default function ParentDashboardLoading() {
-  return <DashboardSkeleton />
+export default function TeacherDashboardLoading() {
+  return <TableSkeleton />
 }

@@ -400,7 +400,7 @@ export async function getAssessmentsWithStatus(classTermId: string, subjectId: s
           ca2: assessment?.ca2 ?? null,
           ca3: assessment?.ca3 ?? null,
           exam: assessment?.exam ?? null,
-          totalScore,
+          // totalScore is derived at runtime
           grade,
           remark,
           isAbsent: assessment?.isAbsent || false,

@@ -5,39 +5,44 @@ import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/db"
 import { auth } from "@/auth"
 
-// Update user profile
-export async function updateProfile({
-  userId,
-  firstName,
-  lastName,
-  avatarUrl,
-}: {
+export async function updateProfile(data: {
   userId: string
   firstName: string
   lastName: string
   avatarUrl?: string | null
 }) {
-  // Verify the current user is authorized to update this profile
-  const session = await auth()
+  try {
+    const session = await auth()
+    
+    // Verify user can only update their own profile
+    if (!session?.user || session.user.id !== data.userId) {
+      throw new Error("Unauthorized")
+    }
 
-  if (!session?.user || (session.user.id !== userId && session.user.role !== "SUPER_ADMIN")) {
-    throw new Error("Unauthorized")
+    const updatedUser = await prisma.user.update({
+      where: { id: data.userId },
+      data: {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        avatarUrl: data.avatarUrl,
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+      },
+    })
+
+    revalidatePath("/dashboard/profile")
+    revalidatePath("/dashboard")
+
+    return updatedUser
+  } catch (error) {
+    console.error("Failed to update profile:", error)
+    throw new Error("Failed to update profile")
   }
-
-  // Update the user profile
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      firstName,
-      lastName,
-      avatarUrl,
-    },
-  })
-
-  revalidatePath("/dashboard/profile")
-  return { success: true }
 }
-
 // Change user password
 export async function changePassword({
   userId,

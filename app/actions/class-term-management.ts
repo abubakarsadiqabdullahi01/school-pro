@@ -146,6 +146,17 @@ export async function removeClassFromTerm(classTermId: string) {
     }
 
     // Delete the class term
+    // Ensure there are no students still enrolled in this class term
+    const enrolledStudentsCount = await prisma.studentClassTerm.count({
+      where: { classTermId },
+    })
+
+    if (enrolledStudentsCount > 0) {
+      throw new Error(
+        "Cannot remove class from term: there are students enrolled in this class term. Remove or reassign students before deleting the class term",
+      )
+    }
+
     await prisma.classTerm.delete({
       where: { id: classTermId },
     })
@@ -154,7 +165,8 @@ export async function removeClassFromTerm(classTermId: string) {
     return { success: true }
   } catch (error) {
     console.error("Failed to remove class from term:", error)
-    throw new Error(error.message || "Failed to remove class from term")
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(message || "Failed to remove class from term")
   }
 }
 
@@ -217,6 +229,29 @@ export async function assignSubjectsToClassTerm({
     // Find subjects to add (in new list but not in current)
     const subjectsToAdd = subjectIds.filter((id) => !currentSubjectIds.includes(id))
 
+    // Validate subjects to add outside the transaction to avoid long-running transactions
+    if (subjectsToAdd.length > 0) {
+      const subjects = await prisma.subject.findMany({
+        where: { id: { in: subjectsToAdd } },
+        select: { id: true, schoolId: true },
+      })
+
+      // Ensure all requested subjects exist
+      const foundIds = new Set(subjects.map((s) => s.id))
+      for (const sid of subjectsToAdd) {
+        if (!foundIds.has(sid)) {
+          throw new Error(`Subject not found: ${sid}`)
+        }
+      }
+
+      // Ensure all subjects belong to the same school as the class
+      for (const s of subjects) {
+        if (s.schoolId !== classTerm.class.schoolId) {
+          throw new Error("Subject does not belong to the same school as the class")
+        }
+      }
+    }
+
     // Start a transaction to ensure all operations succeed or fail together
     await prisma.$transaction(async (tx) => {
       // Remove subjects that are no longer assigned
@@ -229,25 +264,16 @@ export async function assignSubjectsToClassTerm({
         })
       }
 
-      // Add newly assigned subjects
-      for (const subjectId of subjectsToAdd) {
-        // Verify subject belongs to the same school as the class
-        const subject = await tx.subject.findUnique({
-          where: { id: subjectId },
-          select: { schoolId: true },
-        })
+      // Add newly assigned subjects using createMany to minimize per-item queries
+      if (subjectsToAdd.length > 0) {
+        const createData = subjectsToAdd.map((subjectId) => ({
+          classTermId,
+          classId: classTerm.class.id,
+          subjectId,
+        }))
 
-        if (!subject || subject.schoolId !== classTerm.class.schoolId) {
-          throw new Error("Subject does not belong to the same school as the class")
-        }
-
-        await tx.classSubject.create({
-          data: {
-            classTermId,
-            classId: classTerm.class.id,
-            subjectId,
-          },
-        })
+        // Use createMany for bulk insert; skipDuplicates in case of race conditions
+        await tx.classSubject.createMany({ data: createData, skipDuplicates: true })
       }
     })
 
@@ -256,6 +282,7 @@ export async function assignSubjectsToClassTerm({
     return { success: true }
   } catch (error) {
     console.error("Failed to assign subjects to class term:", error)
-    throw new Error(error.message || "Failed to assign subjects to class term")
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(message || "Failed to assign subjects to class term")
   }
 }

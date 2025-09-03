@@ -1,3 +1,4 @@
+// components/profile/profile-tabs.tsx
 "use client"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -48,4 +49,3 @@ export function ProfileTabs({ user, roleData }: ProfileTabsProps) {
     </Tabs>
   )
 }
-

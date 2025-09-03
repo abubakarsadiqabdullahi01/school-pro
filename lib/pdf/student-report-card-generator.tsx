@@ -113,6 +113,7 @@ interface GenerateReportParams {
   classStatistics: ClassStatistics | null
   gradingSystem: GradingSystem
   action?: "save" | "preview" | "print" | "merge-preview" | "merge-save"
+  previewWindow?: Window | null
   allStudents?: StudentResult[]
 }
 
@@ -769,6 +770,7 @@ class StudentReportCardGenerator {
     classStatistics: ClassStatistics | null,
     gradingSystem: GradingSystem,
     action: "save" | "preview" | "print",
+    previewWindow?: Window | null,
   ): Promise<void> {
     this.validateInputs(student, schoolInfo, classInfo, subjects)
 
@@ -784,7 +786,31 @@ class StudentReportCardGenerator {
     const pdfUrl = URL.createObjectURL(blob)
 
     if (action === "preview") {
-      window.open(pdfUrl, "_blank")
+      // If a preview window was opened synchronously by the caller, use it to avoid popup blockers.
+      if (previewWindow && !previewWindow.closed) {
+        try {
+          // Try to navigate the opened window to the blob URL; some browsers don't render blob URLs via location.href,
+          // so also write an HTML wrapper that embeds the PDF via <iframe> or <embed>.
+          try {
+            previewWindow.document.open()
+            previewWindow.document.write(`<!doctype html><html><head><title>Report Preview</title></head><body style="margin:0">
+              <iframe src="${pdfUrl}" style="border:0; width:100%; height:100vh;" title="PDF Preview"></iframe>
+              <noscript><a href="${pdfUrl}" target="_blank">Open PDF</a></noscript>
+              </body></html>`)
+            previewWindow.document.close()
+          } catch {
+            // If writing fails, fall back to setting location
+            previewWindow.location.href = pdfUrl
+          }
+        } catch {
+          // Fallback to opening a new window if assignment fails
+          window.open(pdfUrl, "_blank")
+        }
+      } else {
+        window.open(pdfUrl, "_blank")
+      }
+      // Revoke sooner to better match average-case preview loading (30s).
+      setTimeout(() => URL.revokeObjectURL(pdfUrl), 30 * 1000)
     } else if (action === "print") {
       const iframe = document.createElement("iframe")
       iframe.style.display = "none"
@@ -799,9 +825,6 @@ class StudentReportCardGenerator {
       this.doc.save(fileName)
     }
 
-    if (action !== "save") {
-      URL.revokeObjectURL(pdfUrl)
-    }
   }
 
   private async generateMergedReport(
@@ -811,7 +834,8 @@ class StudentReportCardGenerator {
     subjects: Subject[],
     classStatistics: ClassStatistics | null,
     gradingSystem: GradingSystem,
-    action: "merge-preview" | "merge-save",
+  action: "merge-preview" | "merge-save",
+  previewWindow?: Window | null,
   ): Promise<void> {
     const mergedPdf = new jsPDF({ orientation: this.config.orientation })
     const batchSize = 10
@@ -845,7 +869,24 @@ class StudentReportCardGenerator {
     const pdfUrl = URL.createObjectURL(blob)
 
     if (action === "merge-preview") {
-      window.open(pdfUrl, "_blank")
+      if (previewWindow && !previewWindow.closed) {
+        try {
+          // try to navigate the opened window
+          previewWindow.location.href = pdfUrl
+          // also attempt to write an embed to ensure rendering in some browsers
+          try {
+            previewWindow.document.open()
+            previewWindow.document.write(`<html><head><title>Reports Preview</title></head><body style="margin:0"><embed src="${pdfUrl}" type="application/pdf" width="100%" height="100%"></embed></body></html>`)
+            previewWindow.document.close()
+          } catch {
+            // ignore secondary failure
+          }
+        } catch {
+          window.open(pdfUrl, "_blank")
+        }
+      } else {
+        window.open(pdfUrl, "_blank")
+      }
     } else {
       const link = document.createElement("a")
       link.href = pdfUrl
@@ -853,7 +894,12 @@ class StudentReportCardGenerator {
       link.click()
     }
 
-    URL.revokeObjectURL(pdfUrl)
+    // If we previewed in a pre-opened window, defer revocation so the tab can load the blob URL.
+    if (action === "merge-preview") {
+      setTimeout(() => URL.revokeObjectURL(pdfUrl), 2 * 60 * 1000)
+    } else {
+      URL.revokeObjectURL(pdfUrl)
+    }
   }
 
   public async generateStudentReportCard({
@@ -890,7 +936,8 @@ class StudentReportCardGenerator {
       }
     } catch (error) {
       console.error("PDF Generation Error:", error)
-      throw new Error(`Failed to generate PDF: ${error.message}`)
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Failed to generate PDF: ${message}`)
     }
   }
 }

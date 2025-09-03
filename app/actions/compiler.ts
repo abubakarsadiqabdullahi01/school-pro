@@ -367,7 +367,6 @@ export async function getAssessmentsForClassTerm(classTermId: string) {
 }
 
 // Get class term results with grades and positions
-// Get class term results with grades and positions
 export async function getClassTermResults(classTermId: string) {
   try {
     const schoolId = await authorizeAndGetSchoolId()
@@ -432,7 +431,7 @@ export async function getClassTermResults(classTermId: string) {
 
         totalScore += total
 
-        const scoreInt = Math.floor(total) // <-- FIXED: floor before grade lookup
+        const scoreInt = Math.floor(total)
 
         const grade = gradingSystem.levels.find(
           (level) => scoreInt >= level.minScore && scoreInt <= level.maxScore
@@ -442,7 +441,7 @@ export async function getClassTermResults(classTermId: string) {
       })
 
       const averageScore = subjectCount > 0 ? totalScore / subjectCount : 0
-      const avgScoreInt = Math.floor(averageScore) // <-- FIXED: floor average before grade lookup
+      const avgScoreInt = Math.floor(averageScore)
 
       const grade = gradingSystem.levels.find(
         (level) => avgScoreInt >= level.minScore && avgScoreInt <= level.maxScore
@@ -454,7 +453,7 @@ export async function getClassTermResults(classTermId: string) {
         admissionNo: sct.student.admissionNo,
         gender: sct.student.user.gender,
         subjects,
-        totalScore,
+        totalScore, // <-- FIXED: Add totalScore to the returned object
         averageScore,
         grade,
         position: 0, // Placeholder, calculated below
@@ -498,7 +497,6 @@ export async function getClassTermResults(classTermId: string) {
     }
   }
 }
-
 
 
 // Auto-publish results if complete

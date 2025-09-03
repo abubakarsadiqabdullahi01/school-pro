@@ -101,8 +101,6 @@ export function ClassResultsOverview({
     staleTime: 1000 * 60 * 5,
   })
 
-  console.log("Grading System:", gradingSystem)
-
   // Fetch classes
   const { data: classes = [], isLoading: isLoadingClasses } = useQuery({
     queryKey: ["classes", form.termId, form.level],
@@ -438,17 +436,17 @@ export function ClassResultsOverview({
         </CardHeader>
         <CardContent>
           <div className="grid gap-6 md:grid-cols-3">
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="term" className="text-sm font-medium">
                 Academic Term
               </Label>
               <Select value={form.termId} onValueChange={handleTermChange}>
-                <SelectTrigger id="term">
+                <SelectTrigger id="term" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a term" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
                   {terms.map((term) => (
-                    <SelectItem key={term.id} value={term.id}>
+                    <SelectItem key={term.id} value={term.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors">
                       {term.session.name} - {term.name}
                       {term.isCurrent && " (Current)"}
                     </SelectItem>
@@ -457,17 +455,17 @@ export function ClassResultsOverview({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="level" className="text-sm font-medium">
                 Class Level
               </Label>
               <Select value={form.level} onValueChange={handleLevelChange}>
-                <SelectTrigger id="level">
+                <SelectTrigger id="level" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a level" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
                   {classLevels.map((level) => (
-                    <SelectItem key={level} value={level}>
+                    <SelectItem key={level} value={level} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors">
                       {level}
                     </SelectItem>
                   ))}
@@ -475,7 +473,7 @@ export function ClassResultsOverview({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="class" className="text-sm font-medium">
                 Class
               </Label>
@@ -484,22 +482,27 @@ export function ClassResultsOverview({
                 onValueChange={handleClassChange}
                 disabled={!form.termId || !form.level || isLoadingClasses}
               >
-                <SelectTrigger id="class">
+                <SelectTrigger
+                  id="class"
+                  className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                >
                   {isLoadingClasses ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <div className="flex items-center justify-center">
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                    </div>
                   ) : (
                     <SelectValue placeholder="Select a class" />
                   )}
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
                   {classes.map((cls) => (
-                    <SelectItem key={cls.id} value={cls.id}>
+                    <SelectItem key={cls.id} value={cls.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors">
                       {cls.name}
                       {cls.teacherName && ` (${cls.teacherName})`}
                     </SelectItem>
                   ))}
                   {classes.length === 0 && (
-                    <SelectItem value="none" disabled>
+                    <SelectItem value="none" disabled className="px-3 py-2 text-gray-500 cursor-not-allowed">
                       No classes available
                     </SelectItem>
                   )}
@@ -639,17 +642,30 @@ export function ClassResultsOverview({
                                     {/* Logo on the left */}
                                     {schoolLogo && (
                                       <div className="flex-shrink-0 pl-5 pt-5">
-                                        <Image
-                                          src={schoolLogo || "/placeholder.svg"}
-                                          alt={`${schoolName} Logo`}
-                                          width={90}
-                                          height={90}
-                                          className="object-contain"
-                                          onError={(e) => {
-                                            console.error("Failed to load school logo:", schoolLogo)
-                                            e.currentTarget.style.display = "none"
-                                          }}
-                                        />
+                                        {schoolLogo ? (
+                                          <Image
+                                            src={schoolLogo}
+                                            alt={`${schoolName} Logo`}
+                                            width={90}
+                                            height={90}
+                                            className="object-contain rounded"
+                                            onError={(e) => {
+                                              console.error("Failed to load school logo:", schoolLogo)
+                                              e.currentTarget.style.display = "none"
+                                            }}
+                                          />
+                                        ) : (
+                                          <div className="h-20 w-20 flex items-center justify-center rounded-full bg-gray-200 text-gray-700 font-semibold text-lg">
+                                            {schoolName
+                                              ? schoolName
+                                                  .split(" ")
+                                                  .map((s) => s[0])
+                                                  .slice(0, 2)
+                                                  .join("")
+                                                  .toUpperCase()
+                                              : "SCH"}
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                     

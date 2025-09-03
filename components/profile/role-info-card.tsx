@@ -73,12 +73,12 @@ export function RoleInfoCard({ user, roleData }: { user: any; roleData: any }) {
                   <div key={child.id} className="flex items-center space-x-3">
                     <Avatar className="h-10 w-10">
                       <AvatarImage
-                        src={child.user?.avatarUrl || "/placeholder.svg?height=40&width=40"}
-                        alt={child.user?.firstName}
+                      src={child.user?.avatarUrl || "/icons/default-avatar.svg"}
+                      alt={child.user?.firstName}
                       />
                       <AvatarFallback>
-                        {child.user?.firstName?.charAt(0)}
-                        {child.user?.lastName?.charAt(0)}
+                      {child.user?.firstName?.charAt(0)}
+                      {child.user?.lastName?.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
                     <div>

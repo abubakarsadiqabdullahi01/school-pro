@@ -1,425 +1,252 @@
-"use client";
+// components/student-management/parent-search-dialog.tsx
+"use client"
 
-import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus } from "lucide-react";
-import { toast } from "sonner";
-import { searchParents, createParent } from "@/app/actions/parent-management";
+import { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Search, Plus, User } from "lucide-react"
+import type { Gender } from "@prisma/client"
+import { searchParents, createParent } from "@/app/actions/student-management"
+import { toast } from "sonner"
 
-const parentFormSchema = z.object({
-  firstName: z.string().min(2, { message: "First name must be at least 2 characters." }),
-  lastName: z.string().min(2, { message: "Last name must be at least 2 characters." }),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
-  state: z.string().optional(),
-  lga: z.string().optional(),
-  address: z.string().optional(),
-  occupation: z.string().optional(),
-  createCredentials: z.boolean().default(false),
-  credentialType: z.enum(["EMAIL", "PHONE"]).optional(),
-  credentialValue: z.string().optional(),
-  password: z.string().optional(),
-});
-
-type ParentFormValues = z.infer<typeof parentFormSchema>;
+interface Parent {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  occupation: string
+  gender?: string
+  state?: string
+  lga?: string
+  address?: string
+}
 
 interface ParentSearchDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSelect: (parent: any) => void;
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSelect: (parent: Parent) => void
 }
 
 export function ParentSearchDialog({ open, onOpenChange, onSelect }: ParentSearchDialogProps) {
-  const [parents, setParents] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<Parent[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [activeTab, setActiveTab] = useState("search")
 
-  const form = useForm<ParentFormValues>({
-    resolver: zodResolver(parentFormSchema),
-    defaultValues: {
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      gender: undefined,
-      state: "",
-      lga: "",
-      address: "",
-      occupation: "",
-      createCredentials: false,
-      credentialType: undefined,
-      credentialValue: "",
-      password: "",
-    },
-  });
+  // New parent form state (includes gender)
+  const [newParent, setNewParent] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    occupation: "",
+    gender: "",
+  })
 
-  useEffect(() => {
-    if (open) {
-      fetchParents(searchQuery);
-    }
-  }, [open, searchQuery]);
-
-  const fetchParents = async (query: string) => {
-    setIsLoading(true);
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return
+    
+    setIsSearching(true)
     try {
-      const result = await searchParents(query);
+      const result = await searchParents(searchQuery)
       if (result.success) {
-        setParents(result.data || []);
+        setSearchResults(result.data || [])
       } else {
-        toast.error("Failed to fetch parents", { description: result.error });
+        toast.error("Search Failed", {
+          description: result.error || "Failed to search for parents"
+        })
       }
     } catch (error) {
-      toast.error("Error fetching parents");
+      console.error("Error searching parents:", error)
+      toast.error("Search Failed", {
+        description: "An error occurred while searching for parents"
+      })
     } finally {
-      setIsLoading(false);
+      setIsSearching(false)
     }
-  };
+  }
 
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-  };
+  const handleCreateParent = async () => {
+    if (!newParent.firstName || !newParent.lastName) {
+      toast.error("Validation Error", {
+        description: "First name and last name are required"
+      })
+      return
+    }
 
-  const handleSelect = (parent: any) => {
-    onSelect(parent);
-    onOpenChange(false);
-    setSearchQuery("");
-    setShowCreateForm(false);
-    form.reset();
-  };
-
-  const onSubmit = async (data: ParentFormValues) => {
     try {
-      const credentials = data.createCredentials && data.credentialType && data.credentialValue && data.password
-        ? [{
-            type: data.credentialType,
-            value: data.credentialValue,
-            passwordHash: data.password, // Pass raw password; hashing is handled in createParent
-            isPrimary: true,
-          }]
-        : [];
-
-      const result = await createParent({
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email || undefined,
-        phone: data.phone || undefined,
-        occupation: data.occupation || undefined,
-        gender: data.gender || undefined,
-        state: data.state || undefined,
-        lga: data.lga || undefined,
-        address: data.address || undefined,
-        credentials: credentials.length > 0 ? credentials : undefined,
-      });
-
+  // Cast gender to Prisma Gender or undefined
+  const payload = { ...newParent, gender: newParent.gender ? (newParent.gender as Gender) : undefined }
+  const result = await createParent(payload)
       if (result.success) {
-        toast.success("Parent created successfully");
-        handleSelect({ ...result.data, id: `new-${result.data.id}`, credentials }); // Mark as new for UI
+        toast.success("Parent Created", {
+          description: `${newParent.firstName} ${newParent.lastName} has been created successfully`
+        })
+        
+        // Pass the new parent data back to the form (include gender)
+        onSelect({
+          id: result.data?.id || "",
+          firstName: result.data?.firstName || newParent.firstName,
+          lastName: result.data?.lastName || newParent.lastName,
+          email: result.data?.email || newParent.email || "",
+          phone: result.data?.phone || newParent.phone || "",
+          occupation: result.data?.occupation || newParent.occupation || "",
+          gender: result.data?.gender || newParent.gender || "",
+        })
+        
+        onOpenChange(false)
       } else {
-        toast.error("Failed to create parent", { description: result.error });
+        toast.error("Creation Failed", {
+          description: result.error || "Failed to create parent"
+        })
       }
     } catch (error) {
-      toast.error("Error creating parent", { description: "An unexpected error occurred." });
+      console.error("Error creating parent:", error)
+      toast.error("Creation Failed", {
+        description: "An error occurred while creating the parent"
+      })
     }
-  };
-
-  
+  }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => {
-      onOpenChange(isOpen);
-      if (!isOpen) {
-        setSearchQuery("");
-        setShowCreateForm(false);
-        form.reset();
-      }
-    }}>
-      <DialogContent className="sm:max-w-[600px]">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{showCreateForm ? "Create New Parent" : "Search Parents"}</DialogTitle>
+          <DialogTitle>Parent/Guardian Management</DialogTitle>
         </DialogHeader>
-        {showCreateForm ? (
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="firstName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>First Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter first name" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="lastName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Last Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter last name" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email (Optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter email" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone (Optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter phone" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name="gender"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Gender (Optional)</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="MALE">Male</SelectItem>
-                        <SelectItem value="FEMALE">Female</SelectItem>
-                        <SelectItem value="OTHER">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>State (Optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter state" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="lga"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>LGA (Optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter LGA" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Address (Optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter address" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              <FormField
-                control={form.control}
-                name="occupation"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Occupation (Optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter occupation" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="createCredentials"
-                render={({ field }) => (
-                  <FormItem className="flex items-center space-x-2">
-                    <FormControl>
-                      <input type="checkbox" checked={field.value} onChange={field.onChange} />
-                    </FormControl>
-                    <FormLabel>Create Login Credentials</FormLabel>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {form.watch("createCredentials") && (
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="credentialType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Credential Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="EMAIL">Email</SelectItem>
-                            <SelectItem value="PHONE">Phone</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="credentialValue"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Credential Value</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter email or phone" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="Enter password" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={form.formState.isSubmitting}>
-                  {form.formState.isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    "Create Parent"
-                  )}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center space-x-2">
+
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="search">Search Existing</TabsTrigger>
+            <TabsTrigger value="create">Create New</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="search" className="space-y-4">
+            <div className="flex gap-2">
               <Input
-                placeholder="Search by name or email..."
+                placeholder="Search by name, email, or phone..."
                 value={searchQuery}
-                onChange={handleSearch}
-                className="flex-1"
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleSearch()}
               />
-              <Button
-                variant="outline"
-                onClick={() => setShowCreateForm(true)}
-                className="flex items-center gap-2"
-              >
-                <Plus size={16} />
-                Create New
+              <Button onClick={handleSearch} disabled={isSearching}>
+                <Search className="h-4 w-4 mr-2" />
+                Search
               </Button>
             </div>
-            {isLoading ? (
-              <div className="flex justify-center">
-                <Loader2 className="h-6 w-6 animate-spin" />
-              </div>
-            ) : parents.length === 0 ? (
-              <p className="text-center text-muted-foreground">No parents found.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {parents.map((parent) => (
-                    <TableRow key={parent.id}>
-                      <TableCell>{`${parent.firstName} ${parent.lastName}`}</TableCell>
-                      <TableCell>{parent.email || "-"}</TableCell>
-                      <TableCell>{parent.phone || "-"}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleSelect(parent)}
-                        >
-                          Select
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+
+            <div className="max-h-60 overflow-y-auto">
+              {isSearching ? (
+                <div className="text-center py-4">Searching...</div>
+              ) : searchResults.length === 0 ? (
+                <div className="text-center py-4 text-muted-foreground">
+                  {searchQuery ? "No parents found" : "Enter a search term to find parents"}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {searchResults.map((parent) => (
+                    <div
+                      key={parent.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent cursor-pointer"
+                      onClick={() => onSelect(parent)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <User className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium">
+                            {parent.firstName} {parent.lastName}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {parent.email && `${parent.email} • `}
+                            {parent.phone}
+                          </p>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm">
+                        Select
+                      </Button>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
-            )}
-          </div>
-        )}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="create" className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">First Name *</label>
+                <Input
+                  placeholder="First name"
+                  value={newParent.firstName}
+                  onChange={(e) => setNewParent({ ...newParent, firstName: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Last Name *</label>
+                <Input
+                  placeholder="Last name"
+                  value={newParent.lastName}
+                  onChange={(e) => setNewParent({ ...newParent, lastName: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Email</label>
+                <Input
+                  type="email"
+                  placeholder="Email address"
+                  value={newParent.email}
+                  onChange={(e) => setNewParent({ ...newParent, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Phone</label>
+                <Input
+                  placeholder="Phone number"
+                  value={newParent.phone}
+                  onChange={(e) => setNewParent({ ...newParent, phone: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Occupation</label>
+              <Input
+                placeholder="Occupation"
+                value={newParent.occupation}
+                onChange={(e) => setNewParent({ ...newParent, occupation: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Gender</label>
+              <select
+                className="w-full rounded-md border bg-transparent px-3 py-2"
+                value={newParent.gender}
+                onChange={(e) => setNewParent({ ...newParent, gender: e.target.value })}
+              >
+                <option value="">Select gender (optional)</option>
+                <option value="MALE">Male</option>
+                <option value="FEMALE">Female</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+
+            <Button onClick={handleCreateParent} className="w-full">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Parent
+            </Button>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

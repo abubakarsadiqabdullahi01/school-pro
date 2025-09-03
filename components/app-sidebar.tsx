@@ -22,6 +22,7 @@ import {
   UserCog,
   Users,
   ScreenShare,
+  ComputerIcon,
 } from "lucide-react"
 import {
   Sidebar,
@@ -101,18 +102,25 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
           {roleString !== "super-admin" && schoolInfo ? (
             <>
               {schoolInfo.logoUrl ? (
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 relative h-8 w-8">
                   <Image
-                    src={schoolInfo.logoUrl || "/placeholder.svg"}
-                    alt={`${schoolInfo.name} Logo`}
-                    width={32}
-                    height={32}
-                    className="rounded-md object-contain"
-                    onError={(e) => {
-                      console.error("Failed to load school logo:", schoolInfo.logoUrl)
-                      e.currentTarget.style.display = "none"
-                    }}
+                  src={schoolInfo.logoUrl as string}
+                  alt={`${schoolInfo.name} Logo`}
+                  width={32}
+                  height={32}
+                  className="rounded-md object-contain h-8 w-8"
+                  onError={(e) => {
+                    console.error("Failed to load school logo:", schoolInfo.logoUrl)
+                    // hide the broken image
+                    e.currentTarget.style.display = "none"
+                    // reveal the fallback icon element
+                    const fallback = e.currentTarget.parentElement?.querySelector(".fallback-icon")
+                    if (fallback) fallback.classList.remove("invisible")
+                  }}
                   />
+                  <div className="fallback-icon invisible h-8 w-8 bg-primary/10 rounded-md flex items-center justify-center absolute inset-0">
+                  <School className="h-4 w-4 text-primary" />
+                  </div>
                 </div>
               ) : (
                 <div className="flex-shrink-0 h-8 w-8 bg-primary/10 rounded-md flex items-center justify-center">
@@ -522,14 +530,14 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                                 <Link href="/dashboard/admin/school-terms">View Terms</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
+                            {/* <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
                                 isActive={pathname === "/dashboard/admin/school-terms/create"}
                               >
                                 <Link href="/dashboard/admin/school-terms/create">Create Term</Link>
                               </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
+                            </SidebarMenuSubItem> */}
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
@@ -677,20 +685,20 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton
-                        href="/dashboard/teacher/assignments"
-                        isActive={pathname === "/dashboard/teacher/assignments"}
+                        href="/dashboard/teacher/subjects"
+                        isActive={pathname === "/dashboard/teacher/subjects"}
                       >
-                        <FileText className="h-4 w-4" />
-                        <span>Assignments</span>
+                        <BookOpenCheck className="h-4 w-4" />
+                        <span>Subjects</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton
-                        href="/dashboard/teacher/grades"
-                        isActive={pathname === "/dashboard/teacher/grades"}
+                        href="/dashboard/teacher/compiler"
+                        isActive={pathname === "/dashboard/teacher/compiler"}
                       >
-                        <BookOpenCheck className="h-4 w-4" />
-                        <span>Grades</span>
+                        <ComputerIcon className="h-4 w-4" />
+                        <span>Compiler</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   </SidebarMenu>

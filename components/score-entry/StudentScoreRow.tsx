@@ -334,8 +334,8 @@ export const StudentScoreRow = memo(function StudentScoreRow({
             {score?.totalScore !== null && score?.totalScore !== undefined
               ? score.totalScore.toFixed(1)
               : assessmentInfo?.totalScore !== null && assessmentInfo?.totalScore !== undefined
-                ? assessmentInfo.totalScore.toFixed(1)
-                : "0.0"}
+              ? assessmentInfo.totalScore.toFixed(1)
+              : "0.0"}
           </span>
         )}
       </TableCell>

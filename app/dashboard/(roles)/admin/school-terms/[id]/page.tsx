@@ -7,7 +7,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { CalendarRange, Edit } from "lucide-react"
+import { ArrowBigLeft,  CalendarRange } from "lucide-react"
 import Link from "next/link"
 
 export default async function AdminTermDetailsPage({ params }: { params: { id: string } }) {
@@ -87,10 +87,16 @@ export default async function AdminTermDetailsPage({ params }: { params: { id: s
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" asChild>
+            {/* <Button variant="outline" asChild>
               <Link href={`/dashboard/admin/school-terms/edit/${termData.id}`}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Term
+              </Link>
+            </Button> */}
+            <Button variant="outline" asChild>
+              <Link href={`/dashboard/admin/school-terms`}>
+                <ArrowBigLeft className="mr-2 h-4 w-4" />
+                Back
               </Link>
             </Button>
             {termData.isCurrent ? (

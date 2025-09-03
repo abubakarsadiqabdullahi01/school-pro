@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { Building, Users, GraduationCap, BookOpen, Calendar, Mail, Phone, Globe, MapPin, Edit, Power, PowerOff, Trash2 } from 'lucide-react'
+import Image from "next/image"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -106,10 +107,11 @@ export function SchoolDetails({ school }: SchoolDetailsProps) {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
           {school.logoUrl ? (
-            <img
-              src={school.logoUrl || "/placeholder.svg"}
+            <Image
+              src={school.logoUrl}
               alt={`${school.name} logo`}
               className="h-16 w-16 rounded-lg object-cover"
+              loading="lazy"
             />
           ) : (
             <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10">

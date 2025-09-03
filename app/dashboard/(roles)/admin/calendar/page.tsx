@@ -1,8 +1,11 @@
-import { Suspense } from "react"
-import { CalendarOverview } from "@/components/school-calendar/CalendarOverview"
-import { getSchoolCalendarData } from "@/app/actions/school-calendar"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { CalendarDays } from "lucide-react"
+import { Suspense } from "react";
+import { CalendarOverview } from "@/components/school-calendar/CalendarOverview";
+import { getSchoolCalendarData } from "@/app/actions/school-calendar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CalendarDays } from "lucide-react";
+
+// Force dynamic rendering for this page
+export const dynamic = 'force-dynamic';
 
 function CalendarLoading() {
   return (
@@ -38,18 +41,18 @@ function CalendarLoading() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
 
 export default async function AdminCalendarPage() {
   try {
-    const calendarData = await getSchoolCalendarData()
+    const calendarData = await getSchoolCalendarData();
 
     return (
       <Suspense fallback={<CalendarLoading />}>
         <CalendarOverview initialData={calendarData} />
       </Suspense>
-    )
+    );
   } catch (error) {
     return (
       <div className="space-y-6">
@@ -74,6 +77,6 @@ export default async function AdminCalendarPage() {
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 }

@@ -436,12 +436,12 @@ export function StudentReportsOverview({
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-3">
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="term" className="text-sm font-medium">
                 Academic Term
               </Label>
               <Select value={form.termId} onValueChange={handleTermChange}>
-                <SelectTrigger id="term">
+                <SelectTrigger className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="term">
                   <SelectValue placeholder="Select a term" />
                 </SelectTrigger>
                 <SelectContent>
@@ -455,12 +455,12 @@ export function StudentReportsOverview({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="level" className="text-sm font-medium">
                 Class Level
               </Label>
               <Select value={form.level} onValueChange={handleLevelChange}>
-                <SelectTrigger id="level">
+                <SelectTrigger className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="level">
                   <SelectValue placeholder="Select a level" />
                 </SelectTrigger>
                 <SelectContent>
@@ -473,7 +473,7 @@ export function StudentReportsOverview({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="class" className="text-sm font-medium">
                 Class
               </Label>
@@ -482,7 +482,7 @@ export function StudentReportsOverview({
                 onValueChange={handleClassChange}
                 disabled={!form.termId || !form.level || isLoadingClasses}
               >
-                <SelectTrigger id="class">
+                <SelectTrigger className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="class">
                   {isLoadingClasses ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (

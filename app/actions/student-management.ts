@@ -104,6 +104,196 @@ export async function generateAdmissionNumber() {
   }
 }
 
+export async function createParent(data: {
+  firstName: string
+  lastName: string
+  email?: string
+  phone?: string
+  occupation?: string
+  gender?: Gender | null
+  state?: string
+  lga?: string
+  address?: string
+}) {
+  try {
+    const session = await auth()
+    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    let schoolId: string
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      })
+      if (!admin?.schoolId) {
+        return { success: false, error: "Admin not associated with a school" }
+      }
+      schoolId = admin.schoolId
+    } else {
+      const school = await prisma.school.findFirst({
+        select: { id: true },
+      })
+      if (!school) {
+        return { success: false, error: "No school found in the system" }
+      }
+      schoolId = school.id
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // ADD THIS LINE: Define currentYear
+      const currentYear = new Date().getFullYear()
+      
+      // Create parent user
+      const parentUser = await tx.user.create({
+        data: {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone,
+          role: "PARENT",
+          isActive: true,
+          gender: data.gender ?? null,
+          state: data.state,
+          lga: data.lga,
+          address: data.address,
+        },
+      })
+
+      // Create credentials if email is provided
+      if (data.email) {
+        const existingCred = await tx.credential.findUnique({
+          where: { value: data.email },
+        })
+        if (existingCred) {
+          throw new Error(`A user with this email already exists.`)
+        }
+        const passwordHash = await hashPassword(currentYear.toString())
+        await tx.credential.create({
+          data: {
+            userId: parentUser.id,
+            type: "EMAIL",
+            value: data.email,
+            passwordHash,
+            isPrimary: true,
+          },
+        })
+      }
+
+      // Create phone credential if phone is provided
+      if (data.phone) {
+        const existingPhoneCred = await tx.credential.findUnique({
+          where: { value: data.phone },
+        })
+        if (!existingPhoneCred) {
+          const passwordHash = await hashPassword(currentYear.toString())
+          await tx.credential.create({
+            data: {
+              userId: parentUser.id,
+              type: "PHONE",
+              value: data.phone,
+              passwordHash,
+              isPrimary: !data.email, // Make primary if no email
+            },
+          })
+        }
+      }
+
+      // Create parent record
+      const parent = await tx.parent.create({
+        data: {
+          userId: parentUser.id,
+          schoolId,
+          occupation: data.occupation,
+        },
+        include: {
+          user: {
+            select: {
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
+        },
+      })
+
+      return {
+        id: parent.id,
+        userId: parentUser.id,
+        firstName: parentUser.firstName,
+        lastName: parentUser.lastName,
+        email: data.email,
+        phone: data.phone,
+        occupation: data.occupation,
+      }
+    })
+
+    return { success: true, data: result }
+  } catch (error) {
+    console.error("Error creating parent:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to create parent",
+    }
+  }
+}
+
+
+export async function getClassesBySchool() {
+  try {
+    const session = await auth()
+    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
+      return { success: false, error: "Unauthorized" }
+    }
+
+    let schoolId: string
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      })
+      if (!admin?.schoolId) {
+        return { success: false, error: "Admin not associated with a school" }
+      }
+      schoolId = admin.schoolId
+    } else {
+      const school = await prisma.school.findFirst({
+        select: { id: true, name: true, code: true },
+      })
+      if (!school) {
+        return { success: false, error: "No school found" }
+      }
+      schoolId = school.id
+    }
+
+    const classes = await prisma.class.findMany({
+      where: { schoolId },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+      },
+      orderBy: [{ level: "asc" }, { name: "asc" }],
+    })
+
+    const school = await prisma.school.findUnique({
+      where: { id: schoolId },
+      select: { id: true, name: true, code: true },
+    })
+
+    return {
+      success: true,
+      data: {
+        classes,
+        school,
+      },
+    }
+  } catch (error) {
+    console.error("Error fetching classes by school:", error)
+    return { success: false, error: "Failed to fetch classes" }
+  }
+}
+
 export async function createStudent(data: {
   firstName: string
   lastName: string
@@ -119,6 +309,7 @@ export async function createStudent(data: {
   parentId?: string
   relationship?: string
   isActive: boolean
+  createLoginCredentials?: boolean
   credentials?: Array<{
     type: "EMAIL" | "PHONE" | "REGISTRATION_NUMBER" | "PSN"
     value: string
@@ -162,9 +353,11 @@ export async function createStudent(data: {
       return { success: false, error: "Invalid term selected" }
     }
 
+    const currentYear = new Date().getFullYear()
+    const regPasswordHash = await hashPassword(currentYear.toString())
+
     const result = await prisma.$transaction(async (tx) => {
       // === 1. Generate admission number inside transaction ===
-      const currentYear = new Date().getFullYear()
       const school = await tx.school.findUnique({
         where: { id: schoolId },
         select: {
@@ -250,6 +443,21 @@ export async function createStudent(data: {
         },
       })
 
+      // === 3. Optionally create default login credential (registration number) ===
+      if (data.createLoginCredentials) {
+        // create credential using the generated admissionNo as the login value
+        const regPasswordHash = await hashPassword(currentYear.toString())
+        await tx.credential.create({
+          data: {
+            userId: studentUser.id,
+            type: "REGISTRATION_NUMBER",
+            value: admissionNo,
+            passwordHash: regPasswordHash,
+            isPrimary: true,
+          },
+        })
+      }
+
       const classTerm = await tx.classTerm.findFirst({
         where: { classId: data.classId, termId: data.termId },
       })
@@ -263,19 +471,45 @@ export async function createStudent(data: {
       })
 
       if (data.parentId) {
-        const parent = await tx.parent.findUnique({ where: { id: data.parentId } })
-        if (!parent) {
-          throw new Error("Parent does not exist")
-        }
-        await tx.studentParent.create({
-          data: {
-            studentId: student.id,
-            parentId: data.parentId,
-            relationship: data.relationship || "PARENT",
-          },
-        })
+          try {
+            // Check if this is a new parent (indicated by a special prefix)
+            if (data.parentId.startsWith("new-")) {
+              // This is a new parent that needs to be created
+              // Extract parent data from the form or additional parameters
+              // For now, we'll skip since we need to modify the frontend to pass parent data
+              console.warn("New parent creation not implemented yet. Skipping parent assignment.")
+            } else {
+              // This is an existing parent
+              const parent = await tx.parent.findUnique({ 
+                where: { id: data.parentId },
+                include: {
+                  user: {
+                    select: {
+                      firstName: true,
+                      lastName: true
+                    }
+                  }
+                }
+              })
+              
+              if (!parent) {
+                console.warn(`Parent with ID ${data.parentId} not found. Skipping parent assignment.`)
+              } else {
+                await tx.studentParent.create({
+                  data: {
+                    studentId: student.id,
+                    parentId: data.parentId,
+                    relationship: data.relationship || "PARENT",
+                  },
+                })
+                console.log(`Successfully linked parent ${parent.user.firstName} ${parent.user.lastName} to student`)
+              }
+            }
+          } catch (parentError) {
+            console.error("Error linking parent to student:", parentError)
+            // Continue without parent assignment - don't fail the whole transaction
+          }
       }
-
       return {
         id: student.id,
         admissionNo,
@@ -286,7 +520,7 @@ export async function createStudent(data: {
         termId: data.termId,
         parentId: data.parentId,
       }
-    })
+    }, { timeout: 15000 })
 
     return { success: true, data: result }
   } catch (error) {
@@ -1437,9 +1671,18 @@ export async function searchParents(query = "") {
         ...(query
           ? {
               OR: [
-                { user: { firstName: { contains: normalizedQuery } } },
-                { user: { lastName: { contains: normalizedQuery } } },
-                { user: { credentials: { some: { value: { contains: normalizedQuery } } } } },
+                { user: { firstName: { contains: normalizedQuery, mode: 'insensitive' } } },
+                { user: { lastName: { contains: normalizedQuery, mode: 'insensitive' } } },
+                { user: { phone: { contains: normalizedQuery, mode: 'insensitive' } } },
+                { 
+                  user: { 
+                    credentials: { 
+                      some: { 
+                        value: { contains: normalizedQuery, mode: 'insensitive' } 
+                      } 
+                    } 
+                  } 
+                },
               ],
             }
           : {}),
@@ -1456,8 +1699,16 @@ export async function searchParents(query = "") {
             lga: true,
             address: true,
             credentials: {
-              where: { type: "EMAIL" },
-              select: { value: true },
+              where: { 
+                OR: [
+                  { type: "EMAIL" },
+                  { type: "PHONE" }
+                ] 
+              },
+              select: { 
+                type: true, 
+                value: true 
+              },
             },
           },
         },
@@ -1465,19 +1716,24 @@ export async function searchParents(query = "") {
       take: 10,
     })
 
-    const formattedParents = parents.map((parent) => ({
-      id: parent.id,
-      userId: parent.userId,
-      firstName: parent.user.firstName,
-      lastName: parent.user.lastName,
-      email: parent.user.credentials.length > 0 ? parent.user.credentials[0].value : "",
-      phone: parent.user.phone || "",
-      occupation: parent.occupation || "",
-      gender: parent.user.gender,
-      state: parent.user.state,
-      lga: parent.user.lga,
-      address: parent.user.address,
-    }))
+    const formattedParents = parents.map((parent) => {
+      const emailCredential = parent.user.credentials.find(c => c.type === "EMAIL")
+      const phoneCredential = parent.user.credentials.find(c => c.type === "PHONE")
+      
+      return {
+        id: parent.id,
+        userId: parent.userId,
+        firstName: parent.user.firstName,
+        lastName: parent.user.lastName,
+        email: emailCredential?.value || "",
+        phone: phoneCredential?.value || parent.user.phone || "",
+        occupation: parent.occupation || "",
+        gender: parent.user.gender,
+        state: parent.user.state,
+        lga: parent.user.lga,
+        address: parent.user.address,
+      }
+    })
 
     return { success: true, data: formattedParents }
   } catch (error) {

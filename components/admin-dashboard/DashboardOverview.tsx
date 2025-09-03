@@ -49,7 +49,7 @@ export function DashboardOverview({ data }: DashboardOverviewProps) {
       )}
 
       {/* Main Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-2">
         {/* Academic Progress - Takes 2 columns */}
         <motion.div variants={itemVariants} className="lg:col-span-2">
           <AcademicProgress

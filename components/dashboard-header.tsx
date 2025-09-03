@@ -96,39 +96,6 @@ export function DashboardHeader({ userRole, userName, userAvatar }: HeaderProps)
         </Button>
 
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <Badge className="absolute -right-1 -top-1 h-5 w-5 rounded-full p-0 flex items-center justify-center">
-                  3
-                </Badge>
-                <span className="sr-only">Notifications</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[300px]">
-              <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <div className="grid gap-1">
-                {[
-                  "New student registration request",
-                  "Teacher submitted grades for Class 10A",
-                  "System maintenance scheduled for tonight",
-                ].map((notification, i) => (
-                  <DropdownMenuItem key={i} className="cursor-pointer">
-                    <span className="text-sm">{notification}</span>
-                  </DropdownMenuItem>
-                ))}
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/dashboard/notifications" className="cursor-pointer justify-center text-center">
-                  View all notifications
-                </Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
           <Button variant="ghost" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
             {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             <span className="sr-only">Toggle theme</span>
@@ -138,8 +105,13 @@ export function DashboardHeader({ userRole, userName, userAvatar }: HeaderProps)
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={userAvatar || "/placeholder.svg?height=32&width=32"} alt={userName || "User"} />
-                  <AvatarFallback>{getInitials()}</AvatarFallback>
+                  {userAvatar ? (
+                  <AvatarImage src={userAvatar} alt={userName || "User"} />
+                  ) : (
+                  <AvatarFallback>
+                    <User className="h-5 w-5" />
+                  </AvatarFallback>
+                  )}
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>

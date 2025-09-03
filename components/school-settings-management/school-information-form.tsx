@@ -19,6 +19,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { updateSchoolInformation } from "@/app/actions/school-settings"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
 const schoolInformationSchema = z.object({
   address: z.string().min(5, "Address must be at least 5 characters"),
   phone: z.string().min(10, "Phone number must be at least 10 characters"),
@@ -90,41 +93,46 @@ export function SchoolInformationForm({ data }: SchoolInformationFormProps) {
   }
 
   const handleLogoUpload = async (file: File) => {
-    if (!file) return
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select a valid image file")
-      return
+    if (!file) return;
+    
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      toast.error(`Please select a valid image file (${ALLOWED_IMAGE_TYPES.join(', ')})`);
+      return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image size must be less than 5MB")
-      return
+    
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`Image size must be less than ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+      return;
     }
 
-    setIsUploadingLogo(true)
+    setIsUploadingLogo(true);
 
     try {
-      const formData = new FormData()
-      formData.append("logo", file)
-      formData.append("schoolId", data.school.id)
+      const formData = new FormData();
+      formData.append("logo", file);
+      formData.append("schoolId", data.school.id);
 
       const response = await fetch("/api/upload/school-logo", {
         method: "POST",
         body: formData,
-      })
+      });
 
-      if (!response.ok) throw new Error("Failed to upload logo")
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to upload logo");
+      }
 
-      const result = await response.json()
-      setLogoPreview(result.logoUrl)
-      toast.success("Logo uploaded successfully")
-      router.refresh()
-    } catch (error) {
-      console.error("Logo upload error:", error)
-      toast.error("Failed to upload logo")
+      const result = await response.json();
+      setLogoPreview(result.logoUrl);
+      toast.success("Logo uploaded successfully");
+      router.refresh();
+    } catch (error: any) {
+      console.error("Logo upload error:", error);
+      toast.error(error.message || "Failed to upload logo");
     } finally {
-      setIsUploadingLogo(false)
+      setIsUploadingLogo(false);
     }
-  }
+  };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -136,22 +144,28 @@ export function SchoolInformationForm({ data }: SchoolInformationFormProps) {
 
   const removeLogo = async () => {
     try {
-      setIsUploadingLogo(true)
-      await fetch("/api/upload/school-logo", {
+      setIsUploadingLogo(true);
+      const response = await fetch("/api/s3/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schoolId: data.school.id }),
-      })
+      });
 
-      setLogoPreview("")
-      toast.success("Logo removed successfully")
-      router.refresh()
-    } catch (error) {
-      toast.error("Failed to remove logo")
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to remove logo");
+      }
+
+      setLogoPreview("");
+      toast.success("Logo removed successfully");
+      router.refresh();
+    } catch (error: any) {
+      console.error("Logo removal error:", error);
+      toast.error(error.message || "Failed to remove logo");
     } finally {
-      setIsUploadingLogo(false)
+      setIsUploadingLogo(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -200,9 +214,10 @@ export function SchoolInformationForm({ data }: SchoolInformationFormProps) {
                     <Avatar className="h-24 w-24 border-2 border-dashed border-muted-foreground/25">
                       {logoPreview ? (
                         <AvatarImage
-                          src={logoPreview || "/placeholder.svg"}
+                          src={logoPreview}
                           alt="School Logo"
                           className="object-cover"
+                          onError={() => setLogoPreview("")}
                         />
                       ) : (
                         <AvatarFallback className="bg-muted">

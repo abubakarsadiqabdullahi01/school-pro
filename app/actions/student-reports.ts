@@ -209,11 +209,11 @@ export async function getStudentReportData(studentId: string, termId: string) {
 
         const gradeResult = calculateGrade(subjectTotal, gradingSystem)
 
-        subjects[subject.id] = {
-          ca1,
-          ca2,
-          ca3,
-          exam,
+       subjects[subject.id] = {
+          ca1: assessment?.ca1 ?? 0,
+          ca2: assessment?.ca2 ?? 0,
+          ca3: assessment?.ca3 ?? 0,
+          exam: assessment?.exam ?? 0,
           score: subjectTotal,
           grade: gradeResult.grade,
           remark: gradeResult.remark,
@@ -229,14 +229,14 @@ export async function getStudentReportData(studentId: string, termId: string) {
       } else if (assessment) {
         // Student has assessment but is absent or exempt
         subjects[subject.id] = {
-          ca1: null,
-          ca2: null,
-          ca3: null,
-          exam: null,
-          score: null,
-          grade: null,
+          ca1: 0,
+          ca2: 0,
+          ca3: 0,
+          exam: 0,
+          score: 0,
+          grade: "-",
           remark: assessment.isAbsent ? "Absent" : "Exempt",
-          position: null,
+          position: 0,
           outOf: stats.totalStudents,
           lowest: stats.lowest,
           highest: stats.highest,
@@ -245,14 +245,14 @@ export async function getStudentReportData(studentId: string, termId: string) {
       } else {
         // No assessment record for this subject
         subjects[subject.id] = {
-          ca1: null,
-          ca2: null,
-          ca3: null,
-          exam: null,
-          score: null,
-          grade: null,
+          ca1: 0,
+          ca2: 0,
+          ca3: 0,
+          exam: 0,
+          score: 0,
+          grade: "-",
           remark: "Not Taken",
-          position: null,
+          position: 0,
           outOf: stats.totalStudents,
           lowest: stats.lowest,
           highest: stats.highest,
@@ -273,12 +273,12 @@ export async function getStudentReportData(studentId: string, termId: string) {
       admissionNo: student.admissionNo,
       gender: student.user.gender || "OTHER",
       subjects,
-      totalScore,
+      totalScore: totalScore,
       averageScore,
       grade: overallGradeResult.grade,
       remark: overallGradeResult.remark,
       position,
-      gradingSystem, // Include grading system for use in PDF generation
+      gradingSystem, 
     }
 
     return { success: true, data: studentResult }

@@ -5,7 +5,12 @@ import { TermForm } from "@/components/session-management/term-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { notFound } from "next/navigation"
 
-export default async function EditTermPage({ params }: { params: { id: string } }) {
+// Add this interface to properly type the params
+interface Props {
+  params: Promise<{ id: string }>
+}
+
+export default async function EditTermPage({ params }: Props) {
   const session = await auth()
 
   // Check if user is super admin
@@ -13,8 +18,8 @@ export default async function EditTermPage({ params }: { params: { id: string } 
     redirect("/dashboard")
   }
 
-  // Ensure params is properly awaited
-  const id = params.id
+  // Await the params promise before accessing its properties
+  const { id } = await params
 
   // Fetch the term to edit
   const termData = await prisma.term.findUnique({

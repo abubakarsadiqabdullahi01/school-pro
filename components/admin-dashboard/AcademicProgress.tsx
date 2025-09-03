@@ -227,54 +227,97 @@ export function AcademicProgress({
       <Card className="border-0 shadow-lg">
         <CardHeader className="bg-gradient-to-r from-green-50 to-teal-50">
           <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-green-600" />
-            Class Enrollment
+        <Users className="h-5 w-5 text-green-600" />
+        Class Enrollment
           </CardTitle>
           <CardDescription>Current student enrollment by class</CardDescription>
         </CardHeader>
         <CardContent className="p-6">
           {classStats.length > 0 ? (
-            <div className="space-y-4">
-              {classStats.map((cls, index) => {
-                const enrollmentPercentage = (cls.studentCount / cls.totalCapacity) * 100
+        <div className="space-y-4">
+          {/* Show only top N classes, with a details expander for the rest */}
+          {classStats.slice(0, 5).map((cls, index) => {
+            const enrollmentPercentage = (cls.studentCount / cls.totalCapacity) * 100
 
-                // Color based on enrollment percentage
-                let progressColor = "bg-green-500"
-                if (enrollmentPercentage > 90) progressColor = "bg-red-500"
-                else if (enrollmentPercentage > 75) progressColor = "bg-orange-500"
-                else if (enrollmentPercentage > 50) progressColor = "bg-blue-500"
+            let progressColor = "bg-green-500"
+            if (enrollmentPercentage > 90) progressColor = "bg-red-500"
+            else if (enrollmentPercentage > 75) progressColor = "bg-orange-500"
+            else if (enrollmentPercentage > 50) progressColor = "bg-blue-500"
 
-                return (
-                  <motion.div
-                    key={cls.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: index * 0.1 }}
-                    className="flex items-center gap-4 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-gray-900">{cls.name}</h4>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {getLevelName(cls.level)}
-                          </Badge>
-                          <span className="text-sm font-medium">
-                            {cls.studentCount}/{cls.totalCapacity}
-                          </span>
-                        </div>
-                      </div>
-                      <Progress value={enrollmentPercentage} className="h-2" />
-                    </div>
-                  </motion.div>
-                )
-              })}
+            return (
+          <motion.div
+            key={cls.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: index * 0.08 }}
+            className="flex items-center gap-4 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between mb-2">
+            <h4 className="font-medium text-gray-900">{cls.name}</h4>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                {getLevelName(cls.level)}
+              </Badge>
+              <span className="text-sm font-medium">
+                {cls.studentCount}/{cls.totalCapacity}
+              </span>
             </div>
+              </div>
+              <Progress value={enrollmentPercentage} className="h-2" />
+            </div>
+          </motion.div>
+            )
+          })}
+
+          {classStats.length > 5 && (
+            <details className="group">
+          <summary className="cursor-pointer text-sm text-blue-600 hover:underline mt-2">
+            Show all {classStats.length} classes
+          </summary>
+          <div className="mt-3 space-y-3">
+            {classStats.slice(5).map((cls, idx) => {
+              const enrollmentPercentage = (cls.studentCount / cls.totalCapacity) * 100
+
+              let progressColor = "bg-green-500"
+              if (enrollmentPercentage > 90) progressColor = "bg-red-500"
+              else if (enrollmentPercentage > 75) progressColor = "bg-orange-500"
+              else if (enrollmentPercentage > 50) progressColor = "bg-blue-500"
+
+              return (
+            <motion.div
+              key={cls.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: idx * 0.06 }}
+              className="flex items-center gap-4 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between mb-2">
+              <h4 className="font-medium text-gray-900">{cls.name}</h4>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {getLevelName(cls.level)}
+                </Badge>
+                <span className="text-sm font-medium">
+                  {cls.studentCount}/{cls.totalCapacity}
+                </span>
+              </div>
+                </div>
+                <Progress value={enrollmentPercentage} className="h-2" />
+              </div>
+            </motion.div>
+              )
+            })}
+          </div>
+            </details>
+          )}
+        </div>
           ) : (
-            <div className="text-center py-8 text-gray-500">
-              <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No class data available</p>
-            </div>
+        <div className="text-center py-8 text-gray-500">
+          <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+          <p>No class data available</p>
+        </div>
           )}
         </CardContent>
       </Card>

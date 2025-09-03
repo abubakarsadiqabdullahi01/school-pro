@@ -136,22 +136,18 @@ export function LogoSpinner({
         className={cn("relative flex items-center justify-center", sizeClasses[size])}
       >
         {logoUrl ? (
-          <div className={cn("relative overflow-hidden rounded-lg", sizeClasses[size])}>
+            <div className={cn("relative overflow-hidden rounded-lg", sizeClasses[size])}>
             <Image
-              src={logoUrl || "/placeholder.svg"}
+              src={logoUrl}
               alt="Loading"
               fill
               className="object-contain"
               onError={(e) => {
-                console.error("Failed to load logo:", logoUrl)
-                e.currentTarget.style.display = "none"
+              console.error("Failed to load logo:", logoUrl)
+              e.currentTarget.style.display = "none"
               }}
             />
-            {/* Fallback overlay if image fails */}
-            <div className="absolute inset-0 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
-              <FallbackIcon className={cn("text-primary", sizeClasses[size])} />
             </div>
-          </div>
         ) : variant === "spin" ? (
           <Loader2 className={cn("text-primary", sizeClasses[size])} />
         ) : (

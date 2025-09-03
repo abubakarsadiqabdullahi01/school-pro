@@ -362,7 +362,7 @@ export async function getStudentsForTransition(classTermId: string) {
         studentName: `${student.user.firstName} ${student.user.lastName}`,
         admissionNo: student.admissionNo,
         gender: student.user.gender || "OTHER",
-        totalScore,
+  // totalScore is computed at runtime; do not persist
         averageScore,
         grade: overallGradeResult.grade,
         remark: overallGradeResult.remark,

@@ -219,6 +219,8 @@ export function ParentDetails({ parent: initialParent }: ParentDetailsProps) {
     });
   };
 
+  console.log("Parent data:", parent); // Debugging line
+
   return (
     <>
       <div className="flex flex-col md:flex-row gap-6">
@@ -246,13 +248,11 @@ export function ParentDetails({ parent: initialParent }: ParentDetailsProps) {
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Gender</h3>
                 <p>
-                  {parent.gender === "MALE"
-                    ? "Male"
-                    : parent.gender === "FEMALE"
-                    ? "Female"
-                    : parent.gender === "OTHER"
-                    ? "Other"
-                    : "Not specified"}
+                  {(() => {
+                    const g = parent.gender ? String(parent.gender).toUpperCase() : null
+                    if (!g) return "Not specified"
+                    return g === "MALE" ? "Male" : g === "FEMALE" ? "Female" : "Other"
+                  })()}
                 </p>
               </div>
               <div>
