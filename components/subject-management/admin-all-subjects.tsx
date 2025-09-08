@@ -35,6 +35,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { deleteSubject } from "@/app/actions/subject-management"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 
 interface ClassInfo {
   id: string
@@ -69,6 +78,8 @@ export function AllSubjectsTable({ subjects }: AllSubjectsTableProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [subjectToDelete, setSubjectToDelete] = useState<Subject | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
   const router = useRouter()
 
   // Filter subjects based on search query
@@ -79,6 +90,24 @@ export function AllSubjectsTable({ subjects }: AllSubjectsTableProps) {
       subject.schoolName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       subject.schoolCode.toLowerCase().includes(searchQuery.toLowerCase()),
   )
+
+  // Pagination logic
+  const totalItems = filteredSubjects.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedSubjects = filteredSubjects.slice(startIndex, endIndex)
+
+  // Reset to first page when search query changes
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    setCurrentPage(1)
+  }
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
 
   // Handle edit subject
   const handleEditSubject = (subjectId: string) => {
@@ -181,7 +210,7 @@ export function AllSubjectsTable({ subjects }: AllSubjectsTableProps) {
             placeholder="Search subjects by name, code, or school..."
             className="w-full pl-8"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
           />
         </div>
         <div className="flex gap-2">
@@ -214,7 +243,7 @@ export function AllSubjectsTable({ subjects }: AllSubjectsTableProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredSubjects.length === 0 ? (
+              {paginatedSubjects.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="h-24 text-center">
                     {searchQuery ? (
@@ -236,7 +265,7 @@ export function AllSubjectsTable({ subjects }: AllSubjectsTableProps) {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredSubjects.map((subject) => (
+                paginatedSubjects.map((subject) => (
                   <TableRow key={subject.id} className="hover:bg-muted/50">
                     <TableCell className="font-medium">
                       <div className="flex flex-col">
@@ -293,6 +322,137 @@ export function AllSubjectsTable({ subjects }: AllSubjectsTableProps) {
             </TableBody>
           </Table>
         </div>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/50 rounded-b-md">
+            <div className="text-sm text-muted-foreground">
+              Showing {startIndex + 1}–{Math.min(endIndex, totalItems)} of {totalItems} subjects
+            </div>
+
+            <Pagination>
+              <PaginationContent>
+          {/* First */}
+          <PaginationItem>
+            <PaginationLink
+              onClick={() => handlePageChange(1)}
+              className={currentPage === 1 ? "pointer-events-none opacity-50 px-2" : "cursor-pointer px-2"}
+              aria-label="Go to first page"
+            >
+              «
+            </PaginationLink>
+          </PaginationItem>
+
+          {/* Previous */}
+          <PaginationItem>
+            <PaginationPrevious
+              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+              aria-label="Previous page"
+            />
+          </PaginationItem>
+
+          {/* Dynamic page range (max 5 visible) */}
+          {(() => {
+            const pages: number[] = []
+            let start = Math.max(1, currentPage - 2)
+            let end = Math.min(totalPages, currentPage + 2)
+
+            if (currentPage <= 3) {
+              start = 1
+              end = Math.min(5, totalPages)
+            } else if (currentPage >= totalPages - 2) {
+              start = Math.max(1, totalPages - 4)
+              end = totalPages
+            }
+
+            for (let p = start; p <= end; p++) pages.push(p)
+
+            const nodes: React.ReactNode[] = []
+
+            if (start > 1) {
+              nodes.push(
+                <PaginationItem key={1}>
+            <PaginationLink
+              onClick={() => handlePageChange(1)}
+              className="cursor-pointer"
+              aria-label={`Go to page 1`}
+            >
+              1
+            </PaginationLink>
+                </PaginationItem>
+              )
+              if (start > 2) {
+                nodes.push(
+            <PaginationItem key="start-ellipsis">
+              <PaginationEllipsis />
+            </PaginationItem>
+                )
+              }
+            }
+
+            pages.forEach((pageNumber) => {
+              nodes.push(
+                <PaginationItem key={pageNumber}>
+            <PaginationLink
+              onClick={() => handlePageChange(pageNumber)}
+              isActive={currentPage === pageNumber}
+              className="cursor-pointer"
+              aria-current={currentPage === pageNumber ? "page" : undefined}
+              aria-label={`Go to page ${pageNumber}`}
+            >
+              {pageNumber}
+            </PaginationLink>
+                </PaginationItem>
+              )
+            })
+
+            if (end < totalPages) {
+              if (end < totalPages - 1) {
+                nodes.push(
+            <PaginationItem key="end-ellipsis">
+              <PaginationEllipsis />
+            </PaginationItem>
+                )
+              }
+              nodes.push(
+                <PaginationItem key={totalPages}>
+            <PaginationLink
+              onClick={() => handlePageChange(totalPages)}
+              className="cursor-pointer"
+              aria-label={`Go to page ${totalPages}`}
+            >
+              {totalPages}
+            </PaginationLink>
+                </PaginationItem>
+              )
+            }
+
+            return nodes
+          })()}
+
+          {/* Next */}
+          <PaginationItem>
+            <PaginationNext
+              onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+              className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+              aria-label="Next page"
+            />
+          </PaginationItem>
+
+          {/* Last */}
+          <PaginationItem>
+            <PaginationLink
+              onClick={() => handlePageChange(totalPages)}
+              className={currentPage === totalPages ? "pointer-events-none opacity-50 px-2" : "cursor-pointer px-2"}
+              aria-label="Go to last page"
+            >
+              »
+            </PaginationLink>
+          </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
       </Card>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -307,7 +467,7 @@ export function AllSubjectsTable({ subjects }: AllSubjectsTableProps) {
                   {(subjectToDelete.classes.length > 0 || subjectToDelete.teachers.length > 0) ? (
                     <div className="mt-2 space-y-2">
                       <p className="text-destructive font-medium">
-                        This subject cannot be deleted because it's currently in use.
+                        This subject cannot be deleted because it&apos;s currently in use.
                       </p>
                       
                       {subjectToDelete.classes.length > 0 && (

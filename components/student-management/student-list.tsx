@@ -49,14 +49,14 @@ interface Student {
   recentAssessments: {
     id: string
     subject: string
-    totalScore: string // Can be number or "ABS", "EXM", "UNPUB"
+    totalScore: string
     grade: string
     remark: string
     term: string
-    ca1?: number
-    ca2?: number
-    ca3?: number
-    exam?: number
+    ca1?: number | null
+    ca2?: number | null
+    ca3?: number | null
+    exam?: number | null
     isAbsent: boolean
     isExempt: boolean
     isPublished: boolean
@@ -96,7 +96,7 @@ export default function StudentList() {
     debounce((query: string) => {
       setSearchQuery(query)
     }, 300),
-    [],
+    []
   )
 
   // Fetch students when filters or page change
@@ -107,6 +107,7 @@ export default function StudentList() {
         const result = await getStudents({
           classId: classFilter !== "all" ? classFilter : undefined,
           assignmentStatus: assignmentFilter,
+          search: searchQuery, // Add search query to server request
           page: pagination.page,
           pageSize: pagination.pageSize,
         })
@@ -130,14 +131,7 @@ export default function StudentList() {
     }
 
     fetchStudents()
-  }, [classFilter, assignmentFilter, pagination.page])
-
-  // Filter students based on search query (client-side)
-  const filteredStudents = students.filter(
-    (student) =>
-      student.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.admissionNo.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  }, [classFilter, assignmentFilter, searchQuery, pagination.page, pagination.pageSize])
 
   // Handle student status toggle
   const handleToggleStudentStatus = async (studentId: string) => {
@@ -145,7 +139,7 @@ export default function StudentList() {
 
     try {
       const result = await toggleStudentStatus(studentId)
-      if (result.success) {
+      if (result.success && result.data) {
         // Update the student in the local state
         setStudents((prev) =>
           prev.map((student) => (student.id === studentId ? { ...student, isActive: result.data.isActive } : student)),
@@ -171,6 +165,103 @@ export default function StudentList() {
         return newSet
       })
     }
+  }
+
+  // Simplified pagination component
+  const renderPagination = () => {
+    if (pagination.totalPages <= 1) return null
+
+    return (
+      <div className="flex items-center justify-between space-x-2 py-4">
+        <div className="text-sm text-muted-foreground">
+          Showing {((pagination.page - 1) * pagination.pageSize) + 1} to{" "}
+          {Math.min(pagination.page * pagination.pageSize, pagination.total)} of{" "}
+          {pagination.total} entries
+        </div>
+        <Pagination>
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (pagination.page > 1) {
+                    setPagination(prev => ({ ...prev, page: prev.page - 1 }))
+                  }
+                }}
+                className={pagination.page === 1 ? "pointer-events-none opacity-50" : ""}
+              />
+            </PaginationItem>
+            
+            {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+              let pageNum
+              if (pagination.totalPages <= 5) {
+                pageNum = i + 1
+              } else if (pagination.page <= 3) {
+                pageNum = i + 1
+              } else if (pagination.page >= pagination.totalPages - 2) {
+                pageNum = pagination.totalPages - 4 + i
+              } else {
+                pageNum = pagination.page - 2 + i
+              }
+              
+              return (
+                <PaginationItem key={pageNum}>
+                  <PaginationLink
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setPagination(prev => ({ ...prev, page: pageNum }))
+                    }}
+                    isActive={pagination.page === pageNum}
+                  >
+                    {pageNum}
+                  </PaginationLink>
+                </PaginationItem>
+              )
+            })}
+            
+            <PaginationItem>
+              <PaginationNext
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (pagination.page < pagination.totalPages) {
+                    setPagination(prev => ({ ...prev, page: prev.page + 1 }))
+                  }
+                }}
+                className={pagination.page === pagination.totalPages ? "pointer-events-none opacity-50" : ""}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+        
+        <div className="flex items-center space-x-2">
+          <Select
+            value={String(pagination.pageSize)}
+            onValueChange={(value) => {
+              setPagination({
+                page: 1,
+                pageSize: Number(value),
+                total: pagination.total,
+                totalPages: Math.ceil(pagination.total / Number(value))
+              })
+            }}
+          >
+            <SelectTrigger className="h-8 w-[70px]">
+              <SelectValue placeholder={pagination.pageSize} />
+            </SelectTrigger>
+            <SelectContent side="top">
+              {[10, 20, 30, 40, 50].map((pageSize) => (
+                <SelectItem key={pageSize} value={`${pageSize}`}>
+                  {pageSize}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -250,20 +341,16 @@ export default function StudentList() {
                       <TableHead>Name</TableHead>
                       <TableHead>Class</TableHead>
                       <TableHead>Gender</TableHead>
-                      {/* <TableHead>State</TableHead> */}
                       <TableHead>LGA</TableHead>
-                      <TableHead>Address</TableHead>
                       <TableHead>Year</TableHead>
                       <TableHead>Parent/Guardian</TableHead>
-                      <TableHead>Recent Assessment</TableHead>
-                      {/* <TableHead>Recent Payment</TableHead> */}
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredStudents.length > 0 ? (
-                      filteredStudents.map((student) => (
+                    {students.length > 0 ? (
+                      students.map((student) => (
                         <TableRow key={student.id}>
                           <TableCell className="font-medium">{student.admissionNo}</TableCell>
                           <TableCell>
@@ -283,39 +370,9 @@ export default function StudentList() {
                               {student.gender}
                             </Badge>
                           </TableCell>
-                          {/* <TableCell>{student.state}</TableCell> */}
                           <TableCell>{student.lga}</TableCell>
-                          <TableCell>{student.address}</TableCell>
                           <TableCell>{student.year || "N/A"}</TableCell>
                           <TableCell>{student.parentName || "Not Assigned"}</TableCell>
-                          <TableCell>
-                            {student.recentAssessments.length > 0 ? (
-                              <div className="text-sm">
-                                <div className="font-medium">
-                                  {student.recentAssessments[0].subject}: {student.recentAssessments[0].totalScore}
-                                </div>
-                                <div className="text-muted-foreground">Grade: {student.recentAssessments[0].grade}</div>
-                                {student.recentAssessments[0].totalScore !== "ABS" &&
-                                  student.recentAssessments[0].totalScore !== "EXM" &&
-                                  student.recentAssessments[0].totalScore !== "UNPUB" && (
-                                    <div className="text-xs text-muted-foreground">
-                                      CA:{" "}
-                                      {(student.recentAssessments[0].ca1 || 0) +
-                                        (student.recentAssessments[0].ca2 || 0) +
-                                        (student.recentAssessments[0].ca3 || 0)}{" "}
-                                      | Exam: {student.recentAssessments[0].exam || 0}
-                                    </div>
-                                  )}
-                              </div>
-                            ) : (
-                              "No assessments"
-                            )}
-                          </TableCell>
-                          {/* <TableCell>
-                            {student.recentPayments.length > 0
-                              ? `₦${student.recentPayments[0].amount.toLocaleString()} (${student.recentPayments[0].status})`
-                              : "N/A"}
-                          </TableCell> */}
                           <TableCell>
                             <Badge variant={student.isActive ? "default" : "destructive"}>
                               {student.isActive ? "Active" : "Inactive"}
@@ -362,7 +419,7 @@ export default function StudentList() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={13} className="h-24 text-center">
+                        <TableCell colSpan={9} className="h-24 text-center">
                           {searchQuery || classFilter !== "all" || assignmentFilter !== "all"
                             ? "No students found matching your filters."
                             : "No students found in the system."}
@@ -372,44 +429,8 @@ export default function StudentList() {
                   </TableBody>
                 </Table>
               </div>
-              {pagination.totalPages > 1 && (
-                <Pagination className="mt-4">
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        onClick={() =>
-                          setPagination((prev) => ({
-                            ...prev,
-                            page: Math.max(1, prev.page - 1),
-                          }))
-                        }
-                        className={pagination.page === 1 ? "pointer-events-none opacity-50" : ""}
-                      />
-                    </PaginationItem>
-                    {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          onClick={() => setPagination((prev) => ({ ...prev, page }))}
-                          isActive={page === pagination.page}
-                        >
-                          {page}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ))}
-                    <PaginationItem>
-                      <PaginationNext
-                        onClick={() =>
-                          setPagination((prev) => ({
-                            ...prev,
-                            page: Math.min(pagination.totalPages, prev.page + 1),
-                          }))
-                        }
-                        className={pagination.page === pagination.totalPages ? "pointer-events-none opacity-50" : ""}
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
-              )}
+
+              {renderPagination()}
             </>
           )}
         </CardContent>

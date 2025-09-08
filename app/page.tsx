@@ -5,6 +5,7 @@ import type React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Book, Calendar, ChevronRight, GraduationCap, Loader2, School, Star, Users, Mail, Phone, MapPin, Code, Cpu, Database, Cloud, Shield, Zap, CreditCard } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
@@ -63,13 +64,7 @@ export default function SchoolLandingPage() {
 
   // Expert programmers data
   const expertProgrammers = [
-    {
-      name: "Sarah Johnson",
-      role: "Full Stack Developer",
-      expertise: "React, Node.js, Cloud Architecture",
-      experience: "8+ years",
-      icon: <Code className="h-6 w-6" />
-    },
+    
     {
       name: "Michael Chen",
       role: "DevOps Engineer",
@@ -78,32 +73,26 @@ export default function SchoolLandingPage() {
       icon: <Cpu className="h-6 w-6" />
     },
     {
+      name: "Abubakar Sadiq Abdullahi",
+      role: "Full Stack Developer",
+      expertise: "React, Node.js, Next.js, PostgreSQL, TypeScript, C#, .NET, Express.js, Php, Laravel",
+      experience: "8+ years",
+      icon: (
+        <Image
+          src="/HumSad.jpeg"
+          alt="Abubakar Sadiq Abdullahi"
+          width={100}
+          height={100}
+          className="rounded-full object-cover"
+        />
+      )
+    },
+    {
       name: "Jessica Williams",
       role: "Database Architect",
       expertise: "SQL, MongoDB, Data Optimization",
       experience: "9+ years",
       icon: <Database className="h-6 w-6" />
-    },
-    {
-      name: "David Kim",
-      role: "Cloud Solutions Expert",
-      expertise: "Azure, Google Cloud, Scalability",
-      experience: "10+ years",
-      icon: <Cloud className="h-6 w-6" />
-    },
-    {
-      name: "Amanda Rodriguez",
-      role: "Security Specialist",
-      expertise: "Cybersecurity, Encryption, Compliance",
-      experience: "8+ years",
-      icon: <Shield className="h-6 w-6" />
-    },
-    {
-      name: "James Wilson",
-      role: "Performance Engineer",
-      expertise: "Optimization, Load Testing, Caching",
-      experience: "7+ years",
-      icon: <Zap className="h-6 w-6" />
     }
   ]
 
@@ -153,7 +142,7 @@ export default function SchoolLandingPage() {
       </motion.header>
 
       {/* Hero Section */}
-      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 xl:py-48 bg-gradient-to-b from-background to-muted/30">
+      <AnimatedSection className="w-full py-12 md:py-24  bg-gradient-to-b from-background to-muted/30">
         <div className="container px-4 md:px-6">
           <div className="grid gap-6 lg:grid-cols-2 lg:gap-12 xl:grid-cols-2">
             <div className="flex flex-col justify-center space-y-4">
@@ -257,14 +246,6 @@ export default function SchoolLandingPage() {
                     <p className="mt-2 text-xs sm:text-sm lg:text-base text-slate-100/90 max-w-xl">
                       Upgrade for advanced analytics, priority support and customizable reports tailored to your school's structure.
                     </p>
-                    <div className="mt-4 flex gap-3 items-center justify-center">
-                      <Button size="md" className="bg-white text-indigo-700 hover:bg-white/95">
-                        Get Premium
-                      </Button>
-                      <Button size="md" variant="outline" className="text-slate-100/95 border-white/30">
-                        Learn More
-                      </Button>
-                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -274,7 +255,7 @@ export default function SchoolLandingPage() {
       </AnimatedSection>
 
       {/* Features Section */}
-      <AnimatedSection id="features" className="w-full py-12 md:py-24 lg:py-32 bg-muted/30">
+      <AnimatedSection id="features" className="w-full bg-muted/30">
         <div className="container px-4 md:px-6">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
@@ -364,7 +345,7 @@ export default function SchoolLandingPage() {
               <motion.div key={index} variants={itemVariant} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
                 <Card className="h-full transition-all duration-300 hover:shadow-lg">
                   <CardHeader className="flex flex-col items-center text-center">
-                    <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+                    <div className="flex items-center justify-center w-30 h-30 rounded-full bg-primary/10 mb-4">
                       {programmer.icon}
                     </div>
                     <CardTitle>{programmer.name}</CardTitle>
@@ -630,44 +611,6 @@ export default function SchoolLandingPage() {
         </div>
       </AnimatedSection>
 
-      {/* QR Code Section */}
-      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 bg-muted/30">
-        <div className="container px-4 md:px-6">
-          <div className="flex flex-col items-center justify-center space-y-4 text-center">
-            <div className="space-y-2">
-              <div className="inline-block rounded-lg bg-primary px-3 py-1 text-sm text-primary-foreground">
-                Digital Access
-              </div>
-              <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Scan to Learn More</h2>
-              <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
-                Use your phone's camera to scan our QR code for instant access to our digital brochure and school information.
-              </p>
-            </div>
-          </div>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
-            viewport={{ once: true }}
-            className="flex justify-center py-12"
-          >
-            <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center">
-              <div className="w-48 h-48 bg-gradient-to-r from-blue-400 to-purple-500 rounded-lg flex items-center justify-center">
-                <div className="text-white text-center p-4">
-                  <div className="grid grid-cols-3 gap-1">
-                    {[...Array(9)].map((_, i) => (
-                      <div key={i} className={`w-4 h-4 rounded-full ${i % 4 === 0 ? 'bg-white' : 'bg-transparent border border-white'}`}></div>
-                    ))}
-                  </div>
-                  <p className="text-xs mt-2 font-medium">Scan with your phone</p>
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground mt-4">Scan this QR code to visit our website</p>
-            </div>
-          </motion.div>
-        </div>
-      </AnimatedSection>
-
       {/* Contact Section */}
       <AnimatedSection id="contact" className="w-full py-12 md:py-24 lg:py-32">
         <div className="container px-4 md:px-6">
@@ -694,7 +637,7 @@ export default function SchoolLandingPage() {
                 <Phone className="h-6 w-6 text-primary" />
               </div>
               <h3 className="text-lg font-bold">Phone</h3>
-              <p className="text-muted-foreground">+1 (555) 123-4567</p>
+              <p className="text-muted-foreground">+234-803-923-3431</p>
               <p className="text-sm text-muted-foreground mt-2">Mon-Fri from 8am to 5pm</p>
             </motion.div>
             
@@ -703,7 +646,7 @@ export default function SchoolLandingPage() {
                 <Mail className="h-6 w-6 text-primary" />
               </div>
               <h3 className="text-lg font-bold">Email</h3>
-              <p className="text-muted-foreground">info@schoolpro.com</p>
+              <p className="text-muted-foreground">digisoft10@gmail.com</p>
               <p className="text-sm text-muted-foreground mt-2">Send us a message anytime</p>
             </motion.div>
             
@@ -712,8 +655,8 @@ export default function SchoolLandingPage() {
                 <MapPin className="h-6 w-6 text-primary" />
               </div>
               <h3 className="text-lg font-bold">Office</h3>
-              <p className="text-muted-foreground">123 Education Ave</p>
-              <p className="text-sm text-muted-foreground mt-2">San Francisco, CA 94103</p>
+              <p className="text-muted-foreground">Suit No. 4, Junaidu Plaza, Biu bye-pass road</p>
+              <p className="text-sm text-muted-foreground mt-2">Gombe, Gombe state</p>
             </motion.div>
           </motion.div>
           
@@ -746,38 +689,6 @@ export default function SchoolLandingPage() {
               <Button type="submit" className="w-full">Send Message</Button>
             </form>
           </motion.div>
-        </div>
-      </AnimatedSection>
-
-      {/* CTA Section */}
-      <AnimatedSection className="w-full py-12 md:py-24 lg:py-32 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground">
-        <div className="container px-4 md:px-6">
-          <div className="flex flex-col items-center justify-center space-y-4 text-center">
-            <div className="space-y-2">
-              <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Ready to transform your school?</h2>
-              <p className="max-w-[600px] md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed opacity-90">
-                Join hundreds of schools that use SchoolPro to streamline administration and enhance education.
-              </p>
-            </div>
-            <motion.div
-              variants={staggerContainer}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true }}
-              className="flex flex-col gap-2 min-[400px]:flex-row"
-            >
-              <motion.div variants={itemVariant} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button size="lg" className="gap-1 bg-background text-foreground hover:bg-background/90">
-                  Request Demo <ChevronRight className="h-4 w-4" />
-                </Button>
-              </motion.div>
-              <motion.div variants={itemVariant} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button size="lg" variant="outline" className="border-background text-background hover:bg-background hover:text-foreground">
-                  Contact Us
-                </Button>
-              </motion.div>
-            </motion.div>
-          </div>
         </div>
       </AnimatedSection>
 

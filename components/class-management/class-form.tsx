@@ -123,8 +123,8 @@ export function ClassForm({ schoolId, classData }: ClassFormProps) {
                     </FormControl>
                     <SelectContent>
                       <SelectItem value="PRIMARY">Primary</SelectItem>
-                      <SelectItem value="JUNIOR_SECONDARY">Junior Secondary</SelectItem>
-                      <SelectItem value="SENIOR_SECONDARY">Senior Secondary</SelectItem>
+                      <SelectItem value="JSS">Junior Secondary</SelectItem>
+                      <SelectItem value="SSS">Senior Secondary</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormDescription>The educational level of this class</FormDescription>

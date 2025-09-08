@@ -30,6 +30,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { deleteParent } from "@/app/actions/parent-management"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 
 interface Parent {
   id: string
@@ -58,6 +67,8 @@ export function ParentsTable({ parents }: ParentsTableProps) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [parentToDelete, setParentToDelete] = useState<Parent | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
 
   // Filter parents based on search query and gender filter
   const filteredParents = parents.filter((parent) => {
@@ -79,6 +90,29 @@ export function ParentsTable({ parents }: ParentsTableProps) {
 
     return matchesSearch && matchesGender
   })
+
+  // Pagination logic
+  const totalItems = filteredParents.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedParents = filteredParents.slice(startIndex, endIndex)
+
+  // Reset to first page when search query or filter changes
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    setCurrentPage(1)
+  }
+
+  const handleGenderFilterChange = (value: string) => {
+    setGenderFilter(value)
+    setCurrentPage(1)
+  }
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
 
   // Handle parent deletion
   const handleDeleteClick = (parent: Parent) => {
@@ -108,7 +142,7 @@ export function ParentsTable({ parents }: ParentsTableProps) {
         router.refresh()
       } else {
         toast.error("Delete Failed", {
-          description: result.error || "Failed to delete parent. Please try again.",
+          description: (result as { success: boolean; error?: string }).error || "Failed to delete parent. Please try again.",
         })
       }
     } catch (error) {
@@ -144,11 +178,11 @@ export function ParentsTable({ parents }: ParentsTableProps) {
                 placeholder="Search by name, email, phone..."
                 className="pl-8"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
             </div>
             <div className="flex gap-2">
-              <Select value={genderFilter} onValueChange={setGenderFilter}>
+              <Select value={genderFilter} onValueChange={handleGenderFilterChange}>
                 <SelectTrigger className="w-[180px]">
                   <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4" />
@@ -185,8 +219,8 @@ export function ParentsTable({ parents }: ParentsTableProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredParents.length > 0 ? (
-                  filteredParents.map((parent) => (
+                {paginatedParents.length > 0 ? (
+                  paginatedParents.map((parent) => (
                     <TableRow key={parent.id}>
                       <TableCell className="font-medium">
                         {parent.firstName} {parent.lastName}
@@ -258,6 +292,114 @@ export function ParentsTable({ parents }: ParentsTableProps) {
               </TableBody>
             </Table>
           </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+            <div className="flex flex-col-reverse md:flex-row items-center justify-between px-2 py-4 gap-3">
+              <div className="w-full md:w-auto text-sm text-muted-foreground text-center md:text-left">
+              Showing <span className="font-medium">{startIndex + 1}</span> to{" "}
+              <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{" "}
+              <span className="font-medium">{totalItems}</span> parents
+              </div>
+
+              <div className="w-full md:w-auto flex items-center justify-center">
+              <Pagination>
+                <PaginationContent>
+                {/* First */}
+                <PaginationItem>
+                  <PaginationLink
+                  onClick={() => handlePageChange(1)}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  aria-disabled={currentPage === 1}
+                  title="Go to first page"
+                  >
+                  «
+                  </PaginationLink>
+                </PaginationItem>
+
+                {/* Previous */}
+                <PaginationItem>
+                  <PaginationPrevious
+                  onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  title="Previous page"
+                  />
+                </PaginationItem>
+
+                {/* Page numbers (responsive window) */}
+                {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
+                  let pageNumber: number
+                  if (totalPages <= 7) {
+                  pageNumber = i + 1
+                  } else {
+                  const windowSize = 5
+                  const left = Math.max(1, Math.min(currentPage - Math.floor(windowSize / 2), totalPages - windowSize + 1))
+                  pageNumber = left + i
+                  }
+                  if (pageNumber < 1 || pageNumber > totalPages) return null
+
+                  return (
+                  <PaginationItem key={pageNumber}>
+                    <PaginationLink
+                    onClick={() => handlePageChange(pageNumber)}
+                    isActive={currentPage === pageNumber}
+                    className="cursor-pointer"
+                    aria-current={currentPage === pageNumber ? "page" : undefined}
+                    title={`Go to page ${pageNumber}`}
+                    >
+                    {pageNumber}
+                    </PaginationLink>
+                  </PaginationItem>
+                  )
+                })}
+
+                {/* Ellipsis + Last when needed */}
+                {totalPages > 7 && currentPage < totalPages - 3 && (
+                  <>
+                  <PaginationItem>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationLink
+                    onClick={() => handlePageChange(totalPages)}
+                    className="cursor-pointer"
+                    title={`Go to page ${totalPages}`}
+                    >
+                    {totalPages}
+                    </PaginationLink>
+                  </PaginationItem>
+                  </>
+                )}
+
+                {/* Next */}
+                <PaginationItem>
+                  <PaginationNext
+                  onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                  className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  title="Next page"
+                  />
+                </PaginationItem>
+
+                {/* Last */}
+                <PaginationItem>
+                  <PaginationLink
+                  onClick={() => handlePageChange(totalPages)}
+                  className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  aria-disabled={currentPage === totalPages}
+                  title="Go to last page"
+                  >
+                  »
+                  </PaginationLink>
+                </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+              </div>
+
+              <div className="w-full md:w-auto text-sm text-muted-foreground text-center md:text-right">
+              Page <span className="font-medium">{currentPage}</span> of <span className="font-medium">{totalPages}</span>
+              </div>
+            </div>
+            )}
         </CardContent>
       </Card>
 

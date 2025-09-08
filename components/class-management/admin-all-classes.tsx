@@ -16,6 +16,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 import { useRouter } from "next/navigation"
 import {
   AlertDialog,
@@ -53,6 +62,8 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [classToDelete, setClassToDelete] = useState<Class | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
   const router = useRouter()
 
   // Filter classes based on search query
@@ -63,6 +74,24 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
       cls.schoolName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       cls.schoolCode.toLowerCase().includes(searchQuery.toLowerCase()),
   )
+
+  // Pagination logic
+  const totalItems = filteredClasses.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedClasses = filteredClasses.slice(startIndex, endIndex)
+
+  // Reset to first page when search query changes
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    setCurrentPage(1)
+  }
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
 
   // Handle edit class
   const handleEditClass = (classId: string) => {
@@ -103,9 +132,9 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
     switch (level) {
       case "PRIMARY":
         return "Primary"
-      case "JUNIOR_SECONDARY":
+      case "JSS":
         return "Junior Secondary"
-      case "SENIOR_SECONDARY":
+      case "SSS":
         return "Senior Secondary"
       default:
         return level
@@ -122,7 +151,7 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
             placeholder="Search classes..."
             className="w-full pl-8"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
           />
         </div>
         <div className="flex gap-2">
@@ -156,14 +185,14 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredClasses.length === 0 ? (
+              {paginatedClasses.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center">
                     No classes found.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredClasses.map((cls) => (
+                paginatedClasses.map((cls) => (
                   <TableRow key={cls.id}>
                     <TableCell className="font-medium">{cls.name}</TableCell>
                     <TableCell>
@@ -215,6 +244,86 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
             </TableBody>
           </Table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-4 py-4 border-t">
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+          Showing <span className="font-medium">{startIndex + 1}</span> to{" "}
+          <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{" "}
+          <span className="font-medium">{totalItems}</span> classes
+              </div>
+
+              <div className="flex items-center justify-center">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+            onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+            className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+            aria-label="Previous page"
+                />
+              </PaginationItem>
+
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNumber: number
+                if (totalPages <= 5) {
+            pageNumber = i + 1
+                } else if (currentPage <= 3) {
+            pageNumber = i + 1
+                } else if (currentPage >= totalPages - 2) {
+            pageNumber = totalPages - 4 + i
+                } else {
+            pageNumber = currentPage - 2 + i
+                }
+
+                if (pageNumber < 1 || pageNumber > totalPages) return null
+
+                return (
+            <PaginationItem key={pageNumber}>
+              <PaginationLink
+                onClick={() => handlePageChange(pageNumber)}
+                isActive={currentPage === pageNumber}
+                className="cursor-pointer px-3 py-1 rounded-md"
+                aria-label={`Page ${pageNumber}`}
+              >
+                {pageNumber}
+              </PaginationLink>
+            </PaginationItem>
+                )
+              })}
+
+              {totalPages > 5 && currentPage < totalPages - 2 && (
+                <>
+            <PaginationItem>
+              <PaginationEllipsis />
+            </PaginationItem>
+            <PaginationItem>
+              <PaginationLink
+                onClick={() => handlePageChange(totalPages)}
+                className="cursor-pointer px-3 py-1 rounded-md"
+                aria-label={`Page ${totalPages}`}
+              >
+                {totalPages}
+              </PaginationLink>
+            </PaginationItem>
+                </>
+              )}
+
+              <PaginationItem>
+                <PaginationNext
+            onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+            className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+            aria-label="Next page"
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+              </div>
+            </div>
+          </div>
+        )}
       </Card>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

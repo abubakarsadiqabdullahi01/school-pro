@@ -770,6 +770,7 @@ export async function getStudents(
     assignmentStatus?: "all" | "assigned" | "not_assigned"
     page?: number
     pageSize?: number
+    search?: string
   } = { assignmentStatus: "all", page: 1, pageSize: 20 },
 ) {
   try {
@@ -815,6 +816,16 @@ export async function getStudents(
       whereClause.classTerms = {
         none: {}, // No StudentClassTerm records exist
       }
+    }
+
+    // Add search filtering to your whereClause
+    if (filter.search) {
+      const searchQuery = filter.search.toLowerCase()
+      whereClause.OR = [
+        { user: { firstName: { contains: searchQuery, mode: 'insensitive' } } },
+        { user: { lastName: { contains: searchQuery, mode: 'insensitive' } } },
+        { admissionNo: { contains: searchQuery, mode: 'insensitive' } },
+      ]
     }
 
     // Calculate pagination
