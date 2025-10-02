@@ -294,6 +294,281 @@ export async function getClassesBySchool() {
   }
 }
 
+// export async function createStudent(data: {
+//   firstName: string
+//   lastName: string
+//   dateOfBirth: string
+//   gender?: Gender | null
+//   state?: string
+//   lga?: string
+//   address?: string
+//   phone?: string
+//   classId: string
+//   termId: string
+//   year?: number
+//   parentId?: string
+//   relationship?: string
+//   isActive: boolean
+//   createLoginCredentials?: boolean
+//   credentials?: Array<{
+//     type: "EMAIL" | "PHONE" | "REGISTRATION_NUMBER" | "PSN"
+//     value: string
+//     passwordHash: string
+//     isPrimary: boolean
+//   }>
+// }) {
+//   try {
+//     const session = await auth()
+//     if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
+//       return { success: false, error: "Unauthorized" }
+//     }
+
+//     let schoolId: string
+//     if (session.user.role === "ADMIN") {
+//       const admin = await prisma.admin.findUnique({
+//         where: { userId: session.user.id },
+//         select: { schoolId: true },
+//       })
+//       if (!admin?.schoolId) {
+//         return { success: false, error: "Admin not associated with a school" }
+//       }
+//       schoolId = admin.schoolId
+//     } else {
+//       const school = await prisma.school.findFirst({
+//         select: { id: true },
+//       })
+//       if (!school) {
+//         return { success: false, error: "No school found in the system" }
+//       }
+//       schoolId = school.id
+//     }
+
+//     const classRecord = await prisma.class.findUnique({ where: { id: data.classId } })
+//     if (!classRecord) {
+//       return { success: false, error: "Invalid class selected" }
+//     }
+
+//     const term = await prisma.term.findUnique({ where: { id: data.termId } })
+//     if (!term) {
+//       return { success: false, error: "Invalid term selected" }
+//     }
+
+//     const currentYear = new Date().getFullYear()
+//     const regPasswordHash = await hashPassword(currentYear.toString())
+
+//     const result = await prisma.$transaction(async (tx) => {
+//       // === 1. Generate admission number inside transaction ===
+//       const school = await tx.school.findUnique({
+//         where: { id: schoolId },
+//         select: {
+//           admissionPrefix: true,
+//           admissionFormat: true,
+//           admissionSequenceStart: true,
+//         },
+//       })
+
+//       if (!school) throw new Error("School not found")
+
+//       let admissionSequence = await tx.admissionSequence.findUnique({
+//         where: { schoolId_year: { schoolId, year: currentYear } },
+//       })
+
+//       let nextSequence: number
+//       if (!admissionSequence) {
+//         admissionSequence = await tx.admissionSequence.create({
+//           data: {
+//             schoolId,
+//             year: currentYear,
+//             lastSequence: school.admissionSequenceStart - 1,
+//           },
+//         })
+//         nextSequence = school.admissionSequenceStart
+//       } else {
+//         nextSequence = admissionSequence.lastSequence + 1
+//       }
+
+//       await tx.admissionSequence.update({
+//         where: { id: admissionSequence.id },
+//         data: { lastSequence: nextSequence },
+//       })
+
+//       const admissionNo = school.admissionFormat
+//         .replace("{PREFIX}", school.admissionPrefix)
+//         .replace("{YEAR}", currentYear.toString())
+//         .replace("{NUMBER}", nextSequence.toString().padStart(4, "0"))
+
+//       // === 2. Create student user ===
+//       const studentUser = await tx.user.create({
+//         data: {
+//           firstName: data.firstName,
+//           lastName: data.lastName,
+//           phone: data.phone,
+//           role: "STUDENT",
+//           isActive: data.isActive,
+//           dateOfBirth: new Date(data.dateOfBirth),
+//           gender: data.gender ?? null,
+//           state: data.state,
+//           lga: data.lga,
+//           address: data.address,
+//         },
+//       })
+
+//       if (data.credentials && data.credentials.length > 0) {
+//         for (const cred of data.credentials) {
+//           const existingCred = await tx.credential.findUnique({
+//             where: { value: cred.value },
+//           })
+//           if (existingCred) {
+//             throw new Error(`A user with this ${cred.type.toLowerCase()} already exists.`)
+//           }
+//           const passwordHash = await hashPassword(cred.passwordHash)
+//           await tx.credential.create({
+//             data: {
+//               userId: studentUser.id,
+//               type: cred.type,
+//               value: cred.value,
+//               passwordHash,
+//               isPrimary: cred.isPrimary,
+//             },
+//           })
+//         }
+//       }
+
+//       const student = await tx.student.create({
+//         data: {
+//           userId: studentUser.id,
+//           schoolId,
+//           admissionNo,
+//           year: data.year ?? currentYear,
+//         },
+//       })
+
+//       // === 3. Optionally create default login credential (registration number) ===
+//       if (data.createLoginCredentials) {
+//         // create credential using the generated admissionNo as the login value
+//         const regPasswordHash = await hashPassword(currentYear.toString())
+//         await tx.credential.create({
+//           data: {
+//             userId: studentUser.id,
+//             type: "REGISTRATION_NUMBER",
+//             value: admissionNo,
+//             passwordHash: regPasswordHash,
+//             isPrimary: true,
+//           },
+//         })
+//       }
+
+//       const classTerm = await tx.classTerm.findFirst({
+//         where: { 
+//           classId: data.classId, 
+//           termId: data.termId 
+//         },
+//       });
+
+//       if (!classTerm) {
+//         // Create a new ClassTerm if none exists
+//         const newClassTerm = await tx.classTerm.create({
+//           data: {
+//             classId: data.classId,
+//             termId: data.termId,
+//           },
+//         });
+//         console.log(`✅ Created new ClassTerm: ${newClassTerm.id} for class ${data.classId} and term ${data.termId}`);
+        
+//         await tx.studentClassTerm.create({
+//           data: { 
+//             studentId: student.id, 
+//             classTermId: newClassTerm.id 
+//           },
+//         });
+//         console.log(`✅ Student assigned to NEW class term: ${newClassTerm.id}`);
+//       } else {
+//         // Use existing ClassTerm
+//         const existingAssignment = await tx.studentClassTerm.findFirst({
+//           where: { 
+//             studentId: student.id, 
+//             classTermId: classTerm.id 
+//           },
+//         });
+
+//         if (!existingAssignment) {
+//           await tx.studentClassTerm.create({
+//             data: { 
+//               studentId: student.id, 
+//               classTermId: classTerm.id 
+//             },
+//           });
+//           console.log(`✅ Student assigned to EXISTING class term: ${classTerm.id}`);
+//         } else {
+//           console.log('Student already assigned to this class term');
+//         }
+//       }
+      
+//       if (data.parentId) {
+//           try {
+//             // Check if this is a new parent (indicated by a special prefix)
+//             if (data.parentId.startsWith("new-")) {
+//               // This is a new parent that needs to be created
+//               // Extract parent data from the form or additional parameters
+//               // For now, we'll skip since we need to modify the frontend to pass parent data
+//               console.warn("New parent creation not implemented yet. Skipping parent assignment.")
+//             } else {
+//               // This is an existing parent
+//               const parent = await tx.parent.findUnique({ 
+//                 where: { id: data.parentId },
+//                 include: {
+//                   user: {
+//                     select: {
+//                       firstName: true,
+//                       lastName: true
+//                     }
+//                   }
+//                 }
+//               })
+              
+//               if (!parent) {
+//                 console.warn(`Parent with ID ${data.parentId} not found. Skipping parent assignment.`)
+//               } else {
+//                 await tx.studentParent.create({
+//                   data: {
+//                     studentId: student.id,
+//                     parentId: data.parentId,
+//                     relationship: data.relationship || "PARENT",
+//                   },
+//                 })
+//                 console.log(`Successfully linked parent ${parent.user.firstName} ${parent.user.lastName} to student`)
+//               }
+//             }
+//           } catch (parentError) {
+//             console.error("Error linking parent to student:", parentError)
+//             // Continue without parent assignment - don't fail the whole transaction
+//           }
+//       }
+//       return {
+//         id: student.id,
+//         admissionNo,
+//         userId: studentUser.id,
+//         firstName: studentUser.firstName,
+//         lastName: studentUser.lastName,
+//         classId: data.classId,
+//         termId: data.termId,
+//         parentId: data.parentId,
+//       }
+//     }, { timeout: 15000 })
+
+//     await verifyStudentAssignment(result.id);
+
+//     return { success: true, data: result }
+    
+//   } catch (error) {
+//     console.error("Error creating student:", error)
+//     return {
+//       success: false,
+//       error: error instanceof Error ? error.message : "Failed to create student",
+//     }
+//   }
+// }
+
 export async function createStudent(data: {
   firstName: string
   lastName: string
@@ -333,6 +608,7 @@ export async function createStudent(data: {
         return { success: false, error: "Admin not associated with a school" }
       }
       schoolId = admin.schoolId
+      console.log(`✅ Using admin's school ID: ${schoolId}`)
     } else {
       const school = await prisma.school.findFirst({
         select: { id: true },
@@ -343,15 +619,63 @@ export async function createStudent(data: {
       schoolId = school.id
     }
 
-    const classRecord = await prisma.class.findUnique({ where: { id: data.classId } })
+    // === CRITICAL FIX: Validate class belongs to admin's school ===
+    const classRecord = await prisma.class.findUnique({ 
+      where: { id: data.classId },
+      include: { 
+        school: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    })
+    
     if (!classRecord) {
       return { success: false, error: "Invalid class selected" }
     }
 
-    const term = await prisma.term.findUnique({ where: { id: data.termId } })
+    // Validate class belongs to the same school as admin
+    if (classRecord.schoolId !== schoolId) {
+      console.error(`❌ Class "${classRecord.name}" belongs to school "${classRecord.school.name}" (ID: ${classRecord.schoolId}), but admin belongs to school ID: ${schoolId}`)
+      return { 
+        success: false, 
+        error: `Selected class "${classRecord.name}" does not belong to your school. Please select a class from your school.` 
+      }
+    }
+
+    // === CRITICAL FIX: Validate term belongs to admin's school ===
+    const term = await prisma.term.findUnique({ 
+      where: { id: data.termId },
+      include: {
+        session: {
+          select: {
+            schoolId: true,
+            school: {
+              select: {
+                name: true
+              }
+            }
+          }
+        }
+      }
+    })
+    
     if (!term) {
       return { success: false, error: "Invalid term selected" }
     }
+
+    // Validate term belongs to the same school as admin
+    if (term.session.schoolId !== schoolId) {
+      console.error(`❌ Term "${term.name}" belongs to school "${term.session.school.name}" (ID: ${term.session.schoolId}), but admin belongs to school ID: ${schoolId}`)
+      return { 
+        success: false, 
+        error: `Selected term "${term.name}" does not belong to your school. Please select a term from your school.` 
+      }
+    }
+
+    console.log(`✅ All validations passed: Class and Term belong to admin's school (ID: ${schoolId})`)
 
     const currentYear = new Date().getFullYear()
     const regPasswordHash = await hashPassword(currentYear.toString())
@@ -459,17 +783,51 @@ export async function createStudent(data: {
       }
 
       const classTerm = await tx.classTerm.findFirst({
-        where: { classId: data.classId, termId: data.termId },
-      })
+        where: { 
+          classId: data.classId, 
+          termId: data.termId 
+        },
+      });
 
-      const classTermId = classTerm
-        ? classTerm.id
-        : (await tx.classTerm.create({ data: { classId: data.classId, termId: data.termId } })).id
+      if (!classTerm) {
+        // Create a new ClassTerm if none exists
+        const newClassTerm = await tx.classTerm.create({
+          data: {
+            classId: data.classId,
+            termId: data.termId,
+          },
+        });
+        console.log(`✅ Created new ClassTerm: ${newClassTerm.id} for class ${data.classId} and term ${data.termId}`);
+        
+        await tx.studentClassTerm.create({
+          data: { 
+            studentId: student.id, 
+            classTermId: newClassTerm.id 
+          },
+        });
+        console.log(`✅ Student assigned to NEW class term: ${newClassTerm.id}`);
+      } else {
+        // Use existing ClassTerm
+        const existingAssignment = await tx.studentClassTerm.findFirst({
+          where: { 
+            studentId: student.id, 
+            classTermId: classTerm.id 
+          },
+        });
 
-      await tx.studentClassTerm.create({
-        data: { studentId: student.id, classTermId },
-      })
-
+        if (!existingAssignment) {
+          await tx.studentClassTerm.create({
+            data: { 
+              studentId: student.id, 
+              classTermId: classTerm.id 
+            },
+          });
+          console.log(`✅ Student assigned to EXISTING class term: ${classTerm.id}`);
+        } else {
+          console.log('Student already assigned to this class term');
+        }
+      }
+      
       if (data.parentId) {
           try {
             // Check if this is a new parent (indicated by a special prefix)
@@ -522,7 +880,10 @@ export async function createStudent(data: {
       }
     }, { timeout: 15000 })
 
+    await verifyStudentAssignment(result.id);
+
     return { success: true, data: result }
+    
   } catch (error) {
     console.error("Error creating student:", error)
     return {
@@ -531,6 +892,50 @@ export async function createStudent(data: {
     }
   }
 }
+
+
+export async function verifyStudentAssignment(studentId: string) {
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: {
+        classTerms: {
+          include: {
+            classTerm: {
+              include: {
+                class: true,
+                term: true
+              }
+            }
+          }
+        },
+        user: {
+          select: {
+            firstName: true,
+            lastName: true
+          }
+        }
+      }
+    });
+
+    console.log('🔍 Student Assignment Verification:', {
+      studentId,
+      studentName: `${student?.user.firstName} ${student?.user.lastName}`,
+      classTermCount: student?.classTerms.length,
+      classTerms: student?.classTerms.map(ct => ({
+        classTermId: ct.classTermId,
+        className: ct.classTerm.class.name,
+        termName: ct.classTerm.term.name
+      }))
+    });
+
+    return student;
+  } catch (error) {
+    console.error('Error verifying student assignment:', error);
+    throw error;
+  }
+}
+
 
 // Update student function
 export async function updateStudent(

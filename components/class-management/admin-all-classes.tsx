@@ -178,7 +178,7 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
                   </div>
                 </TableHead>
                 <TableHead className="whitespace-nowrap">Level</TableHead>
-                <TableHead className="whitespace-nowrap">School</TableHead>
+                {/* <TableHead className="whitespace-nowrap">School</TableHead> */}
                 <TableHead className="whitespace-nowrap">Subjects</TableHead>
                 <TableHead className="whitespace-nowrap">Terms</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -198,9 +198,9 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
                     <TableCell>
                       <Badge variant="outline">{formatClassLevel(cls.level)}</Badge>
                     </TableCell>
-                    <TableCell>
+                    {/* <TableCell>
                       {cls.schoolName} <span className="text-xs text-muted-foreground">({cls.schoolCode})</span>
-                    </TableCell>
+                    </TableCell> */}
                     <TableCell>{cls.subjectsCount} subject(s)</TableCell>
                     <TableCell>
                       {cls.terms === "Not Assigned Term" ? (

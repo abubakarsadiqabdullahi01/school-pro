@@ -7,7 +7,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { CalendarRange, Edit, Plus } from "lucide-react"
+import { CalendarRange, ArrowLeft, Edit, Plus } from "lucide-react"
 import Link from "next/link"
 import { AdminTermsTable } from "@/components/session-management/admin-terms-table"
 
@@ -83,9 +83,9 @@ export default async function AdminSessionDetailsPage({ params }: { params: { id
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" asChild>
-              <Link href={`/dashboard/admin/school-sessions/edit/${sessionData.id}`}>
-                <Edit className="mr-2 h-4 w-4" />
-                Edit Session
+              <Link href={`/dashboard/admin/school-terms`}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to Term
               </Link>
             </Button>
             {sessionData.isCurrent ? (

@@ -2,7 +2,6 @@
 import "server-only"
 import { S3Client } from "@aws-sdk/client-s3";
 
-// Validate required environment variables
 function getS3Config() {
   const requiredEnvVars = [
     'AWS_ACCESS_KEY_ID',
@@ -27,7 +26,6 @@ function getS3Config() {
   };
 }
 
-// Create S3 client with error handling
 let S3: S3Client;
 
 try {
@@ -35,7 +33,6 @@ try {
   S3 = new S3Client(config);
 } catch (error) {
   console.error('Failed to initialize S3 client:', error);
-  // Fallback client that will throw meaningful errors when used
   S3 = new S3Client({
     region: 'auto',
     endpoint: 'invalid-endpoint',

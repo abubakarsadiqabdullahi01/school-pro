@@ -76,9 +76,12 @@ export async function POST(request: Request) {
 
     const presignedUrl = await getSignedUrl(S3, command, { expiresIn: 3600 });
 
-    // Generate public URL
-    const publicUrl = `${process.env.AWS_ENDPOINT_URL_S3}/${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}/${key}`;
+    const endpointUrl = new URL(process.env.AWS_ENDPOINT_URL_S3!);
+    const publicUrl = endpointUrl.host.includes("storage.dev")
+      ? `${endpointUrl.protocol}//${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}.${endpointUrl.host}/${key}`
+      : `${process.env.AWS_ENDPOINT_URL_S3}/${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}/${key}`;
 
+      
     return NextResponse.json({
       success: true,
       presignedUrl,

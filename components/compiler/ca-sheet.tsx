@@ -56,6 +56,7 @@ export function CASheetComponent({
   classLevels,
 }: CASheetProps) {
   const [selectedTermId, setSelectedTermId] = useState<string>(currentTermId || "")
+  const [logoLoadError, setLogoLoadError] = useState(false)
   const [selectedLevel, setSelectedLevel] = useState<string>("")
   const [selectedClassId, setSelectedClassId] = useState<string>("")
   const [selectedClassTermId, setSelectedClassTermId] = useState<string>("")
@@ -121,11 +122,11 @@ export function CASheetComponent({
         student.admissionNo.toLowerCase().includes(searchQuery.toLowerCase()),
     ) || []
 
+    console.log("schoolLogo", schoolLogo);  
   // Get selected term and class info
   const selectedTerm = terms.find((t) => t.id === selectedTermId)
   const selectedClass = classes?.find((c) => c.id === selectedClassId)
 
-      // Handle PDF export
   const handleExportPDF = async () => {
     if (!filteredStudents.length) {
       toast.error("No students to export")
@@ -135,7 +136,7 @@ export function CASheetComponent({
     setIsExporting(true)
 
     try {
-      await generateCASheetPDF({
+      const doc = await generateCASheetPDF({
         students: filteredStudents,
         schoolInfo: {
           schoolName,
@@ -143,7 +144,7 @@ export function CASheetComponent({
           schoolAddress,
           schoolPhone,
           schoolEmail,
-          schoolLogo,
+          schoolLogo: logoLoadError ? null : schoolLogo, 
         },
         classInfo: {
           className: selectedClass?.name,
@@ -152,9 +153,17 @@ export function CASheetComponent({
           teacherName: selectedClass?.teacherName,
         },
       })
+      
+      doc.save(`CA-Sheet-${selectedClass?.name}-${selectedTerm?.name}.pdf`)
       toast.success("PDF exported successfully")
     } catch (error) {
       console.error("Error exporting PDF:", error)
+      
+      // Check if it's a logo-related error
+      if (error instanceof Error && error.message.includes('logo')) {
+        setLogoLoadError(true)
+      }
+      
       toast.error("Failed to export PDF", {
         description: "An error occurred while exporting the PDF. Please try again.",
       })

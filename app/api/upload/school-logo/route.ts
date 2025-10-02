@@ -63,33 +63,21 @@ export async function POST(request: NextRequest) {
     await S3.send(command);
 
     // Public URL
-    const logoUrl = `${process.env.AWS_ENDPOINT_URL_S3}/${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}/${key}`;
+     const endpointUrl = new URL(process.env.AWS_ENDPOINT_URL_S3!);
+    const logoUrl = endpointUrl.host.includes("storage.dev")
+      ? `${endpointUrl.protocol}//${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}.${endpointUrl.host}/${key}`
+      : `${process.env.AWS_ENDPOINT_URL_S3}/${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}/${key}`;
 
-    // Get old logo for cleanup
-    const school = await prisma.school.findUnique({
-      where: { id: schoolId },
-      select: { logoUrl: true },
-    });
+    const old = await prisma.school.findUnique({ where: { id: schoolId }, select: { logoUrl: true } });
+    await prisma.school.update({ where: { id: schoolId }, data: { logoUrl } });
 
-    // Update DB with new logo
-    await prisma.school.update({
-      where: { id: schoolId },
-      data: { logoUrl },
-    });
-
-    // Delete old logo from S3 if it exists
-    if (school?.logoUrl) {
+    if (old?.logoUrl) {
       try {
-        const oldUrlParts = school.logoUrl.split('/');
-        const oldKey = oldUrlParts.slice(3).join('/');
-        
-        await S3.send(new DeleteObjectCommand({
-          Bucket: process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES!,
-          Key: oldKey,
-        }));
+        const oldUrl = new URL(old.logoUrl);
+        const oldKey = oldUrl.pathname.substring(1);
+        await S3.send(new DeleteObjectCommand({ Bucket: process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES!, Key: oldKey }));
       } catch (err) {
         console.error("Failed to delete old logo from S3:", err);
-        // Continue even if old logo deletion fails
       }
     }
 

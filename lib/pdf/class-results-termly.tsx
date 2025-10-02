@@ -56,6 +56,37 @@ interface PDFConfig {
   }
 }
 
+// Server-side image conversion using API
+async function getImageDataURLViaAPI(url: string): Promise<string | null> {
+  try {
+    console.log('Converting image via API:', url)
+    
+    const response = await fetch('/api/convert-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ imageUrl: url }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    
+    if (!data.success) {
+      throw new Error(data.error || 'API returned unsuccessful response')
+    }
+
+    console.log('Image converted via API successfully')
+    return data.dataURL
+  } catch (error) {
+    console.error('API image conversion failed:', error)
+    return null
+  }
+}
+
 class PDFGenerator {
   private doc: jsPDF
   private config: PDFConfig
@@ -92,16 +123,32 @@ class PDFGenerator {
     if (!subjects?.length) throw new Error("Subjects array cannot be empty")
   }
 
-  private drawHeader(schoolInfo: SchoolInfo, classInfo: ClassInfo, totalStudents: number): void {
+  private async drawHeader(schoolInfo: SchoolInfo, classInfo: ClassInfo, totalStudents: number): Promise<void> {
     const { schoolName, schoolAddress, schoolPhone, schoolEmail, schoolLogo } = schoolInfo
     const { className, termName, sessionName, teacherName } = classInfo
 
-    // Logo
+    let logoDataURL: string | null = null
+
+    // Handle school logo using API
     if (schoolLogo) {
       try {
-        this.doc.addImage(schoolLogo, "JPEG", this.config.margins.left, 10, 15, 15)
+        if (schoolLogo.startsWith('data:')) {
+          logoDataURL = schoolLogo
+        } else {
+          logoDataURL = await getImageDataURLViaAPI(schoolLogo)
+        }
       } catch (error) {
-        console.warn("Failed to add logo:", error)
+        console.warn("Failed to load logo:", error)
+      }
+    }
+
+    // Add logo if available
+    if (logoDataURL) {
+      try {
+        const imageFormat = logoDataURL.includes('image/png') ? 'PNG' : 'JPEG'
+        this.doc.addImage(logoDataURL, imageFormat, this.config.margins.left, 10, 15, 15)
+      } catch (error) {
+        console.warn("Failed to add logo to PDF:", error)
       }
     }
 
@@ -193,7 +240,7 @@ class PDFGenerator {
     try {
       this.validateInputs(results, schoolInfo, classInfo, subjects)
 
-      this.drawHeader(schoolInfo, classInfo, results.length)
+      await this.drawHeader(schoolInfo, classInfo, results.length)
 
       // Table Configuration
       const headers = [

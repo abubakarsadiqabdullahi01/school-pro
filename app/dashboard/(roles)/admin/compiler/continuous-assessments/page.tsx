@@ -76,7 +76,8 @@ export default async function AdminCASheetPage() {
 
   // Get all class levels
 const classLevels: ClassLevel[] = ["PRIMARY", "JSS", "SSS"];
-  return (
+
+return (
     <PageTransition>
       <div className="space-y-6">
         <div>

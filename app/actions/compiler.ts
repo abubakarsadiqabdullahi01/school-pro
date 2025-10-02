@@ -5,8 +5,6 @@ import { auth } from "@/auth"
 import type { ClassLevel } from "@prisma/client"
 
 
-
-
 // Authorize and get school ID
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
   const session = await auth()
@@ -81,24 +79,53 @@ export async function getGradingSystem(schoolId: string) {
 // Get classes for a term and level
 export async function getClassesForTerm(termId: string, level: ClassLevel) {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
+    
+    const schoolId = await authorizeAndGetSchoolId();
+
     const term = await prisma.term.findUnique({
       where: { id: termId },
-      include: { session: { select: { schoolId: true } } },
-    })
+      include: { 
+        session: { 
+          select: { 
+            id: true,
+            name: true,
+            schoolId: true 
+          } 
+        } 
+      },
+    });
 
-    if (!term) throw new Error("Term not found")
+    if (!term) {
+      console.log('❌ [getClassesForTerm] Term not found');
+      throw new Error("Term not found");
+    }
+  
+
     if (schoolId && term.session.schoolId !== schoolId) {
-      throw new Error("Term does not belong to admin's school")
+      console.log('❌ [getClassesForTerm] School mismatch:', { adminSchoolId: schoolId, termSchoolId: term.session.schoolId });
+      throw new Error("Term does not belong to admin's school");
     }
 
     const classTerms = await prisma.classTerm.findMany({
       where: {
         termId,
-        class: { level, schoolId },
+        class: { 
+          level, 
+          schoolId: schoolId || term.session.schoolId 
+        },
       },
       include: {
         class: { select: { id: true, name: true, level: true } },
+        term: {
+          include: {
+            session: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
         teachers: {
           take: 1,
           include: {
@@ -109,24 +136,30 @@ export async function getClassesForTerm(termId: string, level: ClassLevel) {
             },
           },
         },
+        _count: {
+          select: {
+            students: true
+          }
+        }
       },
-    })
-
+    });
     const formattedClasses = classTerms.map((classTerm) => {
-      const teacher = classTerm.teachers[0]?.teacher
+      const teacher = classTerm.teachers[0]?.teacher;
       return {
         id: classTerm.class.id,
         name: classTerm.class.name,
         level: classTerm.class.level,
         classTermId: classTerm.id,
+        sessionName: classTerm.term.session.name,
+        studentCount: classTerm._count.students,
         teacherId: teacher?.id || null,
         teacherName: teacher ? `${teacher.user.firstName} ${teacher.user.lastName}` : null,
       }
-    })
+    });
 
     return { success: true, data: formattedClasses }
   } catch (error) {
-    console.error("Failed to get classes for term:", error)
+    console.error("❌ [getClassesForTerm] Failed:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unexpected error occurred",
@@ -136,28 +169,43 @@ export async function getClassesForTerm(termId: string, level: ClassLevel) {
 
 // Get students for a class term
 export async function getStudentsForClassTerm(classTermId: string) {
-  try {
-    const schoolId = await authorizeAndGetSchoolId()
+  try {    
+    const schoolId = await authorizeAndGetSchoolId();
+
     const classTerm = await prisma.classTerm.findUnique({
       where: { id: classTermId },
-      include: { class: { select: { schoolId: true } } },
-    })
+      include: { 
+        class: { select: { schoolId: true, name: true } },
+        term: { select: { name: true } }
+      },
+    });
 
-    if (!classTerm) throw new Error("Class term not found")
-    if (schoolId && classTerm.class.schoolId !== schoolId) {
-      throw new Error("Class does not belong to admin's school")
+    if (!classTerm) {
+      throw new Error("Class term not found");
     }
+    
+
+    if (schoolId && classTerm.class.schoolId !== schoolId) {
+      throw new Error("Class does not belong to admin's school");
+    }
+
 
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: { classTermId },
       include: {
         student: {
           include: {
-            user: { select: { firstName: true, lastName: true, gender: true } },
+            user: { 
+              select: { 
+                firstName: true, 
+                lastName: true, 
+                gender: true 
+              } 
+            },
           },
         },
       },
-    })
+    });
 
     const formattedStudents = studentClassTerms.map((studentClassTerm) => ({
       id: studentClassTerm.student.id,
@@ -165,11 +213,11 @@ export async function getStudentsForClassTerm(classTermId: string) {
       admissionNo: studentClassTerm.student.admissionNo,
       fullName: `${studentClassTerm.student.user.firstName} ${studentClassTerm.student.user.lastName}`,
       gender: studentClassTerm.student.user.gender,
-    }))
+    }));
 
     return { success: true, data: formattedStudents }
   } catch (error) {
-    console.error("Failed to get students for class term:", error)
+    console.error("❌ [getStudentsForClassTerm] Failed:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unexpected error occurred",

@@ -24,7 +24,38 @@ interface ClassInfo {
   teacherName: string | undefined
 }
 
-export function generateCASheetPDF({
+// Server-side image conversion using API
+async function getImageDataURLViaAPI(url: string): Promise<string | null> {
+  try {
+    console.log('Converting image via API:', url)
+    
+    const response = await fetch('/api/convert-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ imageUrl: url }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    
+    if (!data.success) {
+      throw new Error(data.error || 'API returned unsuccessful response')
+    }
+
+    console.log('Image converted via API successfully')
+    return data.dataURL
+  } catch (error) {
+    console.error('API image conversion failed:', error)
+    return null
+  }
+}
+
+export async function generateCASheetPDF({
   students,
   schoolInfo,
   classInfo,
@@ -32,7 +63,7 @@ export function generateCASheetPDF({
   students: Student[]
   schoolInfo: SchoolInfo
   classInfo: ClassInfo
-}): jsPDF {
+}): Promise<jsPDF> {
   const {
     schoolName,
     schoolAddress,
@@ -44,38 +75,80 @@ export function generateCASheetPDF({
 
   const doc = new jsPDF()
 
-  // Add school logo
+  let logoDataURL: string | null = null
+
+  // Handle school logo - use API approach only
   if (schoolLogo) {
-    doc.addImage(schoolLogo, "JPEG", 15, 10, 20, 20)
+    try {
+      console.log('Processing school logo:', schoolLogo)
+      
+      // If it's already a data URL, use it directly
+      if (schoolLogo.startsWith('data:')) {
+        logoDataURL = schoolLogo
+        console.log('Using existing data URL')
+      } else {
+        // Use API approach for external URLs
+        logoDataURL = await getImageDataURLViaAPI(schoolLogo)
+      }
+      
+      if (logoDataURL) {
+        console.log('Logo processed successfully')
+      } else {
+        console.log('Logo processing failed, continuing without logo')
+      }
+    } catch (error) {
+      console.warn('Failed to load school logo:', error)
+      logoDataURL = null
+    }
   }
 
-  // Header
+  // Add school logo if available
+  if (logoDataURL) {
+    try {
+      // Determine image format from data URL
+      const imageFormat = logoDataURL.includes('image/png') ? 'PNG' : 
+                         logoDataURL.includes('image/jpeg') ? 'JPEG' : 'JPEG'
+      
+      doc.addImage(logoDataURL, imageFormat, 15, 10, 20, 20)
+      console.log('Logo added to PDF successfully')
+    } catch (error) {
+      console.warn('Failed to add image to PDF:', error)
+      // Continue without logo
+    }
+  } else {
+    console.log('No logo available for PDF')
+  }
+
+  // Header - Adjust position based on whether logo was added
+  const headerStartY = logoDataURL ? 15 : 20
+  
   doc.setFont("times", "bold")
   doc.setFontSize(18)
-  doc.text(schoolName.toUpperCase(), 105, 15, { align: "center" })
+  doc.text(schoolName.toUpperCase(), 105, headerStartY, { align: "center" })
 
   doc.setFont("times", "normal")
   doc.setFontSize(10)
-  doc.text(schoolAddress, 105, 22, { align: "center" })
-  doc.text(`GSM: ${schoolPhone} | Email: ${schoolEmail}`, 105, 28, { align: "center" })
+  doc.text(schoolAddress, 105, headerStartY + 7, { align: "center" })
+  doc.text(`GSM: ${schoolPhone} | Email: ${schoolEmail}`, 105, headerStartY + 14, { align: "center" })
 
   doc.setFont("times", "bold")
   doc.setFontSize(13)
-  doc.text(`TERM CONTINUOUS ASSESSMENT SHEET`, 105, 38, { align: "center" })
+  doc.text(`TERM CONTINUOUS ASSESSMENT SHEET`, 105, headerStartY + 24, { align: "center" })
 
   doc.setLineWidth(0.5)
-  doc.line(20, 42, 190, 42)
+  doc.line(20, headerStartY + 28, 190, headerStartY + 28)
 
   // Class Info
   doc.setFontSize(10)
   doc.setFont("times", "normal")
-  doc.text(`Class: ${className || "______"}`, 20, 48)
-  doc.text(`Term: ${termName || "______"}`, 105, 48, { align: "center" })
-  doc.text(`Session: ${sessionName || "______"}`, 190, 48, { align: "right" })
+  const classInfoY = headerStartY + 34
+  doc.text(`Class: ${className || "______"}`, 20, classInfoY)
+  doc.text(`Term: ${termName || "______"}`, 105, classInfoY, { align: "center" })
+  doc.text(`Session: ${sessionName || "______"}`, 190, classInfoY, { align: "right" })
 
   // Subject and Teacher
-  doc.text(`Subject: __________________________________________`, 20, 55)
-  doc.text(`Teacher: ${teacherName || "_____________________________"}`, 190, 55, { align: "right" })
+  doc.text(`Subject: __________________________________________`, 20, classInfoY + 7)
+  doc.text(`Teacher: ${teacherName || "_____________________________"}`, 190, classInfoY + 7, { align: "right" })
 
   // Table headers
   const tableColumn = [
@@ -101,13 +174,13 @@ export function generateCASheetPDF({
   autoTable(doc, {
     head: [tableColumn],
     body: tableRows,
-    startY: 65,
+    startY: classInfoY + 15,
     theme: "grid",
     styles: {
       fontSize: 8,
       font: "times",
       valign: "middle",
-      cellPadding: 1, // Default padding for all, override S/N later
+      cellPadding: 1,
     },
     headStyles: {
       fillColor: [230, 230, 230],
@@ -116,13 +189,13 @@ export function generateCASheetPDF({
       halign: "center",
     },
     columnStyles: {
-      0: { cellWidth: 8, halign: "center", cellPadding: 0 }, // S/N
-      1: { cellWidth: 35, halign: "left" }, // Admission No.
-      2: { cellWidth: 75, halign: "left" }, // Student Name
-      3: { cellWidth: 15, halign: "center" }, // 1st CA
-      4: { cellWidth: 15, halign: "center" }, // 2nd CA
-      5: { cellWidth: 15, halign: "center" }, // 3rd CA
-      6: { cellWidth: 15, halign: "center" }, // Exam
+      0: { cellWidth: 8, halign: "center", cellPadding: 0 },
+      1: { cellWidth: 35, halign: "left" },
+      2: { cellWidth: 75, halign: "left" },
+      3: { cellWidth: 15, halign: "center" },
+      4: { cellWidth: 15, halign: "center" },
+      5: { cellWidth: 15, halign: "center" },
+      6: { cellWidth: 15, halign: "center" },
     },
   })
 
@@ -158,16 +231,22 @@ export async function printCASheet({
   schoolInfo: SchoolInfo
   classInfo: ClassInfo
 }) {
-  const doc = generateCASheetPDF({ students, schoolInfo, classInfo })
+  try {
+    const doc = await generateCASheetPDF({ students, schoolInfo, classInfo })
 
-  const pdfBlob = doc.output("blob")
-  const pdfUrl = URL.createObjectURL(pdfBlob)
+    const pdfBlob = doc.output("blob")
+    const pdfUrl = URL.createObjectURL(pdfBlob)
 
-  const printWindow = window.open(pdfUrl, "_blank")
-  if (printWindow) {
-    printWindow.focus()
-    printWindow.onload = () => {
-      printWindow.print()
+    const printWindow = window.open(pdfUrl, "_blank")
+    if (printWindow) {
+      printWindow.focus()
+      // Wait for the PDF to load before printing
+      printWindow.onload = () => {
+        printWindow.print()
+      }
     }
+  } catch (error) {
+    console.error('Error generating PDF:', error)
+    throw error
   }
 }

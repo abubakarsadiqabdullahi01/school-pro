@@ -117,6 +117,37 @@ interface GenerateReportParams {
   allStudents?: StudentResult[]
 }
 
+// Server-side image conversion using API
+async function getImageDataURLViaAPI(url: string): Promise<string | null> {
+  try {
+    console.log('Converting image via API:', url)
+    
+    const response = await fetch('/api/convert-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ imageUrl: url }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    
+    if (!data.success) {
+      throw new Error(data.error || 'API returned unsuccessful response')
+    }
+
+    console.log('Image converted via API successfully')
+    return data.dataURL
+  } catch (error) {
+    console.error('API image conversion failed:', error)
+    return null
+  }
+}
+
 class StudentReportCardGenerator {
   private doc: jsPDF
   private config: PDFConfig
@@ -193,21 +224,38 @@ class StudentReportCardGenerator {
     }
   }
 
-  private drawSchoolHeader(schoolInfo: SchoolInfo): void {
+  private async drawSchoolHeader(schoolInfo: SchoolInfo): Promise<void> {
     const { schoolName, schoolAddress, schoolPhone, schoolEmail, schoolLogo } = schoolInfo
 
+    let logoDataURL: string | null = null
+
+    // Handle school logo using API
     if (schoolLogo) {
       try {
+        if (schoolLogo.startsWith('data:')) {
+          logoDataURL = schoolLogo
+        } else {
+          logoDataURL = await getImageDataURLViaAPI(schoolLogo)
+        }
+      } catch (error) {
+        console.warn("Failed to load logo:", error)
+      }
+    }
+
+    // Add logo if available
+    if (logoDataURL) {
+      try {
+        const imageFormat = logoDataURL.includes('image/png') ? 'PNG' : 'JPEG'
         this.doc.addImage(
-          schoolLogo,
-          "JPEG",
+          logoDataURL,
+          imageFormat,
           this.config.margins.left,
           this.currentY,
           this.config.logoSize!.width,
           this.config.logoSize!.height,
         )
       } catch (error) {
-        console.warn("Failed to add logo:", error)
+        console.warn("Failed to add logo to PDF:", error)
       }
     }
 
@@ -774,7 +822,7 @@ class StudentReportCardGenerator {
   ): Promise<void> {
     this.validateInputs(student, schoolInfo, classInfo, subjects)
 
-    this.drawSchoolHeader(schoolInfo)
+    await this.drawSchoolHeader(schoolInfo)
     this.drawStudentInfo(student, classInfo)
     this.drawAcademicResults(student, subjects, gradingSystem, classStatistics)
     this.drawPerformanceSummary(student, gradingSystem)
@@ -848,7 +896,7 @@ class StudentReportCardGenerator {
         this.doc = mergedPdf
         this.currentY = this.config.margins.top
 
-        this.drawSchoolHeader(schoolInfo)
+        await this.drawSchoolHeader(schoolInfo)
         this.drawStudentInfo(student, classInfo)
         this.drawAcademicResults(student, subjects, gradingSystem, classStatistics)
         this.drawPerformanceSummary(student, gradingSystem)
