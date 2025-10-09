@@ -244,11 +244,11 @@ export function CASheetComponent({
 
             <div className="space-y-2 min-w-0">
               <Label htmlFor="level" className="text-lg font-semibold text-gray-700">
-                Class Level
+                Class Section
               </Label>
               <Select value={selectedLevel} onValueChange={setSelectedLevel}>
                 <SelectTrigger id="level" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
-                  <SelectValue placeholder="Select a level" />
+                  <SelectValue placeholder="Select a section" />
                 </SelectTrigger>
                 <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
                   {classLevels.map((level) => (

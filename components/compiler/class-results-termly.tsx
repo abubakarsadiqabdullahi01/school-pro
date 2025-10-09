@@ -311,10 +311,10 @@ const handlePrint = async () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="level" className="text-lg font-semibold text-gray-700">Class Level</Label>
+              <Label htmlFor="level" className="text-lg font-semibold text-gray-700">Class Section</Label>
               <Select value={selectedLevel} onValueChange={setSelectedLevel}>
                 <SelectTrigger id="level" className="border-gray-300">
-                  <SelectValue placeholder="Select a level" />
+                  <SelectValue placeholder="Select a section" />
                 </SelectTrigger>
                 <SelectContent>
                   {classLevels.map((level) => (

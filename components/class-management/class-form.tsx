@@ -22,7 +22,7 @@ const classFormSchema = z.object({
     message: "Class name must be at least 2 characters.",
   }),
   level: z.nativeEnum(ClassLevel, {
-    required_error: "Please select a class level.",
+    required_error: "Please select a class section.",
   }),
 })
 
@@ -113,12 +113,12 @@ export function ClassForm({ schoolId, classData }: ClassFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    Class Level <span className="text-destructive">*</span>
+                    Class Section <span className="text-destructive">*</span>
                   </FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select a class level" />
+                        <SelectValue placeholder="Select a class section" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

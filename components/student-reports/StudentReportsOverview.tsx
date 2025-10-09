@@ -457,11 +457,11 @@ export function StudentReportsOverview({
 
             <div className="space-y-2 min-w-0">
               <Label htmlFor="level" className="text-sm font-medium">
-                Class Level
+                Class Section
               </Label>
               <Select value={form.level} onValueChange={handleLevelChange}>
                 <SelectTrigger className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="level">
-                  <SelectValue placeholder="Select a level" />
+                  <SelectValue placeholder="Select a section" />
                 </SelectTrigger>
                 <SelectContent>
                   {classLevels.map((level) => (

@@ -88,14 +88,14 @@ export const SelectionControls = memo(function SelectionControls({
       {/* Level Selector */}
   <div className="space-y-2 min-w-0">
         <Label htmlFor="level" className="text-sm font-medium text-gray-700">
-          Class Level
+          Class Section
         </Label>
         <Select value={form.level} onValueChange={onLevelChange} disabled={!form.termId}>
           <SelectTrigger 
               id="level" 
               className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
-            <SelectValue placeholder="Select a level" />
+            <SelectValue placeholder="Select a section" />
           </SelectTrigger>
           <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
             {classLevels.map((level) => (

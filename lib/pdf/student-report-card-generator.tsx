@@ -384,7 +384,7 @@ class StudentReportCardGenerator {
     this.doc.setFont("helvetica", "bold")
     this.doc.setFontSize(this.config.fontSize.subheader - 1)
     this.doc.setTextColor(...this.config.colors.primary)
-    this.doc.text("ACADEMIC PERFORMANCE", this.pageWidth / 2, this.currentY, { align: "center" })
+    this.doc.text("COGNITIVE DOMAIN", this.pageWidth / 2, this.currentY, { align: "center" })
 
     this.currentY += 2
 
@@ -502,7 +502,7 @@ class StudentReportCardGenerator {
     this.doc.setFont("helvetica", "bold")
     this.doc.setFontSize(this.config.fontSize.normal)
     this.doc.setTextColor(...this.config.colors.primary)
-    this.doc.text("COGNITIVE DOMAIN", this.config.margins.left, this.currentY)
+    this.doc.text("ACADEMIC PERFORMANCE", this.config.margins.left, this.currentY)
 
     this.currentY += 2
 

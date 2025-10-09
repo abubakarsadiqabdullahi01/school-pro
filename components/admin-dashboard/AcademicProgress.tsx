@@ -165,9 +165,9 @@ export function AcademicProgress({
           <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50">
             <CardTitle className="flex items-center gap-2">
               <School className="h-5 w-5 text-blue-600" />
-              Class Level Distribution
+              Class Section Distribution
             </CardTitle>
-            <CardDescription>Distribution of classes by educational level</CardDescription>
+            <CardDescription>Distribution of classes by educational section</CardDescription>
           </CardHeader>
           <CardContent className="p-6">
             <div className="space-y-4">
