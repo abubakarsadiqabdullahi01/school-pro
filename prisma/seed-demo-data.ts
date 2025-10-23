@@ -1,5 +1,5 @@
 // scripts/seed-demo-data.ts
-import { PrismaClient, Role, CredentialType, Gender, ClassLevel, PaymentStatus, TransitionType } from "@prisma/client";
+import { PrismaClient, Role, CredentialType, Gender, ClassLevel, PaymentStatus, TransitionType, EnrollmentStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { faker } from "@faker-js/faker";
 
@@ -15,22 +15,49 @@ const CONFIG = {
   MAX_SUBJECTS_PER_TEACHER: 4,
   MAX_CLASSES_PER_TEACHER: 3,
   MAX_STUDENTS_PER_PARENT: 4,
-  BATCH_SIZE: 50 // For batch operations
+  BATCH_SIZE: 50
 };
 
 // Nigerian states and sample LGAs
 const NIGERIAN_STATES = [
   { name: "Abia", capital: "Umuahia", region: "South East" },
-  // ... (other states remain the same)
+  { name: "Adamawa", capital: "Yola", region: "North East" },
+  { name: "Akwa Ibom", capital: "Uyo", region: "South South" },
+  { name: "Anambra", capital: "Awka", region: "South East" },
+  { name: "Bauchi", capital: "Bauchi", region: "North East" },
+  { name: "Bayelsa", capital: "Yenagoa", region: "South South" },
+  { name: "Benue", capital: "Makurdi", region: "North Central" },
+  { name: "Borno", capital: "Maiduguri", region: "North East" },
+  { name: "Cross River", capital: "Calabar", region: "South South" },
+  { name: "Delta", capital: "Asaba", region: "South South" },
+  { name: "Ebonyi", capital: "Abakaliki", region: "South East" },
+  { name: "Edo", capital: "Benin City", region: "South South" },
+  { name: "Ekiti", capital: "Ado-Ekiti", region: "South West" },
+  { name: "Enugu", capital: "Enugu", region: "South East" },
+  { name: "FCT", capital: "Abuja", region: "North Central" },
+  { name: "Gombe", capital: "Gombe", region: "North East" },
+  { name: "Imo", capital: "Owerri", region: "South East" },
+  { name: "Jigawa", capital: "Dutse", region: "North West" },
+  { name: "Kaduna", capital: "Kaduna", region: "North West" },
+  { name: "Kano", capital: "Kano", region: "North West" },
+  { name: "Katsina", capital: "Katsina", region: "North West" },
+  { name: "Kebbi", capital: "Birnin Kebbi", region: "North West" },
+  { name: "Kogi", capital: "Lokoja", region: "North Central" },
+  { name: "Kwara", capital: "Ilorin", region: "North Central" },
+  { name: "Lagos", capital: "Ikeja", region: "South West" },
+  { name: "Nasarawa", capital: "Lafia", region: "North Central" },
+  { name: "Niger", capital: "Minna", region: "North Central" },
+  { name: "Ogun", capital: "Abeokuta", region: "South West" },
+  { name: "Ondo", capital: "Akure", region: "South West" },
+  { name: "Osun", capital: "Oshogbo", region: "South West" },
+  { name: "Oyo", capital: "Ibadan", region: "South West" },
+  { name: "Plateau", capital: "Jos", region: "North Central" },
+  { name: "Rivers", capital: "Port Harcourt", region: "South South" },
+  { name: "Sokoto", capital: "Sokoto", region: "North West" },
+  { name: "Taraba", capital: "Jalingo", region: "North East" },
+  { name: "Yobe", capital: "Damaturu", region: "North East" },
+  { name: "Zamfara", capital: "Gusau", region: "North West" }
 ];
-
-// Common Nigerian first and last names
-const NIGERIAN_FIRST_NAMES = {
-  MALE: ["Chinedu", "Emeka", "Oluwaseun", "Adebayo", "Chukwudi", "Ibrahim", "Musa", "Sani", "Yusuf", "Abdullahi"],
-  FEMALE: ["Chiamaka", "Ngozi", "Aisha", "Fatima", "Aminat", "Blessing", "Grace", "Patience", "Maryam", "Zainab"]
-};
-
-const NIGERIAN_LAST_NAMES = ["Adeyemi", "Okafor", "Mohammed", "Suleiman", "Okoro", "Eze", "Bello", "Ibrahim", "Yakubu", "Ogunleye"];
 
 // Nigerian subjects by class level
 const SUBJECTS_BY_LEVEL = {
@@ -82,27 +109,27 @@ async function main() {
   // Clean existing data (be careful in production!)
   if (process.env.NODE_ENV !== 'production') {
     console.log("🧹 Cleaning existing data...");
-    // Use transaction for faster cleanup
-    await prisma.$transaction([
-      prisma.$executeRaw`TRUNCATE TABLE "Assessment" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "StudentClassTerm" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "ClassTerm" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "TeacherClassTerm" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "ClassSubject" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "TeacherSubject" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Student" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Teacher" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Parent" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Admin" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Term" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Session" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Class" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Subject" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "School" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "Credential" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "User" CASCADE`,
-      prisma.$executeRaw`TRUNCATE TABLE "GradingSystem" CASCADE`,
-    ]);
+    
+    // Use individual delete operations instead of TRUNCATE CASCADE
+    // This is safer and respects Prisma relations
+    await prisma.assessment.deleteMany();
+    await prisma.studentClassTerm.deleteMany();
+    await prisma.classTerm.deleteMany();
+    await prisma.teacherClassTerm.deleteMany();
+    await prisma.classSubject.deleteMany();
+    await prisma.teacherSubject.deleteMany();
+    await prisma.student.deleteMany();
+    await prisma.teacher.deleteMany();
+    await prisma.parent.deleteMany();
+    await prisma.admin.deleteMany();
+    await prisma.term.deleteMany();
+    await prisma.session.deleteMany();
+    await prisma.class.deleteMany();
+    await prisma.subject.deleteMany();
+    await prisma.school.deleteMany();
+    await prisma.credential.deleteMany();
+    await prisma.user.deleteMany();
+    await prisma.gradingSystem.deleteMany();
   }
 
   // Step 1: Create Super Admins
@@ -462,9 +489,12 @@ async function main() {
     const classTerm = classTerms.find(ct => ct.classId === randomClass.id);
     
     if (classTerm) {
+      // FIXED: Added termId and status fields
       studentClassTermData.push({
         studentId: student.id,
-        classTermId: classTerm.id
+        classTermId: classTerm.id,
+        termId: currentTerm!.id,
+        status: EnrollmentStatus.ACTIVE
       });
     }
   }
@@ -489,6 +519,7 @@ async function main() {
     });
 
     for (const classSubject of classSubjects) {
+      // FIXED: Added required fields createdBy and editedBy
       assessmentData.push({
         studentId: studentClassTerm.studentId,
         subjectId: classSubject.subjectId,
@@ -500,7 +531,9 @@ async function main() {
         ca3: Math.floor(Math.random() * 10) + 1, // 1–10
         exam: Math.floor(Math.random() * 70) + 1, // 1–70
         isPublished: Math.random() > 0.3,
-        editedBy: schoolAdmin.id
+        createdBy: schoolAdmin.id, // FIXED: Added required field
+        editedBy: schoolAdmin.id,  // FIXED: Added required field
+        isDraft: false
       });
     }
   }
@@ -643,7 +676,7 @@ async function main() {
   console.log(`   Parents: parent[1-${CONFIG.PARENT_COUNT}]@excelcollege.edu.ng / Parent[1-${CONFIG.PARENT_COUNT}]!`);
 }
 
-// Helper functions (unchanged)
+// Helper functions
 async function createUserWithCredential(data: {
   firstName: string;
   lastName: string;

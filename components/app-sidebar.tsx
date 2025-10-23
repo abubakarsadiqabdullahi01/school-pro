@@ -478,7 +478,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                                 asChild
                                 isActive={pathname === "/dashboard/admin/compiler/subject-results/entry"}
                               >
-                                <Link href="/dashboard/admin/compiler/subject-results/entry">Subject Results</Link>
+                                <Link href="/dashboard/admin/compiler/subject-results/entry">Results Entry</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
@@ -486,7 +486,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                                 asChild
                                 isActive={pathname === "/dashboard/admin/compiler/class-results"}
                               >
-                                <Link href="/dashboard/admin/compiler/class-results">Result Entery</Link>
+                                <Link href="/dashboard/admin/compiler/class-results">Class Results</Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>

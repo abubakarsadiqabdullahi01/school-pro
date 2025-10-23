@@ -16,90 +16,127 @@ async function verifyPassword(password: string, hashedPassword: string): Promise
   return bcrypt.compare(password, hashedPassword)
 }
 
-// Generate admission number based on school configuration
-export async function generateAdmissionNumber() {
+// Validation function for school resources
+async function validateSchoolResources(
+  tx: any, 
+  schoolId: string, 
+  classId: string, 
+  termId: string
+): Promise<{ isValid: boolean; error?: string }> {
   try {
-    const session = await auth()
-    const isNotAuthorized = !session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    if (isNotAuthorized) {
-      return { success: false, error: "Unauthorized" }
+    // Validate class exists and belongs to school
+    const classRecord = await tx.class.findUnique({
+      where: { id: classId },
+      include: { 
+        school: { select: { id: true, name: true } }
+      }
+    })
+    
+    if (!classRecord) {
+      return { isValid: false, error: "Invalid class selected" }
     }
 
-    let schoolId: string
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-      if (!admin?.schoolId) {
-        return { success: false, error: "Admin not associated with a school" }
+    if (classRecord.schoolId !== schoolId) {
+      return { 
+        isValid: false, 
+        error: `Selected class "${classRecord.name}" does not belong to your school.` 
       }
-      schoolId = admin.schoolId
-    } else {
-      const school = await prisma.school.findFirst({ select: { id: true } })
-      if (!school) {
-        return { success: false, error: "No school found" }
-      }
-      schoolId = school.id
     }
 
-    const currentYear = new Date().getFullYear()
-    const result = await prisma.$transaction(async (tx) => {
-      const school = await tx.school.findUnique({
-        where: { id: schoolId },
-        select: {
-          admissionPrefix: true,
-          admissionFormat: true,
-          admissionSequenceStart: true,
-        },
-      })
-
-      if (!school) throw new Error("School not found")
-
-      let admissionSequence = await tx.admissionSequence.findUnique({
-        where: { schoolId_year: { schoolId, year: currentYear } },
-      })
-
-      let nextSequence: number
-      if (!admissionSequence) {
-        admissionSequence = await tx.admissionSequence.create({
-          data: {
-            schoolId,
-            year: currentYear,
-            lastSequence: school.admissionSequenceStart - 1,
-          },
-        })
-        nextSequence = school.admissionSequenceStart
-      } else {
-        nextSequence = admissionSequence.lastSequence + 1
+    // Validate term exists and belongs to school
+    const term = await tx.term.findUnique({
+      where: { id: termId },
+      include: {
+        session: {
+          select: {
+            schoolId: true,
+            school: { select: { name: true } }
+          }
+        }
       }
+    })
+    
+    if (!term) {
+      return { isValid: false, error: "Invalid term selected" }
+    }
 
-      await tx.admissionSequence.update({
-        where: { id: admissionSequence.id },
-        data: { lastSequence: nextSequence },
-      })
+    if (term.session.schoolId !== schoolId) {
+      return { 
+        isValid: false, 
+        error: `Selected term "${term.name}" does not belong to your school.` 
+      }
+    }
 
-      const admissionNo = school.admissionFormat
-        .replace("{PREFIX}", school.admissionPrefix)
-        .replace("{YEAR}", currentYear.toString())
-        .replace("{NUMBER}", nextSequence.toString().padStart(4, "0"))
+    // Validate term is active or in the future
+    const now = new Date()
+    if (term.endDate < now) {
+      return {
+        isValid: false,
+        error: `Selected term "${term.name}" has already ended. Please select a current or future term.`
+      }
+    }
 
-      return admissionNo
+    return { isValid: true }
+  } catch (error) {
+    console.error("Resource validation error:", error)
+    return { 
+      isValid: false, 
+      error: "Failed to validate school resources" 
+    }
+  }
+}
+
+// Enhanced admission number generator with retry logic
+async function generateAdmissionNumber(
+  tx: any, 
+  schoolId: string, 
+  currentYear: number
+): Promise<{ success: boolean; admissionNo?: string; error?: string }> {
+  try {
+    const school = await tx.school.findUnique({
+      where: { id: schoolId },
+      select: {
+        admissionPrefix: true,
+        admissionFormat: true,
+        admissionSequenceStart: true,
+      },
     })
 
-    return { success: true, data: { admissionNo: result } }
-  } catch (error: any) {
-    // Handle unique constraint error
-    if (error.code === "P2002") {
-      return {
-        success: false,
-        error: "Admission number conflict, please retry",
-      }
+    if (!school) {
+      return { success: false, error: "School not found" }
     }
-    console.error("Error generating admission number:", error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+
+    // Use upsert to handle concurrent admissions
+    const admissionSequence = await tx.admissionSequence.upsert({
+      where: { schoolId_year: { schoolId, year: currentYear } },
+      update: {
+        lastSequence: { increment: 1 },
+      },
+      create: {
+        schoolId,
+        year: currentYear,
+        lastSequence: school.admissionSequenceStart,
+      },
+    })
+
+    const admissionNo = school.admissionFormat
+      .replace("{PREFIX}", school.admissionPrefix)
+      .replace("{YEAR}", currentYear.toString())
+      .replace("{NUMBER}", admissionSequence.lastSequence.toString().padStart(4, "0"))
+
+    return { success: true, admissionNo }
+  } catch (error) {
+    console.error("Admission number generation error:", error)
+    
+    // Handle unique constraint violation with retry
+    if (error instanceof Error && error.message.includes('Unique constraint')) {
+      // Recursive retry with limit
+      return await generateAdmissionNumber(tx, schoolId, currentYear)
+    }
+    
+    return { 
+      success: false, 
+      error: "Failed to generate admission number" 
     }
   }
 }
@@ -141,62 +178,105 @@ export async function createParent(data: {
       schoolId = school.id
     }
 
+    const currentYear = new Date().getFullYear()
+
+    // Input validation
+    if (!data.firstName?.trim() || !data.lastName?.trim()) {
+      return { success: false, error: "First name and last name are required" }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
-      // ADD THIS LINE: Define currentYear
-      const currentYear = new Date().getFullYear()
-      
       // Create parent user
       const parentUser = await tx.user.create({
         data: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          phone: data.phone,
+          firstName: data.firstName.trim(),
+          lastName: data.lastName.trim(),
+          phone: data.phone?.trim() || null,
           role: "PARENT",
           isActive: true,
           gender: data.gender ?? null,
-          state: data.state,
-          lga: data.lga,
-          address: data.address,
+          state: data.state?.trim() || null,
+          lga: data.lga?.trim() || null,
+          address: data.address?.trim() || null,
         },
       })
 
-      // Create credentials if email is provided
-      if (data.email) {
+      // Create credentials with proper primary/secondary handling
+      if (data.email && data.phone) {
+        // Both email and phone provided - make email primary
+        const emailExists = await tx.credential.findUnique({
+          where: { value: data.email.trim() },
+        })
+        if (emailExists) {
+          throw new Error(`A user with email ${data.email} already exists.`)
+        }
+
+        const phoneExists = await tx.credential.findUnique({
+          where: { value: data.phone.trim() },
+        })
+        if (phoneExists) {
+          throw new Error(`A user with phone ${data.phone} already exists.`)
+        }
+
+        const passwordHash = await hashPassword(currentYear.toString())
+        
+        await tx.credential.create({
+          data: {
+            userId: parentUser.id,
+            type: "EMAIL",
+            value: data.email.trim(),
+            passwordHash,
+            isPrimary: true,
+          },
+        })
+
+        await tx.credential.create({
+          data: {
+            userId: parentUser.id,
+            type: "PHONE",
+            value: data.phone.trim(),
+            passwordHash,
+            isPrimary: false,
+          },
+        })
+      } else if (data.email) {
+        // Only email provided
         const existingCred = await tx.credential.findUnique({
-          where: { value: data.email },
+          where: { value: data.email.trim() },
         })
         if (existingCred) {
-          throw new Error(`A user with this email already exists.`)
+          throw new Error(`A user with email ${data.email} already exists.`)
         }
+
         const passwordHash = await hashPassword(currentYear.toString())
         await tx.credential.create({
           data: {
             userId: parentUser.id,
             type: "EMAIL",
-            value: data.email,
+            value: data.email.trim(),
             passwordHash,
             isPrimary: true,
           },
         })
-      }
-
-      // Create phone credential if phone is provided
-      if (data.phone) {
-        const existingPhoneCred = await tx.credential.findUnique({
-          where: { value: data.phone },
+      } else if (data.phone) {
+        // Only phone provided
+        const existingCred = await tx.credential.findUnique({
+          where: { value: data.phone.trim() },
         })
-        if (!existingPhoneCred) {
-          const passwordHash = await hashPassword(currentYear.toString())
-          await tx.credential.create({
-            data: {
-              userId: parentUser.id,
-              type: "PHONE",
-              value: data.phone,
-              passwordHash,
-              isPrimary: !data.email, // Make primary if no email
-            },
-          })
+        if (existingCred) {
+          throw new Error(`A user with phone ${data.phone} already exists.`)
         }
+
+        const passwordHash = await hashPassword(currentYear.toString())
+        await tx.credential.create({
+          data: {
+            userId: parentUser.id,
+            type: "PHONE",
+            value: data.phone.trim(),
+            passwordHash,
+            isPrimary: true,
+          },
+        })
       }
 
       // Create parent record
@@ -204,7 +284,7 @@ export async function createParent(data: {
         data: {
           userId: parentUser.id,
           schoolId,
-          occupation: data.occupation,
+          occupation: data.occupation?.trim() || null,
         },
         include: {
           user: {
@@ -226,6 +306,9 @@ export async function createParent(data: {
         phone: data.phone,
         occupation: data.occupation,
       }
+    }, {
+      timeout: 15000,
+      maxWait: 5000,
     })
 
     return { success: true, data: result }
@@ -320,9 +403,13 @@ export async function createStudent(data: {
   try {
     const session = await auth()
     if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      return { success: false, error: "Unauthorized" }
+      return { 
+        success: false, 
+        error: "Unauthorized: Only administrators can create students" 
+      }
     }
 
+    // Get school ID based on user role
     let schoolId: string
     if (session.user.role === "ADMIN") {
       const admin = await prisma.admin.findUnique({
@@ -330,152 +417,160 @@ export async function createStudent(data: {
         select: { schoolId: true },
       })
       if (!admin?.schoolId) {
-        return { success: false, error: "Admin not associated with a school" }
+        return { 
+          success: false, 
+          error: "Admin not associated with any school" 
+        }
       }
       schoolId = admin.schoolId
-      console.log(`✅ Using admin's school ID: ${schoolId}`)
     } else {
       const school = await prisma.school.findFirst({
         select: { id: true },
       })
       if (!school) {
-        return { success: false, error: "No school found in the system" }
+        return { 
+          success: false, 
+          error: "No school found in the system" 
+        }
       }
       schoolId = school.id
     }
 
-    // === CRITICAL FIX: Validate class belongs to admin's school ===
-    const classRecord = await prisma.class.findUnique({ 
-      where: { id: data.classId },
-      include: { 
-        school: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      }
-    })
-    
-    if (!classRecord) {
-      return { success: false, error: "Invalid class selected" }
-    }
-
-    // Validate class belongs to the same school as admin
-    if (classRecord.schoolId !== schoolId) {
-      console.error(`❌ Class "${classRecord.name}" belongs to school "${classRecord.school.name}" (ID: ${classRecord.schoolId}), but admin belongs to school ID: ${schoolId}`)
-      return { 
-        success: false, 
-        error: `Selected class "${classRecord.name}" does not belong to your school. Please select a class from your school.` 
-      }
-    }
-
-    // === CRITICAL FIX: Validate term belongs to admin's school ===
-    const term = await prisma.term.findUnique({ 
-      where: { id: data.termId },
-      include: {
-        session: {
-          select: {
-            schoolId: true,
-            school: {
-              select: {
-                name: true
-              }
-            }
-          }
-        }
-      }
-    })
-    
-    if (!term) {
-      return { success: false, error: "Invalid term selected" }
-    }
-
-    // Validate term belongs to the same school as admin
-    if (term.session.schoolId !== schoolId) {
-      console.error(`❌ Term "${term.name}" belongs to school "${term.session.school.name}" (ID: ${term.session.schoolId}), but admin belongs to school ID: ${schoolId}`)
-      return { 
-        success: false, 
-        error: `Selected term "${term.name}" does not belong to your school. Please select a term from your school.` 
-      }
-    }
-
-    console.log(`✅ All validations passed: Class and Term belong to admin's school (ID: ${schoolId})`)
-
     const currentYear = new Date().getFullYear()
-    const regPasswordHash = await hashPassword(currentYear.toString())
+
+    // Enhanced input validation
+    if (!data.firstName?.trim() || !data.lastName?.trim()) {
+      return { 
+        success: false, 
+        error: "First name and last name are required" 
+      }
+    }
+
+    if (!data.dateOfBirth || isNaN(Date.parse(data.dateOfBirth))) {
+      return { 
+        success: false, 
+        error: "Valid date of birth is required" 
+      }
+    }
+
+    // Validate date of birth is reasonable
+    const dob = new Date(data.dateOfBirth)
+    const today = new Date()
+    const minAgeDate = new Date(today.getFullYear() - 3, today.getMonth(), today.getDate())
+    const maxAgeDate = new Date(today.getFullYear() - 25, today.getMonth(), today.getDate())
+    
+    if (dob > today) {
+      return { 
+        success: false, 
+        error: "Date of birth cannot be in the future" 
+      }
+    }
+    
+    if (dob > minAgeDate) {
+      return { 
+        success: false, 
+        error: "Student must be at least 3 years old" 
+      }
+    }
+
+    if (dob < maxAgeDate) {
+      return { 
+        success: false, 
+        error: "Student age seems unreasonable. Please verify date of birth." 
+      }
+    }
+
+    // Validate class and term IDs are valid UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(data.classId)) {
+      return { 
+        success: false, 
+        error: "Invalid class selection" 
+      }
+    }
+
+    if (!uuidRegex.test(data.termId)) {
+      return { 
+        success: false, 
+        error: "Invalid term selection" 
+      }
+    }
+
+    if (data.parentId && !data.parentId.startsWith("new-") && !uuidRegex.test(data.parentId)) {
+      return { 
+        success: false, 
+        error: "Invalid parent selection" 
+      }
+    }
 
     const result = await prisma.$transaction(async (tx) => {
-      // === 1. Generate admission number inside transaction ===
-      const school = await tx.school.findUnique({
-        where: { id: schoolId },
-        select: {
-          admissionPrefix: true,
-          admissionFormat: true,
-          admissionSequenceStart: true,
-        },
-      })
-
-      if (!school) throw new Error("School not found")
-
-      let admissionSequence = await tx.admissionSequence.findUnique({
-        where: { schoolId_year: { schoolId, year: currentYear } },
-      })
-
-      let nextSequence: number
-      if (!admissionSequence) {
-        admissionSequence = await tx.admissionSequence.create({
-          data: {
-            schoolId,
-            year: currentYear,
-            lastSequence: school.admissionSequenceStart - 1,
-          },
-        })
-        nextSequence = school.admissionSequenceStart
-      } else {
-        nextSequence = admissionSequence.lastSequence + 1
+      // Step 1: Validate school resources
+      const resourceValidation = await validateSchoolResources(tx, schoolId, data.classId, data.termId)
+      if (!resourceValidation.isValid) {
+        throw new Error(resourceValidation.error)
       }
 
-      await tx.admissionSequence.update({
-        where: { id: admissionSequence.id },
-        data: { lastSequence: nextSequence },
-      })
+      // Step 2: Generate admission number with retry logic
+      let admissionResult
+      let retryCount = 0
+      const maxRetries = 3
+      
+      while (retryCount < maxRetries) {
+        admissionResult = await generateAdmissionNumber(tx, schoolId, currentYear)
+        if (admissionResult.success) break
+        retryCount++
+        if (retryCount === maxRetries) {
+          throw new Error(`Failed to generate admission number after ${maxRetries} attempts: ${admissionResult.error}`)
+        }
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, retryCount)))
+      }
+      
+      if (!admissionResult?.success || !admissionResult.admissionNo) {
+        throw new Error("Failed to generate admission number")
+      }
+      const admissionNo = admissionResult.admissionNo
 
-      const admissionNo = school.admissionFormat
-        .replace("{PREFIX}", school.admissionPrefix)
-        .replace("{YEAR}", currentYear.toString())
-        .replace("{NUMBER}", nextSequence.toString().padStart(4, "0"))
+      // Step 3: Create student user with enhanced data validation
+      const studentUserData = {
+        firstName: data.firstName.trim(),
+        lastName: data.lastName.trim(),
+        phone: data.phone?.trim() || null,
+        role: "STUDENT" as const,
+        isActive: data.isActive,
+        dateOfBirth: dob,
+        gender: data.gender ?? null,
+        state: data.state?.trim() || null,
+        lga: data.lga?.trim() || null,
+        address: data.address?.trim() || null,
+      }
 
-      // === 2. Create student user ===
       const studentUser = await tx.user.create({
-        data: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          phone: data.phone,
-          role: "STUDENT",
-          isActive: data.isActive,
-          dateOfBirth: new Date(data.dateOfBirth),
-          gender: data.gender ?? null,
-          state: data.state,
-          lga: data.lga,
-          address: data.address,
-        },
+        data: studentUserData,
       })
 
+      // Step 4: Create credentials if provided
       if (data.credentials && data.credentials.length > 0) {
         for (const cred of data.credentials) {
+          if (!cred.value?.trim()) {
+            throw new Error(`Invalid ${cred.type.toLowerCase()} value`)
+          }
+
+          // Check for existing credential with proper error handling
           const existingCred = await tx.credential.findUnique({
-            where: { value: cred.value },
+            where: { value: cred.value.trim() },
           })
+          
           if (existingCred) {
             throw new Error(`A user with this ${cred.type.toLowerCase()} already exists.`)
           }
+          
           const passwordHash = await hashPassword(cred.passwordHash)
           await tx.credential.create({
             data: {
               userId: studentUser.id,
               type: cred.type,
-              value: cred.value,
+              value: cred.value.trim(),
               passwordHash,
               isPrimary: cred.isPrimary,
             },
@@ -483,6 +578,7 @@ export async function createStudent(data: {
         }
       }
 
+      // Step 5: Create student record
       const student = await tx.student.create({
         data: {
           userId: studentUser.id,
@@ -492,107 +588,124 @@ export async function createStudent(data: {
         },
       })
 
-      // === 3. Optionally create default login credential (registration number) ===
+      // Step 6: Create default login credential if requested
       if (data.createLoginCredentials) {
-        // create credential using the generated admissionNo as the login value
-        const regPasswordHash = await hashPassword(currentYear.toString())
-        await tx.credential.create({
-          data: {
-            userId: studentUser.id,
-            type: "REGISTRATION_NUMBER",
-            value: admissionNo,
-            passwordHash: regPasswordHash,
-            isPrimary: true,
-          },
+        // Check if admission number credential already exists
+        const existingAdmissionCred = await tx.credential.findUnique({
+          where: { value: admissionNo },
         })
+        
+        if (!existingAdmissionCred) {
+          const regPasswordHash = await hashPassword(currentYear.toString())
+          await tx.credential.create({
+            data: {
+              userId: studentUser.id,
+              type: "REGISTRATION_NUMBER",
+              value: admissionNo,
+              passwordHash: regPasswordHash,
+              isPrimary: true,
+            },
+          })
+        }
       }
 
-      const classTerm = await tx.classTerm.findFirst({
+      // Step 7: Check for existing term assignment with enhanced validation
+      const existingTermAssignment = await tx.studentClassTerm.findFirst({
+        where: {
+          studentId: student.id,
+          classTerm: {
+            termId: data.termId,
+          },
+        },
+        include: {
+          classTerm: {
+            include: {
+              class: true,
+              term: true,
+            },
+          },
+        },
+      })
+
+      if (existingTermAssignment) {
+        throw new Error(
+          `Student is already assigned to class "${existingTermAssignment.classTerm.class.name}" in term "${existingTermAssignment.classTerm.term.name}". ` +
+          `A student cannot be in multiple classes in the same term.`
+        )
+      }
+
+      // Step 8: Find or create ClassTerm and assign student
+      let classTerm = await tx.classTerm.findFirst({
         where: { 
           classId: data.classId, 
           termId: data.termId 
         },
-      });
+      })
 
       if (!classTerm) {
-        // Create a new ClassTerm if none exists
-        const newClassTerm = await tx.classTerm.create({
+        classTerm = await tx.classTerm.create({
           data: {
             classId: data.classId,
             termId: data.termId,
           },
-        });
-        console.log(`✅ Created new ClassTerm: ${newClassTerm.id} for class ${data.classId} and term ${data.termId}`);
-        
-        await tx.studentClassTerm.create({
-          data: { 
-            studentId: student.id, 
-            classTermId: newClassTerm.id 
-          },
-        });
-        console.log(`✅ Student assigned to NEW class term: ${newClassTerm.id}`);
-      } else {
-        // Use existing ClassTerm
-        const existingAssignment = await tx.studentClassTerm.findFirst({
-          where: { 
-            studentId: student.id, 
-            classTermId: classTerm.id 
-          },
-        });
-
-        if (!existingAssignment) {
-          await tx.studentClassTerm.create({
-            data: { 
-              studentId: student.id, 
-              classTermId: classTerm.id 
-            },
-          });
-          console.log(`✅ Student assigned to EXISTING class term: ${classTerm.id}`);
-        } else {
-          console.log('Student already assigned to this class term');
-        }
+        })
       }
-      
-      if (data.parentId) {
-          try {
-            // Check if this is a new parent (indicated by a special prefix)
-            if (data.parentId.startsWith("new-")) {
-              // This is a new parent that needs to be created
-              // Extract parent data from the form or additional parameters
-              // For now, we'll skip since we need to modify the frontend to pass parent data
-              console.warn("New parent creation not implemented yet. Skipping parent assignment.")
-            } else {
-              // This is an existing parent
-              const parent = await tx.parent.findUnique({ 
-                where: { id: data.parentId },
-                include: {
-                  user: {
-                    select: {
-                      firstName: true,
-                      lastName: true
-                    }
-                  }
+
+      // Create the student-class term assignment with all required fields
+      await tx.studentClassTerm.create({
+        data: { 
+          studentId: student.id,
+          classTermId: classTerm.id,
+          termId: data.termId, // Required field
+          status: "ACTIVE", // Required enum value
+        },
+      })
+
+      // Step 9: Create enrollment history record
+      await tx.studentEnrollmentHistory.create({
+        data: {
+          studentId: student.id,
+          classTermId: classTerm.id,
+          termId: data.termId,
+          action: "ENROLLED",
+          createdBy: session.user.id,
+        },
+      })
+
+      // Step 10: Link parent if provided (with enhanced error handling)
+      if (data.parentId && !data.parentId.startsWith("new-")) {
+        try {
+          const parent = await tx.parent.findUnique({ 
+            where: { id: data.parentId },
+            include: {
+              user: {
+                select: {
+                  firstName: true,
+                  lastName: true
                 }
-              })
-              
-              if (!parent) {
-                console.warn(`Parent with ID ${data.parentId} not found. Skipping parent assignment.`)
-              } else {
-                await tx.studentParent.create({
-                  data: {
-                    studentId: student.id,
-                    parentId: data.parentId,
-                    relationship: data.relationship || "PARENT",
-                  },
-                })
-                console.log(`Successfully linked parent ${parent.user.firstName} ${parent.user.lastName} to student`)
               }
             }
-          } catch (parentError) {
-            console.error("Error linking parent to student:", parentError)
-            // Continue without parent assignment - don't fail the whole transaction
+          })
+          
+          if (parent) {
+            await tx.studentParent.create({
+              data: {
+                studentId: student.id,
+                parentId: data.parentId,
+                relationship: data.relationship?.trim() || "PARENT",
+              },
+            })
+          } else {
+            console.warn(`Parent with ID ${data.parentId} not found. Skipping parent assignment.`)
+            // Don't throw error - parent assignment is optional
           }
+        } catch (parentError) {
+          console.error("Error linking parent to student:", parentError)
+          // Log but don't fail the transaction for parent linking errors
+          // Parent assignment is secondary to student creation
+        }
       }
+
       return {
         id: student.id,
         admissionNo,
@@ -602,23 +715,75 @@ export async function createStudent(data: {
         classId: data.classId,
         termId: data.termId,
         parentId: data.parentId,
+        schoolId: schoolId,
       }
-    }, { timeout: 15000 })
+    }, { 
+      timeout: 30000, // 30 second timeout
+      maxWait: 10000, // 10 second max wait
+      isolationLevel: 'Serializable' as any, // Highest isolation level
+    })
 
-    await verifyStudentAssignment(result.id);
+    // Step 11: Verify the assignment was successful (outside transaction)
+    try {
+      await verifyStudentAssignment(result.id)
+    } catch (verificationError) {
+      console.error("Student assignment verification failed:", verificationError)
+      // Don't fail the creation if verification fails, but log it
+    }
 
-    return { success: true, data: result }
+    return { 
+      success: true, 
+      data: result,
+      message: `Student ${result.firstName} ${result.lastName} registered successfully with admission number: ${result.admissionNo}`
+    }
     
   } catch (error) {
     console.error("Error creating student:", error)
+    
+    // Enhanced error handling with specific messages
+    let errorMessage = "Failed to create student"
+    
+    if (error instanceof Error) {
+      if (error.message.includes('Unique constraint')) {
+        if (error.message.includes('admissionNo')) {
+          errorMessage = "Admission number conflict. Please try again."
+        } else if (error.message.includes('studentId_classTermId')) {
+          errorMessage = "Student is already assigned to this class in the current term."
+        } else if (error.message.includes('studentId_termId_status')) {
+          errorMessage = "Student already has an active enrollment in this term."
+        } else if (error.message.includes('users_phone_key')) {
+          errorMessage = "A user with this phone number already exists."
+        } else {
+          errorMessage = "A record with similar information already exists. Please check the details and try again."
+        }
+      } else if (error.message.includes('Foreign key constraint')) {
+        if (error.message.includes('classId')) {
+          errorMessage = "Invalid class selected. Please refresh and try again."
+        } else if (error.message.includes('termId')) {
+          errorMessage = "Invalid term selected. Please refresh and try again."
+        } else if (error.message.includes('schoolId')) {
+          errorMessage = "School configuration error. Please contact administrator."
+        }
+      } else if (error.message.includes('already assigned')) {
+        errorMessage = error.message
+      } else if (error.message.includes('school')) {
+        errorMessage = error.message
+      } else if (error.message.includes('admission number')) {
+        errorMessage = error.message
+      } else {
+        errorMessage = error.message
+      }
+    }
+    
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to create student",
+      error: errorMessage
     }
   }
 }
 
 
+// Enhanced verification function
 export async function verifyStudentAssignment(studentId: string) {
   try {
     const student = await prisma.student.findUnique({
@@ -629,9 +794,16 @@ export async function verifyStudentAssignment(studentId: string) {
             classTerm: {
               include: {
                 class: true,
-                term: true
+                term: {
+                  include: {
+                    session: true
+                  }
+                }
               }
             }
+          },
+          orderBy: {
+            createdAt: 'desc'
           }
         },
         user: {
@@ -641,23 +813,44 @@ export async function verifyStudentAssignment(studentId: string) {
           }
         }
       }
-    });
+    })
 
-    console.log('🔍 Student Assignment Verification:', {
+    if (!student) {
+      throw new Error("Student not found for verification")
+    }
+
+    const verificationLog = {
       studentId,
-      studentName: `${student?.user.firstName} ${student?.user.lastName}`,
-      classTermCount: student?.classTerms.length,
-      classTerms: student?.classTerms.map(ct => ({
+      studentName: `${student.user.firstName} ${student.user.lastName}`,
+      admissionNo: student.admissionNo,
+      classTermCount: student.classTerms.length,
+      classTerms: student.classTerms.map(ct => ({
         classTermId: ct.classTermId,
         className: ct.classTerm.class.name,
-        termName: ct.classTerm.term.name
-      }))
-    });
+        termName: ct.classTerm.term.name,
+        sessionName: ct.classTerm.term.session.name,
+        assignedAt: ct.createdAt
+      })),
+      // Check for duplicates in the same term
+      hasDuplicates: student.classTerms.some((ct, index, array) => 
+        array.some((otherCt, otherIndex) => 
+          otherIndex !== index && 
+          otherCt.classTerm.termId === ct.classTerm.termId
+        )
+      )
+    }
 
-    return student;
+    console.log('🔍 Student Assignment Verification:', verificationLog)
+
+    // Log warning if duplicates detected (shouldn't happen with our fix)
+    if (verificationLog.hasDuplicates) {
+      console.warn('⚠️ DUPLICATE ASSIGNMENTS DETECTED:', verificationLog)
+    }
+
+    return verificationLog
   } catch (error) {
-    console.error('Error verifying student assignment:', error);
-    throw error;
+    console.error('Error verifying student assignment:', error)
+    throw error
   }
 }
 

@@ -110,6 +110,8 @@ export function SchoolDetails({ school }: SchoolDetailsProps) {
             <Image
               src={school.logoUrl}
               alt={`${school.name} logo`}
+              width={64}
+              height={64}
               className="h-16 w-16 rounded-lg object-cover"
               loading="lazy"
             />

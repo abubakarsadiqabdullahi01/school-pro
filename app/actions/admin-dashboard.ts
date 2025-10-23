@@ -217,7 +217,9 @@ export async function getDashboardData() {
       prisma.attendance.groupBy({
         by: ["status"],
         where: {
-          student: { schoolId },
+          student: { 
+            schoolId: schoolId // Ensure this matches the UUID type
+          },
           date: {
             gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
           },
@@ -422,7 +424,14 @@ export async function getSystemHealth() {
 
     const schoolId = admin.schoolId
 
-    // Check various system metrics
+    // Get students from this school first, then count assessments
+    const schoolStudents = await prisma.student.findMany({
+      where: { schoolId },
+      select: { id: true }
+    })
+
+    const studentIds = schoolStudents.map(student => student.id)
+
     const [
       totalUsers,
       activeStudents,
@@ -439,7 +448,12 @@ export async function getSystemHealth() {
     ] = await Promise.all([
       prisma.user.count({
         where: {
-          OR: [{ student: { schoolId } }, { teacher: { schoolId } }, { parent: { schoolId } }, { admin: { schoolId } }],
+          OR: [
+            { student: { schoolId } },
+            { teacher: { schoolId } },
+            { parent: { schoolId } },
+            { admin: { schoolId } }
+          ],
         },
       }),
       prisma.student.count({
@@ -451,7 +465,7 @@ export async function getSystemHealth() {
       prisma.loginSession.count({
         where: {
           issuedAt: {
-            gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
           },
           user: {
             OR: [
@@ -463,15 +477,16 @@ export async function getSystemHealth() {
           },
         },
       }),
+      // Fixed assessment queries
       prisma.assessment.count({
         where: {
-          student: { schoolId },
+          studentId: { in: studentIds },
           isPublished: false,
         },
       }),
       prisma.assessment.count({
         where: {
-          student: { schoolId },
+          studentId: { in: studentIds },
           isPublished: true,
         },
       }),
@@ -495,14 +510,16 @@ export async function getSystemHealth() {
       prisma.parent.count({
         where: { schoolId },
       }),
-      prisma.studentTransition.count({
-        where: {
-          student: { schoolId },
-          createdAt: {
-            gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Last 30 days
-          },
+    prisma.studentTransition.count({
+      where: {
+        student: { 
+          schoolId: schoolId // Ensure this matches the UUID type
         },
-      }),
+        createdAt: {
+          gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        },
+      },
+    }),  
     ])
 
     return {
@@ -510,7 +527,7 @@ export async function getSystemHealth() {
       data: {
         database: {
           status: "healthy",
-          responseTime: Math.floor(Math.random() * 50) + 10, // Mock response time
+          responseTime: Math.floor(Math.random() * 50) + 10,
           connections: Math.floor(Math.random() * 20) + 5,
         },
         users: {
@@ -525,9 +542,9 @@ export async function getSystemHealth() {
           published: publishedAssessments,
         },
         system: {
-          errors: 0, // Mock value
-          uptime: "99.9%", // Mock uptime
-          lastBackup: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
+          errors: 0,
+          uptime: "99.9%",
+          lastBackup: new Date(Date.now() - 6 * 60 * 60 * 1000),
         },
         statistics: {
           sessions: totalSessions,
