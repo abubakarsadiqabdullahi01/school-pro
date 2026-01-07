@@ -603,14 +603,30 @@ export async function saveAssessments(
               console.log(`Updating existing assessment ${assessmentId}`)
               return prisma.assessment.update({
                 where: { id: assessmentId },
-                data,
+                data: {
+                  ...data,
+                  editedByUser: {
+                    connect: {
+                      id: user.id,
+                    },
+                  },
+                },
               })
+
             } else {
               console.log(`Creating new assessment for student ${assessment.studentId}`)
               // Use simple create instead of upsert to avoid relationship issues
-              return prisma.assessment.create({
-                data,
+             return prisma.assessment.create({
+                data: {
+                  ...data,
+                  editedByUser: {
+                    connect: {
+                      id: user.id,
+                    },
+                  },
+                },
               })
+
             }
           }),
         )

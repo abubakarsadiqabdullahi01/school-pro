@@ -6,6 +6,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -56,7 +57,7 @@ model Student {
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
-  
+
   parents     StudentParent[]     @relation("StudentParents")
   classTerms  StudentClassTerm[]  @relation("StudentClassTerms")
   assessments Assessment[]        @relation("StudentAssessments")
@@ -97,7 +98,7 @@ model Assessment {
 
   editedBy     String
   editedByUser User     @relation("AssessmentEditedByUser", fields: [editedBy], references: [id])
-  
+
   createdBy    String
   createdByUser User @relation("AssessmentCreatedByUser", fields: [createdBy], references: [id])
   updatedBy    String?
@@ -112,7 +113,7 @@ model Assessment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  
+
   student          Student @relation("StudentAssessments", fields: [studentId], references: [id], onDelete: Cascade)
   subject          Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   term             Term    @relation(fields: [termId], references: [id], onDelete: Cascade)
@@ -348,8 +349,12 @@ model Term {
   assessments   Assessment[]
   feeStructures FeeStructure[]
   studentClassTerms StudentClassTerm[]
+  teacherSubjects TeacherSubject[]  // Added relationship
   enrollmentHistory StudentEnrollmentHistory[]
+
+  @@index([isCurrent])
 }
+
 
 model Class {
   id            String         @id @default(uuid())
@@ -397,6 +402,7 @@ model ClassTerm {
 
   @@unique([classId, termId])
 }
+
 
 model ClassSubject {
   id          String    @id @default(uuid())
@@ -513,20 +519,28 @@ model TeacherClassTerm {
   classTerm ClassTerm @relation(fields: [classTermId], references: [id], onDelete: Cascade)
 
   @@unique([teacherId, classTermId])
+  @@index([teacherId])
+  @@index([classTermId])
 }
 
 model TeacherSubject {
   id        String   @id @default(uuid())
   teacherId String
   subjectId String
+  termId    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  term    Term    @relation(fields: [termId], references: [id], onDelete: Cascade)
 
-  @@unique([teacherId, subjectId])
+  @@unique([teacherId, subjectId, termId])
+  @@index([teacherId, termId])
+  @@index([termId])
 }
+
+
 
 model Parent {
   id         String          @id @default(uuid())

@@ -1,36 +1,43 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
-import { prisma } from "@/lib/db"
-import { notFound } from "next/navigation"
-import { PageTransition } from "@/components/dashboard/page-transition"
-import { AssignClassesForm } from "@/components/teacher-management/assign-classes-form"
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
+import { prisma } from "@/lib/db";
+import { notFound } from "next/navigation";
+import { PageTransition } from "@/components/dashboard/page-transition";
+import { AssignClassesForm } from "@/components/teacher-management/assign-classes-form";
 
-export default async function AdminAssignClassesPage({ params }: { params: { id: string } }) {
-  const session = await auth()
+export default async function AdminAssignClassesPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const session = await auth();
 
   // Check if user is admin
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    redirect("/dashboard")
+  if (
+    !session?.user ||
+    (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
+  ) {
+    redirect("/dashboard");
   }
 
   // Get the admin's assigned school
-  let schoolId: string | undefined
+  let schoolId: string | undefined;
 
   if (session.user.role === "ADMIN") {
     const admin = await prisma.admin.findUnique({
       where: { userId: session.user.id },
       select: { schoolId: true },
-    })
+    });
 
-    schoolId = admin?.schoolId ?? undefined
+    schoolId = admin?.schoolId ?? undefined;
 
     if (!schoolId) {
-      redirect("/dashboard/access-error")
+      redirect("/dashboard/access-error");
     }
   }
 
   // Ensure params is properly awaited
-  const id = (await params)?.id
+  const id = (await params)?.id;
 
   // Fetch the teacher, ensuring it belongs to the admin's school
   const teacher = await prisma.teacher.findUnique({
@@ -56,14 +63,14 @@ export default async function AdminAssignClassesPage({ params }: { params: { id:
         },
       },
     },
-  })
+  });
 
   if (!teacher) {
-    notFound()
+    notFound();
   }
 
   if (session.user.role === "ADMIN" && teacher.school.id !== schoolId) {
-    notFound()
+    notFound();
   }
 
   // Get all class terms for the school
@@ -100,7 +107,7 @@ export default async function AdminAssignClassesPage({ params }: { params: { id:
       { term: { session: { startDate: "desc" } } },
       { class: { name: "asc" } },
     ],
-  })
+  });
 
   // Format class terms for the form
   const formattedClassTerms = classTerms.map((classTerm) => ({
@@ -108,10 +115,13 @@ export default async function AdminAssignClassesPage({ params }: { params: { id:
     className: classTerm.class.name,
     level: classTerm.class.level,
     termName: classTerm.term.name,
+    termId: classTerm.term.id,
     sessionName: classTerm.term.session.name,
     isCurrent: classTerm.term.isCurrent,
-    isAssigned: teacher.teacherClassTerms.some((tct) => tct.classTermId === classTerm.id),
-  }))
+    isAssigned: teacher.teacherClassTerms.some(
+      (tct) => tct.classTermId === classTerm.id,
+    ),
+  }));
 
   return (
     <PageTransition>
@@ -119,8 +129,8 @@ export default async function AdminAssignClassesPage({ params }: { params: { id:
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Assign Classes</h2>
           <p className="text-muted-foreground">
-            Manage classes for {teacher.user.firstName} {teacher.user.lastName} - {teacher.school.name} (
-            {teacher.school.code})
+            Manage classes for {teacher.user.firstName} {teacher.user.lastName}{" "}
+            - {teacher.school.name} ({teacher.school.code})
           </p>
         </div>
 
@@ -131,5 +141,5 @@ export default async function AdminAssignClassesPage({ params }: { params: { id:
         />
       </div>
     </PageTransition>
-  )
+  );
 }

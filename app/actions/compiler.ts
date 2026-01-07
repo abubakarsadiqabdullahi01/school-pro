@@ -191,21 +191,29 @@ export async function getStudentsForClassTerm(classTermId: string) {
 
 
     const studentClassTerms = await prisma.studentClassTerm.findMany({
-      where: { classTermId },
+      where: {
+        classTermId,
+        student: {
+          user: {
+            isActive: true, 
+          },
+        },
+      },
       include: {
         student: {
           include: {
-            user: { 
-              select: { 
-                firstName: true, 
-                lastName: true, 
-                gender: true 
-              } 
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+                gender: true,
+              },
             },
           },
         },
       },
-    });
+    })
+
 
     const formattedStudents = studentClassTerms.map((studentClassTerm) => ({
       id: studentClassTerm.student.id,

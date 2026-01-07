@@ -42,12 +42,7 @@ export default async function AdminTeacherDetailsPage({ params }: { params: { id
     <PageTransition>
       <div className="space-y-6">
         <div className="flex flex-row justify-between">
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight">{teacherData.fullName}</h2>
-            <p className="text-muted-foreground">
-              Teacher details for {teacherData.school.name} ({teacherData.school.code})
-            </p>
-          </div>
+         
            <Button variant="outline" asChild>
             <Link href={`/dashboard/admin/teachers`}>
               <MoveLeftIcon className="mr-2 h-4 w-4" />

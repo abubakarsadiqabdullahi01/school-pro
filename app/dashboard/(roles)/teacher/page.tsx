@@ -1,15 +1,15 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
-import { prisma } from "@/lib/db"
-import { PageTransition } from "@/components/dashboard/page-transition"
-import { TeacherDashboardOverview } from "@/components/teacher/teacher-dashboard-overview"
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
+import { prisma } from "@/lib/db";
+import { PageTransition } from "@/components/dashboard/page-transition";
+import { TeacherDashboardOverview } from "@/components/teacher/teacher-dashboard-overview";
 
 export default async function TeacherDashboardPage() {
-  const session = await auth()
+  const session = await auth();
 
   // Check if user is teacher
   if (!session?.user || session.user.role !== "TEACHER") {
-    redirect("/dashboard")
+    redirect("/dashboard");
   }
 
   // Get the teacher's information
@@ -32,10 +32,10 @@ export default async function TeacherDashboardPage() {
         },
       },
     },
-  })
+  });
 
   if (!teacher || !teacher.school) {
-    redirect("/dashboard/access-error")
+    redirect("/dashboard/access-error");
   }
 
   // Get current term
@@ -54,7 +54,7 @@ export default async function TeacherDashboardPage() {
         },
       },
     },
-  })
+  });
 
   // Get teacher's assigned classes (form teacher role)
   const assignedClasses = await prisma.teacherClassTerm.findMany({
@@ -97,12 +97,13 @@ export default async function TeacherDashboardPage() {
         },
       },
     },
-  })
+  });
 
-  // Get teacher's subjects
+  // Get teacher's subjects for current term only
   const teacherSubjects = await prisma.teacherSubject.findMany({
     where: {
       teacherId: teacher.id,
+      termId: currentTerm?.id,
     },
     include: {
       subject: {
@@ -112,8 +113,15 @@ export default async function TeacherDashboardPage() {
           code: true,
         },
       },
+      term: {
+        select: {
+          id: true,
+          name: true,
+          isCurrent: true,
+        },
+      },
     },
-  })
+  });
 
   return (
     <PageTransition>
@@ -124,7 +132,9 @@ export default async function TeacherDashboardPage() {
           </h2>
           <p className="text-muted-foreground">
             {teacher.school.name} ({teacher.school.code}) -{" "}
-            {currentTerm ? `${currentTerm.name} (${currentTerm.session.name})` : "No current term"}
+            {currentTerm
+              ? `${currentTerm.name} (${currentTerm.session.name})`
+              : "No current term"}
           </p>
         </div>
 
@@ -136,5 +146,5 @@ export default async function TeacherDashboardPage() {
         />
       </div>
     </PageTransition>
-  )
+  );
 }

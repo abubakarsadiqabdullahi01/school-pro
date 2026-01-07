@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
-import { Download, MoreHorizontal, Search, UserPlus } from "lucide-react"
+import { Download, MoreHorizontal, Search, UserPlus, Trash2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -26,9 +26,8 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
-import { getStudents, toggleStudentStatus } from "@/app/actions/student-management"
+import { getStudents, toggleStudentStatus, deleteStudent } from "@/app/actions/student-management"
 import { toast } from "sonner"
-import { debounce } from "lodash"
 import { TableSkeleton } from "@/components/ui/loading-skeleton"
 
 interface Student {
@@ -46,27 +45,6 @@ interface Student {
   parentName?: string
   registrationDate: string
   isActive: boolean
-  recentAssessments: {
-    id: string
-    subject: string
-    totalScore: string
-    grade: string
-    remark: string
-    term: string
-    ca1?: number | null
-    ca2?: number | null
-    ca3?: number | null
-    exam?: number | null
-    isAbsent: boolean
-    isExempt: boolean
-    isPublished: boolean
-  }[]
-  recentPayments: {
-    id: string
-    amount: number
-    paymentDate: string
-    status: string
-  }[]
 }
 
 interface ClassOption {
@@ -90,14 +68,30 @@ export default function StudentList() {
   const [pagination, setPagination] = useState<PaginationData>({ page: 1, pageSize: 20, total: 0, totalPages: 1 })
   const [isLoading, setIsLoading] = useState(true)
   const [togglingStudents, setTogglingStudents] = useState<Set<string>>(new Set())
+  const [deletingStudents, setDeletingStudents] = useState<Set<string>>(new Set())
+
+  // ✅ FIXED: Using useRef for debounce timer to avoid ESLint warning
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Debounced search handler
-  const debouncedSearch = useCallback(
-    debounce((query: string) => {
-      setSearchQuery(query)
-    }, 300),
-    []
-  )
+  const handleSearchChange = (value: string) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      setSearchQuery(value)
+    }, 300)
+  }
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [])
 
   // Fetch students when filters or page change
   useEffect(() => {
@@ -107,7 +101,7 @@ export default function StudentList() {
         const result = await getStudents({
           classId: classFilter !== "all" ? classFilter : undefined,
           assignmentStatus: assignmentFilter,
-          search: searchQuery, // Add search query to server request
+          search: searchQuery,
           page: pagination.page,
           pageSize: pagination.pageSize,
         })
@@ -167,6 +161,60 @@ export default function StudentList() {
     }
   }
 
+  // Handle student deletion
+  const handleDeleteStudent = async (studentId: string) => {
+    if (
+      !confirm(
+        "Are you sure you want to delete this student? This action cannot be undone if the student has no academic records."
+      )
+    ) {
+      return
+    }
+
+    setDeletingStudents((prev) => new Set(prev).add(studentId))
+
+    try {
+      const result = await deleteStudent(studentId)
+
+      if (result.success) {
+        // Remove from local state
+        setStudents((prev) => prev.filter((s) => s.id !== studentId))
+
+        toast.success("Success", {
+          description: result.message,
+        })
+
+        if (result.isArchived) {
+          toast.info("Note", {
+            description: "Student was archived instead of deleted due to existing records",
+          })
+        }
+
+        // Update pagination total
+        setPagination((prev) => ({
+          ...prev,
+          total: prev.total - 1,
+          totalPages: Math.ceil((prev.total - 1) / prev.pageSize),
+        }))
+      } else {
+        toast.error("Error", {
+          description: result.error || "Failed to delete student",
+        })
+      }
+    } catch (error) {
+      console.error("Error deleting student:", error)
+      toast.error("Error", {
+        description: "Failed to delete student. Please try again.",
+      })
+    } finally {
+      setDeletingStudents((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(studentId)
+        return newSet
+      })
+    }
+  }
+
   // Simplified pagination component
   const renderPagination = () => {
     if (pagination.totalPages <= 1) return null
@@ -174,9 +222,8 @@ export default function StudentList() {
     return (
       <div className="flex items-center justify-between space-x-2 py-4">
         <div className="text-sm text-muted-foreground">
-          Showing {((pagination.page - 1) * pagination.pageSize) + 1} to{" "}
-          {Math.min(pagination.page * pagination.pageSize, pagination.total)} of{" "}
-          {pagination.total} entries
+          Showing {(pagination.page - 1) * pagination.pageSize + 1} to{" "}
+          {Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total} entries
         </div>
         <Pagination>
           <PaginationContent>
@@ -186,13 +233,13 @@ export default function StudentList() {
                 onClick={(e) => {
                   e.preventDefault()
                   if (pagination.page > 1) {
-                    setPagination(prev => ({ ...prev, page: prev.page - 1 }))
+                    setPagination((prev) => ({ ...prev, page: prev.page - 1 }))
                   }
                 }}
                 className={pagination.page === 1 ? "pointer-events-none opacity-50" : ""}
               />
             </PaginationItem>
-            
+
             {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
               let pageNum
               if (pagination.totalPages <= 5) {
@@ -204,14 +251,14 @@ export default function StudentList() {
               } else {
                 pageNum = pagination.page - 2 + i
               }
-              
+
               return (
                 <PaginationItem key={pageNum}>
                   <PaginationLink
                     href="#"
                     onClick={(e) => {
                       e.preventDefault()
-                      setPagination(prev => ({ ...prev, page: pageNum }))
+                      setPagination((prev) => ({ ...prev, page: pageNum }))
                     }}
                     isActive={pagination.page === pageNum}
                   >
@@ -220,14 +267,14 @@ export default function StudentList() {
                 </PaginationItem>
               )
             })}
-            
+
             <PaginationItem>
               <PaginationNext
                 href="#"
                 onClick={(e) => {
                   e.preventDefault()
                   if (pagination.page < pagination.totalPages) {
-                    setPagination(prev => ({ ...prev, page: prev.page + 1 }))
+                    setPagination((prev) => ({ ...prev, page: prev.page + 1 }))
                   }
                 }}
                 className={pagination.page === pagination.totalPages ? "pointer-events-none opacity-50" : ""}
@@ -235,7 +282,7 @@ export default function StudentList() {
             </PaginationItem>
           </PaginationContent>
         </Pagination>
-        
+
         <div className="flex items-center space-x-2">
           <Select
             value={String(pagination.pageSize)}
@@ -244,7 +291,7 @@ export default function StudentList() {
                 page: 1,
                 pageSize: Number(value),
                 total: pagination.total,
-                totalPages: Math.ceil(pagination.total / Number(value))
+                totalPages: Math.ceil(pagination.total / Number(value)),
               })
             }}
           >
@@ -291,7 +338,7 @@ export default function StudentList() {
               <Input
                 placeholder="Search by name or admission number..."
                 className="pl-8"
-                onChange={(e) => debouncedSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
             </div>
             <div className="flex gap-2">
@@ -411,6 +458,24 @@ export default function StudentList() {
                                     : student.isActive
                                       ? "Deactivate Student"
                                       : "Activate Student"}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteStudent(student.id)}
+                                  disabled={deletingStudents.has(student.id)}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  {deletingStudents.has(student.id) ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      Deleting...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Delete Student
+                                    </>
+                                  )}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>

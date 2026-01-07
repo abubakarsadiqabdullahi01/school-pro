@@ -1,33 +1,36 @@
-"use server"
+"use server";
 
-import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
-import { calculateGrade } from "@/lib/grading"
-import type { GradingSystem } from "@/lib/grading"
+import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
+import { calculateGrade } from "@/lib/grading";
+import type { GradingSystem } from "@/lib/grading";
 
 // Enhanced authorization function
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
-  const session = await auth()
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
+  const session = await auth();
+  if (
+    !session?.user ||
+    (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
+  ) {
+    throw new Error("Unauthorized");
   }
   if (session.user.role === "ADMIN") {
     const admin = await prisma.admin.findUnique({
       where: { userId: session.user.id },
       select: { schoolId: true },
-    })
+    });
     if (!admin?.schoolId) {
-      throw new Error("Admin not assigned to a school")
+      throw new Error("Admin not assigned to a school");
     }
-    return admin.schoolId
+    return admin.schoolId;
   }
-  return undefined
+  return undefined;
 }
 
 // Get available sessions and terms for transition
 export async function getTransitionOptions() {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
+    const schoolId = await authorizeAndGetSchoolId();
 
     // Get all sessions for the school
     const sessions = await prisma.session.findMany({
@@ -51,7 +54,7 @@ export async function getTransitionOptions() {
         },
       },
       orderBy: { startDate: "desc" },
-    })
+    });
 
     // Get current session and term
     const currentTerm = await prisma.term.findFirst({
@@ -64,10 +67,10 @@ export async function getTransitionOptions() {
       include: {
         session: true,
       },
-    })
+    });
 
-    console.log("Sessions found:", sessions.length)
-    console.log("Current term:", currentTerm?.name)
+    console.log("Sessions found:", sessions.length);
+    console.log("Current term:", currentTerm?.name);
 
     return {
       success: true,
@@ -75,22 +78,30 @@ export async function getTransitionOptions() {
         sessions,
         currentTerm,
       },
-    }
+    };
   } catch (error) {
-    console.error("Failed to get transition options:", error)
+    console.error("Failed to get transition options:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "An unexpected error occurred",
-    }
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
+    };
   }
 }
 
 // Get classes available for transition
-export async function getTransitionClasses(fromTermId: string, toTermId: string) {
+export async function getTransitionClasses(
+  fromTermId: string,
+  toTermId: string,
+) {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
+    const schoolId = await authorizeAndGetSchoolId();
 
-    console.log("Getting classes for terms:", { fromTermId, toTermId, schoolId })
+    console.log("Getting classes for terms:", {
+      fromTermId,
+      toTermId,
+      schoolId,
+    });
 
     // First, let's check if the terms exist
     const [fromTerm, toTerm] = await Promise.all([
@@ -102,12 +113,12 @@ export async function getTransitionClasses(fromTermId: string, toTermId: string)
         where: { id: toTermId },
         include: { session: true },
       }),
-    ])
+    ]);
 
-    console.log("From term:", fromTerm?.name, "To term:", toTerm?.name)
+    console.log("From term:", fromTerm?.name, "To term:", toTerm?.name);
 
     if (!fromTerm || !toTerm) {
-      throw new Error("One or both terms not found")
+      throw new Error("One or both terms not found");
     }
 
     // Get source term classes
@@ -137,9 +148,9 @@ export async function getTransitionClasses(fromTermId: string, toTermId: string)
           name: "asc",
         },
       },
-    })
+    });
 
-    console.log("Source classes found:", sourceClasses.length)
+    console.log("Source classes found:", sourceClasses.length);
 
     // Get destination term classes
     const destinationClasses = await prisma.classTerm.findMany({
@@ -168,17 +179,17 @@ export async function getTransitionClasses(fromTermId: string, toTermId: string)
           name: "asc",
         },
       },
-    })
+    });
 
-    console.log("Destination classes found:", destinationClasses.length)
+    console.log("Destination classes found:", destinationClasses.length);
 
     // If no source classes found, let's check if there are any classes for this school
     if (sourceClasses.length === 0) {
       const allClasses = await prisma.class.findMany({
         where: { schoolId },
         select: { id: true, name: true, level: true },
-      })
-      console.log("Total classes in school:", allClasses.length)
+      });
+      console.log("Total classes in school:", allClasses.length);
 
       const allClassTerms = await prisma.classTerm.findMany({
         where: {
@@ -188,8 +199,8 @@ export async function getTransitionClasses(fromTermId: string, toTermId: string)
           class: { select: { name: true } },
           term: { select: { name: true } },
         },
-      })
-      console.log("Total class terms:", allClassTerms.length)
+      });
+      console.log("Total class terms:", allClassTerms.length);
     }
 
     return {
@@ -198,20 +209,21 @@ export async function getTransitionClasses(fromTermId: string, toTermId: string)
         sourceClasses: sourceClasses || [],
         destinationClasses: destinationClasses || [],
       },
-    }
+    };
   } catch (error) {
-    console.error("Failed to get transition classes:", error)
+    console.error("Failed to get transition classes:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "An unexpected error occurred",
-    }
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
+    };
   }
 }
 
 // Get students eligible for transition with their performance data
 export async function getStudentsForTransition(classTermId: string) {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
+    const schoolId = await authorizeAndGetSchoolId();
 
     // Verify access to the class term
     const classTerm = await prisma.classTerm.findUnique({
@@ -231,14 +243,14 @@ export async function getStudentsForTransition(classTermId: string) {
           },
         },
       },
-    })
+    });
 
     if (!classTerm) {
-      throw new Error("Class term not found")
+      throw new Error("Class term not found");
     }
 
     if (schoolId && classTerm.class.schoolId !== schoolId) {
-      throw new Error("Class does not belong to admin's school")
+      throw new Error("Class does not belong to admin's school");
     }
 
     // Get grading system
@@ -252,7 +264,7 @@ export async function getStudentsForTransition(classTermId: string) {
           orderBy: { minScore: "desc" },
         },
       },
-    })
+    });
 
     const gradingSystem: GradingSystem = gradingSystemData
       ? {
@@ -275,7 +287,7 @@ export async function getStudentsForTransition(classTermId: string) {
             { minScore: 0, maxScore: 39, grade: "F", remark: "Fail" },
           ],
           passMark: 40,
-        }
+        };
 
     // Get all students in the class with their assessments
     const studentClassTerms = await prisma.studentClassTerm.findMany({
@@ -316,45 +328,54 @@ export async function getStudentsForTransition(classTermId: string) {
           },
         },
       },
-    })
+    });
 
     // Calculate performance for each student
     const studentsWithPerformance = studentClassTerms.map((sct) => {
-      const student = sct.student
-      const assessments = sct.assessments
+      const student = sct.student;
+      const assessments = sct.assessments;
 
       // Calculate overall performance
-      let totalScore = 0
-      let subjectCount = 0
-      let passedSubjects = 0
-      let failedSubjects = 0
-      const subjectGrades: string[] = []
+      let totalScore = 0;
+      let subjectCount = 0;
+      let passedSubjects = 0;
+      let failedSubjects = 0;
+      const subjectGrades: string[] = [];
 
       assessments.forEach((assessment) => {
         if (!assessment.isAbsent && !assessment.isExempt) {
           const subjectTotal =
-            (assessment.ca1 || 0) + (assessment.ca2 || 0) + (assessment.ca3 || 0) + (assessment.exam || 0)
+            (assessment.ca1 || 0) +
+            (assessment.ca2 || 0) +
+            (assessment.ca3 || 0) +
+            (assessment.exam || 0);
 
-          const gradeResult = calculateGrade(subjectTotal, gradingSystem)
-          subjectGrades.push(gradeResult.grade)
+          const gradeResult = calculateGrade(subjectTotal, gradingSystem);
+          subjectGrades.push(gradeResult.grade);
 
           if (subjectTotal >= gradingSystem.passMark) {
-            passedSubjects++
+            passedSubjects++;
           } else {
-            failedSubjects++
+            failedSubjects++;
           }
 
-          totalScore += subjectTotal
-          subjectCount++
+          totalScore += subjectTotal;
+          subjectCount++;
         }
-      })
+      });
 
-      const averageScore = subjectCount > 0 ? totalScore / subjectCount : 0
-      const overallGradeResult = calculateGrade(averageScore, gradingSystem)
+      const averageScore = subjectCount > 0 ? totalScore / subjectCount : 0;
+      const overallGradeResult = calculateGrade(averageScore, gradingSystem);
 
       // Determine transition eligibility
-      const passRate = subjectCount > 0 ? (passedSubjects / subjectCount) * 100 : 0
-      const isEligible = determineTransitionEligibility(averageScore, passRate, failedSubjects, gradingSystem.passMark)
+      const passRate =
+        subjectCount > 0 ? (passedSubjects / subjectCount) * 100 : 0;
+      const isEligible = determineTransitionEligibility(
+        averageScore,
+        passRate,
+        failedSubjects,
+        gradingSystem.passMark,
+      );
 
       return {
         studentId: student.id,
@@ -362,7 +383,7 @@ export async function getStudentsForTransition(classTermId: string) {
         studentName: `${student.user.firstName} ${student.user.lastName}`,
         admissionNo: student.admissionNo,
         gender: student.user.gender || "OTHER",
-  // totalScore is computed at runtime; do not persist
+        // totalScore is computed at runtime; do not persist
         averageScore,
         grade: overallGradeResult.grade,
         remark: overallGradeResult.remark,
@@ -371,25 +392,30 @@ export async function getStudentsForTransition(classTermId: string) {
         subjectsFailed: failedSubjects,
         passRate,
         isEligible,
-        eligibilityReason: getEligibilityReason(averageScore, passRate, failedSubjects, gradingSystem.passMark),
+        eligibilityReason: getEligibilityReason(
+          averageScore,
+          passRate,
+          failedSubjects,
+          gradingSystem.passMark,
+        ),
         subjectGrades,
         position: 0, // Will be set below
-      }
-    })
+      };
+    });
 
     // Sort by average score (descending)
-    studentsWithPerformance.sort((a, b) => b.averageScore - a.averageScore)
+    studentsWithPerformance.sort((a, b) => b.averageScore - a.averageScore);
 
     // Assign positions
-    let currentPosition = 1
-    let previousScore = -1
+    let currentPosition = 1;
+    let previousScore = -1;
     studentsWithPerformance.forEach((student, index) => {
       if (student.averageScore !== previousScore) {
-        currentPosition = index + 1
+        currentPosition = index + 1;
       }
-      student.position = currentPosition
-      previousScore = student.averageScore
-    })
+      student.position = currentPosition;
+      previousScore = student.averageScore;
+    });
 
     return {
       success: true,
@@ -403,21 +429,28 @@ export async function getStudentsForTransition(classTermId: string) {
         gradingSystem,
         statistics: {
           totalStudents: studentsWithPerformance.length,
-          eligibleStudents: studentsWithPerformance.filter((s) => s.isEligible).length,
-          ineligibleStudents: studentsWithPerformance.filter((s) => !s.isEligible).length,
+          eligibleStudents: studentsWithPerformance.filter((s) => s.isEligible)
+            .length,
+          ineligibleStudents: studentsWithPerformance.filter(
+            (s) => !s.isEligible,
+          ).length,
           averageClassScore:
             studentsWithPerformance.length > 0
-              ? studentsWithPerformance.reduce((sum, s) => sum + s.averageScore, 0) / studentsWithPerformance.length
+              ? studentsWithPerformance.reduce(
+                  (sum, s) => sum + s.averageScore,
+                  0,
+                ) / studentsWithPerformance.length
               : 0,
         },
       },
-    }
+    };
   } catch (error) {
-    console.error("Failed to get students for transition:", error)
+    console.error("Failed to get students for transition:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "An unexpected error occurred",
-    }
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
+    };
   }
 }
 
@@ -430,15 +463,15 @@ function determineTransitionEligibility(
 ): boolean {
   // Multiple criteria for transition eligibility
   if (averageScore >= passMark && passRate >= 50) {
-    return true // Strong performance
+    return true; // Strong performance
   }
   if (averageScore >= passMark * 0.8 && failedSubjects <= 2) {
-    return true // Acceptable performance with few failures
+    return true; // Acceptable performance with few failures
   }
   if (passRate >= 70) {
-    return true // High pass rate even if average is slightly low
+    return true; // High pass rate even if average is slightly low
   }
-  return false // Not eligible
+  return false; // Not eligible
 }
 
 // Get reason for eligibility/ineligibility
@@ -449,37 +482,43 @@ function getEligibilityReason(
   passMark: number,
 ): string {
   if (averageScore >= passMark && passRate >= 50) {
-    return "Excellent performance - meets all criteria"
+    return "Excellent performance - meets all criteria";
   }
   if (averageScore >= passMark * 0.8 && failedSubjects <= 2) {
-    return "Good performance - acceptable with few failures"
+    return "Good performance - acceptable with few failures";
   }
   if (passRate >= 70) {
-    return "High pass rate - eligible despite lower average"
+    return "High pass rate - eligible despite lower average";
   }
   if (averageScore < passMark * 0.6) {
-    return "Below minimum average score requirement"
+    return "Below minimum average score requirement";
   }
   if (failedSubjects > 3) {
-    return "Too many failed subjects"
+    return "Too many failed subjects";
   }
   if (passRate < 40) {
-    return "Low pass rate - needs improvement"
+    return "Low pass rate - needs improvement";
   }
-  return "Does not meet transition criteria"
+  return "Does not meet transition criteria";
 }
 
 // Execute student transitions
 export async function executeStudentTransitions(transitions: {
-  fromClassTermId: string
-  toClassTermId: string
-  studentIds: string[]
-  transitionType: "PROMOTION" | "TRANSFER" | "WITHDRAWAL"
-  notes?: string
+  fromClassTermId: string;
+  toClassTermId: string;
+  studentIds: string[];
+  transitionType: "PROMOTION" | "TRANSFER" | "WITHDRAWAL";
+  notes?: string;
 }) {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
-    const { fromClassTermId, toClassTermId, studentIds, transitionType, notes } = transitions
+    const schoolId = await authorizeAndGetSchoolId();
+    const {
+      fromClassTermId,
+      toClassTermId,
+      studentIds,
+      transitionType,
+      notes,
+    } = transitions;
 
     // Verify access to both class terms
     const [fromClassTerm, toClassTerm] = await Promise.all([
@@ -497,27 +536,31 @@ export async function executeStudentTransitions(transitions: {
           term: { select: { name: true, session: { select: { name: true } } } },
         },
       }),
-    ])
+    ]);
 
     if (!fromClassTerm || !toClassTerm) {
-      throw new Error("Source or destination class term not found")
+      throw new Error("Source or destination class term not found");
     }
 
-    if (schoolId && (fromClassTerm.class.schoolId !== schoolId || toClassTerm.class.schoolId !== schoolId)) {
-      throw new Error("Classes do not belong to admin's school")
+    if (
+      schoolId &&
+      (fromClassTerm.class.schoolId !== schoolId ||
+        toClassTerm.class.schoolId !== schoolId)
+    ) {
+      throw new Error("Classes do not belong to admin's school");
     }
 
     // Get current user for audit trail
-    const session = await auth()
-    const userId = session?.user?.id
+    const session = await auth();
+    const userId = session?.user?.id;
 
     if (!userId) {
-      throw new Error("User ID not found")
+      throw new Error("User ID not found");
     }
 
     // Execute transitions in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      const transitionRecords = []
+      const transitionRecords = [];
 
       for (const studentId of studentIds) {
         // Get the student's current class term record
@@ -526,10 +569,10 @@ export async function executeStudentTransitions(transitions: {
             studentId,
             classTermId: fromClassTermId,
           },
-        })
+        });
 
         if (!currentStudentClassTerm) {
-          throw new Error(`Student ${studentId} not found in source class`)
+          throw new Error(`Student ${studentId} not found in source class`);
         }
 
         // Check if student already exists in destination class term
@@ -538,10 +581,12 @@ export async function executeStudentTransitions(transitions: {
             studentId,
             classTermId: toClassTermId,
           },
-        })
+        });
 
         if (existingRecord) {
-          throw new Error(`Student ${studentId} already exists in destination class`)
+          throw new Error(
+            `Student ${studentId} already exists in destination class`,
+          );
         }
 
         // Create new student class term record
@@ -549,8 +594,9 @@ export async function executeStudentTransitions(transitions: {
           data: {
             studentId,
             classTermId: toClassTermId,
+            termId: toClassTerm.termId, // Add required termId field
           },
-        })
+        });
 
         // Create transition record for audit trail
         const transitionRecord = await tx.studentTransition.create({
@@ -563,17 +609,17 @@ export async function executeStudentTransitions(transitions: {
             notes: notes || "",
             createdBy: userId,
           },
-        })
+        });
 
         transitionRecords.push({
           studentId,
           transitionId: transitionRecord.id,
           newStudentClassTermId: newStudentClassTerm.id,
-        })
+        });
       }
 
-      return transitionRecords
-    })
+      return transitionRecords;
+    });
 
     return {
       success: true,
@@ -582,36 +628,43 @@ export async function executeStudentTransitions(transitions: {
         transitions: result,
         message: `Successfully transitioned ${result.length} student${result.length > 1 ? "s" : ""} from ${fromClassTerm.class.name} to ${toClassTerm.class.name}`,
       },
-    }
+    };
   } catch (error) {
-    console.error("Failed to execute student transitions:", error)
+    console.error("Failed to execute student transitions:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "An unexpected error occurred",
-    }
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
+    };
   }
 }
 
 // Get transition history
-export async function getTransitionHistory(studentId?: string, classTermId?: string) {
+export async function getTransitionHistory(
+  studentId?: string,
+  classTermId?: string,
+) {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
+    const schoolId = await authorizeAndGetSchoolId();
 
-    const whereClause: any = {}
+    const whereClause: any = {};
 
     if (studentId) {
-      whereClause.studentId = studentId
+      whereClause.studentId = studentId;
     }
 
     if (classTermId) {
-      whereClause.OR = [{ fromClassTermId: classTermId }, { toClassTermId: classTermId }]
+      whereClause.OR = [
+        { fromClassTermId: classTermId },
+        { toClassTermId: classTermId },
+      ];
     }
 
     // Add school filter
     if (schoolId) {
       whereClause.student = {
         schoolId,
-      }
+      };
     }
 
     const transitions = await prisma.studentTransition.findMany({
@@ -660,7 +713,7 @@ export async function getTransitionHistory(studentId?: string, classTermId?: str
       },
       orderBy: { transitionDate: "desc" },
       take: 100,
-    })
+    });
 
     const formattedTransitions = transitions.map((transition) => ({
       id: transition.id,
@@ -674,25 +727,26 @@ export async function getTransitionHistory(studentId?: string, classTermId?: str
       transitionDate: transition.transitionDate,
       notes: transition.notes,
       createdBy: transition.createdBy,
-    }))
+    }));
 
     return {
       success: true,
       data: formattedTransitions,
-    }
+    };
   } catch (error) {
-    console.error("Failed to get transition history:", error)
+    console.error("Failed to get transition history:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "An unexpected error occurred",
-    }
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
+    };
   }
 }
 
 // Get transition statistics
 export async function getTransitionStatistics(termId: string) {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
+    const schoolId = await authorizeAndGetSchoolId();
 
     const stats = await prisma.studentTransition.groupBy({
       by: ["transitionType"],
@@ -707,9 +761,12 @@ export async function getTransitionStatistics(termId: string) {
       _count: {
         id: true,
       },
-    })
+    });
 
-    const totalTransitions = stats.reduce((sum, stat) => sum + stat._count.id, 0)
+    const totalTransitions = stats.reduce(
+      (sum, stat) => sum + stat._count.id,
+      0,
+    );
 
     return {
       success: true,
@@ -717,18 +774,19 @@ export async function getTransitionStatistics(termId: string) {
         totalTransitions,
         byType: stats.reduce(
           (acc, stat) => {
-            acc[stat.transitionType] = stat._count.id
-            return acc
+            acc[stat.transitionType] = stat._count.id;
+            return acc;
           },
           {} as Record<string, number>,
         ),
       },
-    }
+    };
   } catch (error) {
-    console.error("Failed to get transition statistics:", error)
+    console.error("Failed to get transition statistics:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "An unexpected error occurred",
-    }
+      error:
+        error instanceof Error ? error.message : "An unexpected error occurred",
+    };
   }
 }

@@ -1,15 +1,29 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Download, Filter, Loader2, MoreHorizontal, Search, UserPlus } from "lucide-react"
-import { toast } from "sonner"
-import Image from "next/image"
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  Download,
+  Filter,
+  Loader2,
+  MoreHorizontal,
+  Search,
+  UserPlus,
+  Calendar,
+  BookOpen,
+} from "lucide-react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,10 +31,23 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -28,119 +55,156 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { deleteTeacher } from "@/app/actions/teacher-management"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+} from "@/components/ui/tooltip";
+import { deleteTeacher } from "@/app/actions/teacher-management";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface ClassInfo {
-  id: string
-  className: string
-  classLevel: string
-  termName: string
-  sessionName: string
+  id: string;
+  className: string;
+  classLevel: string;
+  termName: string;
+  sessionName: string;
+  isCurrent?: boolean;
 }
 
 interface SubjectInfo {
-  id: string
-  name: string
-  code: string
+  id: string;
+  name: string;
+  code: string;
 }
 
 interface Teacher {
-  id: string
-  userId: string
-  firstName: string
-  lastName: string
-  fullName: string
-  email: string
-  phone: string
-  avatarUrl: string
-  staffId: string
-  department: string
-  qualification: string
-  gender: "MALE" | "FEMALE" | "OTHER" | null
-  dateOfBirth: Date | null
-  state: string
-  lga: string
-  address: string
+  id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  avatarUrl: string;
+  staffId: string;
+  department: string;
+  qualification: string;
+  gender: "MALE" | "FEMALE" | "OTHER" | null;
+  dateOfBirth: Date | null;
+  state: string;
+  lga: string;
+  address: string;
   school: {
-    id: string
-    name: string
-    code: string
-  }
-  classes: ClassInfo[]
-  subjects: SubjectInfo[]
-  assessmentsCount: number
-  createdAt: Date
+    id: string;
+    name: string;
+    code: string;
+  };
+  classes: ClassInfo[];
+  subjects: SubjectInfo[];
+  assessmentsCount: number;
+  createdAt: Date;
 }
 
 interface TeachersTableProps {
-  teachers: Teacher[]
+  teachers: Teacher[];
 }
 
 export function TeachersTable({ teachers }: TeachersTableProps) {
-  const router = useRouter()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [genderFilter, setGenderFilter] = useState("all")
-  const [departmentFilter, setDepartmentFilter] = useState("all")
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [teacherToDelete, setTeacherToDelete] = useState<Teacher | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [genderFilter, setGenderFilter] = useState("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [termFilter, setTermFilter] = useState("all");
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [teacherToDelete, setTeacherToDelete] = useState<Teacher | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Get unique departments for filter
   const departments = Array.from(
-    new Set(teachers.map(t => t.department).filter(Boolean))
+    new Set(teachers.map((t) => t.department).filter(Boolean)),
+  );
+
+  // Get unique terms for filter
+  const terms = Array.from(
+    new Set(
+      teachers
+        .flatMap((t) =>
+          t.classes.map((c) => `${c.termName} - ${c.sessionName}`),
+        )
+        .filter(Boolean),
+    ),
   );
 
   // Filter teachers based on search query and filters
-  const filteredTeachers = teachers.filter((teacher) => {
-    const matchesSearch =
-      teacher.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      teacher.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      teacher.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      teacher.phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      teacher.staffId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      teacher.department.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredTeachers = teachers
+    .map((teacher) => {
+      // Filter classes based on term filter
+      const filteredClasses =
+        termFilter === "all"
+          ? teacher.classes
+          : teacher.classes.filter(
+              (c) => `${c.termName} - ${c.sessionName}` === termFilter,
+            );
 
-    const matchesGender =
-      genderFilter === "all" ||
-      (genderFilter === "MALE" && teacher.gender === "MALE") ||
-      (genderFilter === "FEMALE" && teacher.gender === "FEMALE") ||
-      (genderFilter === "OTHER" && teacher.gender === "OTHER") ||
-      (genderFilter === "UNSPECIFIED" && teacher.gender === null)
+      return {
+        ...teacher,
+        classes: filteredClasses,
+        classesCount: filteredClasses.length,
+      };
+    })
+    .filter((teacher) => {
+      const matchesSearch =
+        teacher.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        teacher.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        teacher.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        teacher.phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        teacher.staffId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        teacher.department.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesDepartment =
-      departmentFilter === "all" ||
-      teacher.department === departmentFilter
+      const matchesGender =
+        genderFilter === "all" ||
+        (genderFilter === "MALE" && teacher.gender === "MALE") ||
+        (genderFilter === "FEMALE" && teacher.gender === "FEMALE") ||
+        (genderFilter === "OTHER" && teacher.gender === "OTHER") ||
+        (genderFilter === "UNSPECIFIED" && teacher.gender === null);
 
-    return matchesSearch && matchesGender && matchesDepartment
-  })
+      const matchesDepartment =
+        departmentFilter === "all" || teacher.department === departmentFilter;
 
-  // Format classes display with tooltip
+      const matchesTerm = termFilter === "all" || teacher.classes.length > 0;
+
+      return matchesSearch && matchesGender && matchesDepartment && matchesTerm;
+    });
+
+  // Format classes display with tooltip (current term only)
   const formatClassesDisplay = (classes: ClassInfo[]) => {
-    if (classes.length === 0) return <Badge variant="outline">No classes</Badge>
-    
+    if (classes.length === 0)
+      return <Badge variant="outline">No classes</Badge>;
+
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger>
-            <Badge variant="default">{classes.length} class{classes.length !== 1 ? "es" : ""}</Badge>
+            <Badge variant="default" className="bg-green-100 text-green-800">
+              {classes.length} class{classes.length !== 1 ? "es" : ""}
+            </Badge>
           </TooltipTrigger>
-          <TooltipContent className="max-w-[300px]">
-            <div className="grid gap-2">
+          <TooltipContent className="max-w-[350px]">
+            <div className="space-y-2">
+              <div className="font-semibold text-green-800 mb-2 flex items-center gap-2">
+                <Calendar className="h-3 w-3" />
+                Current Term Classes
+              </div>
               {classes.map((cls) => (
                 <div key={cls.id} className="flex flex-col">
                   <div className="font-medium">{cls.className}</div>
                   <div className="flex gap-2 text-xs text-muted-foreground">
                     <span>{cls.classLevel}</span>
                     <span>•</span>
-                    <span>{cls.termName} term</span>
+                    <span>{cls.termName}</span>
                     <span>•</span>
                     <span>{cls.sessionName}</span>
                   </div>
@@ -150,75 +214,95 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-    )
-  }
+    );
+  };
 
-  // Format subjects display with tooltip
+  // Format subjects display with tooltip (current term only)
   const formatSubjectsDisplay = (subjects: SubjectInfo[]) => {
-    if (subjects.length === 0) return <Badge variant="outline">No subjects</Badge>
-    
+    if (subjects.length === 0)
+      return <Badge variant="outline">No subjects</Badge>;
+
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger>
-            <Badge variant="secondary">{subjects.length} subject{subjects.length !== 1 ? "s" : ""}</Badge>
+            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+              {subjects.length} subject{subjects.length !== 1 ? "s" : ""}
+            </Badge>
           </TooltipTrigger>
           <TooltipContent className="max-w-[300px]">
-            <div className="grid gap-2">
-              {subjects.map((subject) => (
-                <div key={subject.id} className="flex items-center gap-2">
-                  <span className="font-medium">{subject.name}</span>
-                  <Badge variant="outline">{subject.code}</Badge>
-                </div>
-              ))}
+            <div className="space-y-2">
+              <div className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                <BookOpen className="h-3 w-3" />
+                Current Term Subjects
+              </div>
+              <div className="grid gap-2">
+                {subjects.map((subject) => (
+                  <div key={subject.id} className="flex items-center gap-2">
+                    <span className="font-medium">{subject.name}</span>
+                    <Badge variant="outline">{subject.code}</Badge>
+                  </div>
+                ))}
+              </div>
             </div>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-    )
-  }
+    );
+  };
 
   // Handle teacher deletion
   const handleDeleteClick = (teacher: Teacher) => {
-    setTeacherToDelete(teacher)
-    setIsDeleteDialogOpen(true)
-  }
+    setTeacherToDelete(teacher);
+    setIsDeleteDialogOpen(true);
+  };
 
   const confirmDelete = async () => {
-    if (!teacherToDelete) return
+    if (!teacherToDelete) return;
 
-    setIsDeleting(true)
+    setIsDeleting(true);
     try {
-      const result = await deleteTeacher(teacherToDelete.id)
+      const result = await deleteTeacher(teacherToDelete.id);
 
       if (result.success) {
         toast.success("Teacher Deleted", {
           description: `${teacherToDelete.fullName} has been successfully removed.`,
-        })
-        setIsDeleteDialogOpen(false)
-        router.refresh()
+        });
+        setIsDeleteDialogOpen(false);
+        router.refresh();
       } else {
         toast.error("Delete Failed", {
-          description: result.error || "Failed to delete teacher. Please try again.",
-        })
+          description:
+            result.error || "Failed to delete teacher. Please try again.",
+        });
       }
     } catch (error) {
-      console.error("Error deleting teacher:", error)
+      console.error("Error deleting teacher:", error);
       toast.error("Delete Failed", {
         description: "An unexpected error occurred. Please try again.",
-      })
+      });
     } finally {
-      setIsDeleting(false)
+      setIsDeleting(false);
     }
-  }
+  };
 
   return (
     <>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Teachers</CardTitle>
-            <CardDescription>Manage school teachers and their assignments</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              Teachers
+              <Badge
+                variant="secondary"
+                className="bg-green-100 text-green-800 text-xs"
+              >
+                Current Term
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Manage school teachers and their current term assignments
+            </CardDescription>
           </div>
           <Button asChild>
             <Link href="/dashboard/admin/teachers/new">
@@ -255,7 +339,10 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                 </SelectContent>
               </Select>
 
-              <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <Select
+                value={departmentFilter}
+                onValueChange={setDepartmentFilter}
+              >
                 <SelectTrigger className="w-[180px]">
                   <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4" />
@@ -267,6 +354,23 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                   {departments.map((dept) => (
                     <SelectItem key={dept} value={dept}>
                       {dept}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={termFilter} onValueChange={setTermFilter}>
+                <SelectTrigger className="w-[200px]">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    <SelectValue placeholder="Term" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Terms</SelectItem>
+                  {terms.map((term) => (
+                    <SelectItem key={term} value={term}>
+                      {term}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -301,14 +405,19 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                           <Avatar className="h-9 w-9">
                             <AvatarImage src={teacher.avatarUrl} />
                             <AvatarFallback>
-                              {teacher.firstName.charAt(0)}{teacher.lastName.charAt(0)}
+                              {teacher.firstName.charAt(0)}
+                              {teacher.lastName.charAt(0)}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex flex-col">
                             <span>{teacher.fullName}</span>
                             {teacher.gender && (
                               <span className="text-xs text-muted-foreground">
-                                {teacher.gender === "MALE" ? "Male" : teacher.gender === "FEMALE" ? "Female" : "Other"}
+                                {teacher.gender === "MALE"
+                                  ? "Male"
+                                  : teacher.gender === "FEMALE"
+                                    ? "Female"
+                                    : "Other"}
                               </span>
                             )}
                           </div>
@@ -319,21 +428,31 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                       </TableCell>
                       <TableCell>
                         {teacher.department || (
-                          <span className="text-muted-foreground">Not specified</span>
+                          <span className="text-muted-foreground">
+                            Not specified
+                          </span>
                         )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
                           {teacher.email && (
-                            <span className="text-sm truncate max-w-[180px]">{teacher.email}</span>
+                            <span className="text-sm truncate max-w-[180px]">
+                              {teacher.email}
+                            </span>
                           )}
                           {teacher.phone && (
-                            <span className="text-xs text-muted-foreground">{teacher.phone}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {teacher.phone}
+                            </span>
                           )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        {formatClassesDisplay(teacher.classes)}
+                        {teacher.classes.length > 0 ? (
+                          formatClassesDisplay(teacher.classes)
+                        ) : (
+                          <Badge variant="outline">No classes</Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         {formatSubjectsDisplay(teacher.subjects)}
@@ -347,22 +466,39 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Actions for {teacher.firstName}</DropdownMenuLabel>
+                            <DropdownMenuLabel>
+                              Actions for {teacher.firstName}
+                            </DropdownMenuLabel>
                             <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/admin/teachers/${teacher.id}`}>
+                              <Link
+                                href={`/dashboard/admin/teachers/${teacher.id}`}
+                              >
                                 View Profile
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/admin/teachers/${teacher.id}/edit`}>
+                              <Link
+                                href={`/dashboard/admin/teachers/${teacher.id}/edit`}
+                              >
                                 Edit Teacher
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/dashboard/admin/teachers/${teacher.id}/assignments`}
+                              >
+                                Manage Assignments
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => handleDeleteClick(teacher)}
-                              disabled={teacher.classes.length > 0 || teacher.subjects.length > 0 || teacher.assessmentsCount > 0}
+                              disabled={
+                                teacher.classes.length > 0 ||
+                                teacher.subjects.length > 0 ||
+                                teacher.assessmentsCount > 0
+                              }
                             >
                               Delete Teacher
                             </DropdownMenuItem>
@@ -374,15 +510,18 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={8} className="h-24 text-center">
-                      {searchQuery || genderFilter !== "all" || departmentFilter !== "all" ? (
+                      {searchQuery ||
+                      genderFilter !== "all" ||
+                      departmentFilter !== "all" ? (
                         <div className="flex flex-col items-center gap-2">
                           <p>No teachers match your search criteria.</p>
                           <Button
                             variant="ghost"
                             onClick={() => {
-                              setSearchQuery("")
-                              setGenderFilter("all")
-                              setDepartmentFilter("all")
+                              setSearchQuery("");
+                              setGenderFilter("all");
+                              setDepartmentFilter("all");
+                              setTermFilter("all");
                             }}
                           >
                             Clear filters
@@ -416,25 +555,37 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
             <DialogDescription>
               {teacherToDelete ? (
                 <>
-                  You are about to delete <span className="font-semibold">{teacherToDelete.fullName}</span>.
-                  
-                  {(teacherToDelete.classes.length > 0 || teacherToDelete.subjects.length > 0 || teacherToDelete.assessmentsCount > 0) ? (
+                  You are about to delete{" "}
+                  <span className="font-semibold">
+                    {teacherToDelete.fullName}
+                  </span>
+                  .
+                  {teacherToDelete.classes.length > 0 ||
+                  teacherToDelete.subjects.length > 0 ||
+                  teacherToDelete.assessmentsCount > 0 ? (
                     <div className="mt-2 space-y-2">
                       <p className="text-destructive font-medium">
-                        This teacher cannot be deleted because they have active assignments.
+                        This teacher cannot be deleted because they have active
+                        assignments.
                       </p>
-                      
+
                       {teacherToDelete.classes.length > 0 && (
                         <div className="text-sm">
-                          <p>Assigned to {teacherToDelete.classes.length} classes:</p>
+                          <p>
+                            Assigned to {teacherToDelete.classes.length}{" "}
+                            classes:
+                          </p>
                           <ul className="list-disc pl-5 mt-1 space-y-1">
-                            {teacherToDelete.classes.slice(0, 3).map(cls => (
+                            {teacherToDelete.classes.slice(0, 3).map((cls) => (
                               <li key={cls.id}>
-                                {cls.className} ({cls.classLevel}) - {cls.termName}
+                                {cls.className} ({cls.classLevel}) -{" "}
+                                {cls.termName}
                               </li>
                             ))}
                             {teacherToDelete.classes.length > 3 && (
-                              <li>...and {teacherToDelete.classes.length - 3} more</li>
+                              <li>
+                                ...and {teacherToDelete.classes.length - 3} more
+                              </li>
                             )}
                           </ul>
                         </div>
@@ -442,15 +593,22 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
 
                       {teacherToDelete.subjects.length > 0 && (
                         <div className="text-sm">
-                          <p>Teaching {teacherToDelete.subjects.length} subjects:</p>
+                          <p>
+                            Teaching {teacherToDelete.subjects.length} subjects:
+                          </p>
                           <ul className="list-disc pl-5 mt-1 space-y-1">
-                            {teacherToDelete.subjects.slice(0, 3).map(subject => (
-                              <li key={subject.id}>
-                                {subject.name} ({subject.code})
-                              </li>
-                            ))}
+                            {teacherToDelete.subjects
+                              .slice(0, 3)
+                              .map((subject) => (
+                                <li key={subject.id}>
+                                  {subject.name} ({subject.code})
+                                </li>
+                              ))}
                             {teacherToDelete.subjects.length > 3 && (
-                              <li>...and {teacherToDelete.subjects.length - 3} more</li>
+                              <li>
+                                ...and {teacherToDelete.subjects.length - 3}{" "}
+                                more
+                              </li>
                             )}
                           </ul>
                         </div>
@@ -458,7 +616,10 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
 
                       {teacherToDelete.assessmentsCount > 0 && (
                         <div className="text-sm">
-                          <p>Has {teacherToDelete.assessmentsCount} assessment records.</p>
+                          <p>
+                            Has {teacherToDelete.assessmentsCount} assessment
+                            records.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -472,21 +633,28 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                   )}
                 </>
               ) : (
-                <span className="text-destructive">No teacher selected for deletion.</span>
+                <span className="text-destructive">
+                  No teacher selected for deletion.
+                </span>
               )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+            >
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={confirmDelete}
-              disabled={isDeleting || 
-                (teacherToDelete?.classes.length || 0) > 0 || 
+              disabled={
+                isDeleting ||
+                (teacherToDelete?.classes.length || 0) > 0 ||
                 (teacherToDelete?.subjects.length || 0) > 0 ||
-                (teacherToDelete?.assessmentsCount || 0) > 0}
+                (teacherToDelete?.assessmentsCount || 0) > 0
+              }
               className="gap-1"
             >
               {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -496,5 +664,5 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
         </DialogContent>
       </Dialog>
     </>
-  )
+  );
 }

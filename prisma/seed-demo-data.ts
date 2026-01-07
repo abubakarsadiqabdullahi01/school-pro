@@ -3,20 +3,30 @@ import { PrismaClient, Role, CredentialType, Gender, ClassLevel, PaymentStatus, 
 import bcrypt from "bcryptjs";
 import { faker } from "@faker-js/faker";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+  log: ["error"],
+});
 
 // Configuration for scalability
 const CONFIG = {
-  TEACHER_COUNT: 15,
-  STUDENT_COUNT: 100,
-  PARENT_COUNT: 30,
-  PAYMENT_COUNT: 50,
-  SUBJECTS_PER_CLASS: 8,
-  MAX_SUBJECTS_PER_TEACHER: 4,
-  MAX_CLASSES_PER_TEACHER: 3,
-  MAX_STUDENTS_PER_PARENT: 4,
-  BATCH_SIZE: 50
+  TEACHER_COUNT: 5,
+  STUDENT_COUNT: 25,
+  PARENT_COUNT: 10,
+  PAYMENT_COUNT: 15,
+  SUBJECTS_PER_CLASS: 5,
+  BATCH_SIZE: 10,
+
+  MAX_SUBJECTS_PER_TEACHER: 3,
+  MAX_CLASSES_PER_TEACHER: 2,
+  MAX_STUDENTS_PER_PARENT: 3,
 };
+
+
 
 // Nigerian states and sample LGAs
 const NIGERIAN_STATES = [
@@ -113,23 +123,30 @@ async function main() {
     // Use individual delete operations instead of TRUNCATE CASCADE
     // This is safer and respects Prisma relations
     await prisma.assessment.deleteMany();
+    await prisma.studentParent.deleteMany();
     await prisma.studentClassTerm.deleteMany();
-    await prisma.classTerm.deleteMany();
     await prisma.teacherClassTerm.deleteMany();
-    await prisma.classSubject.deleteMany();
     await prisma.teacherSubject.deleteMany();
+    await prisma.classSubject.deleteMany();
+    await prisma.classTerm.deleteMany();
+
     await prisma.student.deleteMany();
     await prisma.teacher.deleteMany();
     await prisma.parent.deleteMany();
     await prisma.admin.deleteMany();
+
     await prisma.term.deleteMany();
     await prisma.session.deleteMany();
     await prisma.class.deleteMany();
     await prisma.subject.deleteMany();
-    await prisma.school.deleteMany();
+    await prisma.feeStructure.deleteMany();
+    await prisma.payment.deleteMany();
+    await prisma.gradingSystem.deleteMany();
+
     await prisma.credential.deleteMany();
     await prisma.user.deleteMany();
-    await prisma.gradingSystem.deleteMany();
+    await prisma.school.deleteMany();
+
   }
 
   // Step 1: Create Super Admins
@@ -393,7 +410,7 @@ async function main() {
       data: {
         userId: teacherUser.id,
         schoolId: school.id,
-        staffId: `TCH-${1000 + i}`,
+        staffId: `TCH-${faker.number.int({ min: 1000, max: 9999 })}`,
         department: DEPARTMENTS[Math.floor(Math.random() * DEPARTMENTS.length)],
         qualification: QUALIFICATIONS[Math.floor(Math.random() * QUALIFICATIONS.length)]
       }
@@ -409,7 +426,8 @@ async function main() {
     for (const subject of teacherSubjects) {
       teacherSubjectData.push({
         teacherId: teacher.id,
-        subjectId: subject.id
+        subjectId: subject.id,
+        termId: currentTerm!.id
       });
     }
 
@@ -434,8 +452,12 @@ async function main() {
   console.log("📝 Assigning teacher subjects and classes...");
   for (let i = 0; i < teacherSubjectData.length; i += CONFIG.BATCH_SIZE) {
     const batch = teacherSubjectData.slice(i, i + CONFIG.BATCH_SIZE);
+     const batchWithTermId = batch.map(data => ({
+      ...data,
+      termId: currentTerm!.id  // Add current term ID
+    }));
     await Promise.all(
-      batch.map(data => prisma.teacherSubject.create({ data }))
+      batchWithTermId.map(data => prisma.teacherSubject.create({ data }))
     );
   }
 
@@ -451,7 +473,7 @@ async function main() {
   const students = [];
   const studentClassTermData = [];
   const assessmentData = [];
-  const currentYearAdmission = currentYear % 100; // Last two digits of year
+  const currentYearAdmission = currentYear; // e.g. 2026 → 2026
 
   for (let i = 0; i < CONFIG.STUDENT_COUNT; i++) {
     const gender = Math.random() > 0.5 ? Gender.MALE : Gender.FEMALE;
@@ -472,8 +494,24 @@ async function main() {
     });
 
     // Generate admission number
-    const admissionNo = `EXC-${currentYearAdmission}-${1000 + i}`;
-    
+    const seq = await prisma.admissionSequence.upsert({
+      where: {
+        schoolId_year: {
+          schoolId: school.id,
+          year: currentYear,
+        },
+      },
+      update: { lastSequence: { increment: 1 } },
+      create: {
+        schoolId: school.id,
+        year: currentYear,
+        lastSequence: school.admissionSequenceStart,
+      },
+    });
+
+    const admissionNo = `EXC-${currentYear}-${seq.lastSequence}`;
+
+
     const student = await prisma.student.create({
       data: {
         userId: studentUser.id,
@@ -700,6 +738,7 @@ async function createUserWithCredential(data: {
       lga: data.lga,
       address: data.address,
       dateOfBirth: data.dateOfBirth,
+
       isActive: true
     }
   });
