@@ -1,36 +1,36 @@
-"use server"
+"use server";
 
-import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
-import { unstable_cache } from "next/cache"
-import { revalidateTag } from "next/cache"
+import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
+import { unstable_cache } from "next/cache";
+import { revalidateTag } from "next/cache";
 
 // Enhanced types
 interface AssessmentData {
-  id?: string
-  studentId: string
-  subjectId: string
-  termId: string
-  studentClassTermId: string
-  ca1?: number | null
-  ca2?: number | null
-  ca3?: number | null
-  exam?: number | null
-  isAbsent?: boolean
-  isExempt?: boolean
+  id?: string;
+  studentId: string;
+  subjectId: string;
+  termId: string;
+  studentClassTermId: string;
+  ca1?: number | null;
+  ca2?: number | null;
+  ca3?: number | null;
+  exam?: number | null;
+  isAbsent?: boolean;
+  isExempt?: boolean;
 }
 
 interface AssessmentWithCalculations extends AssessmentData {
-  totalScore?: number | null
-  grade?: string | null
-  remark?: string | null
+  totalScore?: number | null;
+  grade?: string | null;
+  remark?: string | null;
 }
 
 // Enhanced authorization with better error handling
 async function authorizeAndGetUser() {
-  const session = await auth()
+  const session = await auth();
   if (!session?.user) {
-    throw new Error("Authentication required")
+    throw new Error("Authentication required");
   }
 
   const user = await prisma.user.findUnique({
@@ -40,27 +40,27 @@ async function authorizeAndGetUser() {
       teacher: { select: { id: true, schoolId: true } },
       superAdmin: true,
     },
-  })
+  });
 
   if (!user) {
-    throw new Error("User profile not found")
+    throw new Error("User profile not found");
   }
 
-  let schoolId: string | undefined
-  let teacherId: string | undefined
+  let schoolId: string | undefined;
+  let teacherId: string | undefined;
 
   if (user.admin?.schoolId) {
-    schoolId = user.admin.schoolId
+    schoolId = user.admin.schoolId;
   } else if (user.teacher) {
-    schoolId = user.teacher.schoolId
-    teacherId = user.teacher.id
+    schoolId = user.teacher.schoolId;
+    teacherId = user.teacher.id;
   } else if (user.superAdmin) {
-    schoolId = undefined
+    schoolId = undefined;
   } else {
-    throw new Error("User does not have permission to access this resource")
+    throw new Error("User does not have permission to access this resource");
   }
 
-  return { user, schoolId, teacherId, role: user.role }
+  return { user, schoolId, teacherId, role: user.role };
 }
 
 // Function to find teacher assigned to a subject for a specific class term
@@ -68,13 +68,15 @@ async function findAssignedTeacher(
   subjectId: string,
   classTermId: string,
 ): Promise<{
-  teacherId: string | null
-  teacherName: string | null
-  isAssigned: boolean
-  message: string
+  teacherId: string | null;
+  teacherName: string | null;
+  isAssigned: boolean;
+  message: string;
 }> {
   try {
-    console.log(`Looking for teacher assigned to subject ${subjectId} in class term ${classTermId}`)
+    console.log(
+      `Looking for teacher assigned to subject ${subjectId} in class term ${classTermId}`,
+    );
 
     // Get subject and class information for better messaging
     const [subject, classTerm] = await Promise.all([
@@ -89,10 +91,12 @@ async function findAssignedTeacher(
           term: { select: { name: true } },
         },
       }),
-    ])
+    ]);
 
-    const subjectName = subject ? `${subject.name} (${subject.code})` : "Unknown Subject"
-    const className = classTerm?.class.name || "Unknown Class"
+    const subjectName = subject
+      ? `${subject.name} (${subject.code})`
+      : "Unknown Subject";
+    const className = classTerm?.class.name || "Unknown Class";
 
     // First, try to find a teacher assigned to this specific subject
     const teacherSubject = await prisma.teacherSubject.findFirst({
@@ -116,17 +120,19 @@ async function findAssignedTeacher(
           },
         },
       },
-    })
+    });
 
     if (teacherSubject && teacherSubject.teacher.teacherClassTerms.length > 0) {
-      const teacherName = `${teacherSubject.teacher.user.firstName} ${teacherSubject.teacher.user.lastName}`
-      console.log(`Found teacher ${teacherSubject.teacher.id} (${teacherName}) assigned to subject ${subjectId}`)
+      const teacherName = `${teacherSubject.teacher.user.firstName} ${teacherSubject.teacher.user.lastName}`;
+      console.log(
+        `Found teacher ${teacherSubject.teacher.id} (${teacherName}) assigned to subject ${subjectId}`,
+      );
       return {
         teacherId: teacherSubject.teacher.id,
         teacherName,
         isAssigned: true,
         message: `Subject teacher: ${teacherName}`,
-      }
+      };
     }
 
     // If no specific teacher-subject assignment, try to find a teacher assigned to the class term
@@ -146,34 +152,38 @@ async function findAssignedTeacher(
           },
         },
       },
-    })
+    });
 
     if (teacherClassTerm) {
-      const teacherName = `${teacherClassTerm.teacher.user.firstName} ${teacherClassTerm.teacher.user.lastName}`
-      console.log(`Found class teacher ${teacherClassTerm.teacher.id} (${teacherName}) for class term ${classTermId}`)
+      const teacherName = `${teacherClassTerm.teacher.user.firstName} ${teacherClassTerm.teacher.user.lastName}`;
+      console.log(
+        `Found class teacher ${teacherClassTerm.teacher.id} (${teacherName}) for class term ${classTermId}`,
+      );
       return {
         teacherId: teacherClassTerm.teacher.id,
         teacherName,
         isAssigned: true,
         message: `Class teacher: ${teacherName} (no specific subject assignment)`,
-      }
+      };
     }
 
-    console.log(`No teacher assigned to subject ${subjectId} or class term ${classTermId}`)
+    console.log(
+      `No teacher assigned to subject ${subjectId} or class term ${classTermId}`,
+    );
     return {
       teacherId: null,
       teacherName: null,
       isAssigned: false,
       message: `⚠️ No teacher assigned to ${subjectName} for ${className}. Assessments will be saved without teacher assignment.`,
-    }
+    };
   } catch (error) {
-    console.error("Error finding assigned teacher:", error)
+    console.error("Error finding assigned teacher:", error);
     return {
       teacherId: null,
       teacherName: null,
       isAssigned: false,
       message: "Error checking teacher assignment",
-    }
+    };
   }
 }
 
@@ -191,17 +201,17 @@ const getGradingSystem = unstable_cache(
             orderBy: { minScore: "desc" },
           },
         },
-      })
+      });
 
-      return gradingSystem
+      return gradingSystem;
     } catch (error) {
-      console.error("Error fetching grading system:", error)
-      return null
+      console.error("Error fetching grading system:", error);
+      return null;
     }
   },
   ["grading-system"],
   { revalidate: 3600, tags: ["grading"] },
-)
+);
 
 // Safe calculation functions
 function calculateTotalScore(
@@ -211,10 +221,12 @@ function calculateTotalScore(
   exam: number | null,
 ): number | null {
   // Only calculate if at least one score is provided
-  const scores = [ca1, ca2, ca3, exam].filter((score) => score !== null && score !== undefined && score > 0)
-  if (scores.length === 0) return null
+  const scores = [ca1, ca2, ca3, exam].filter(
+    (score) => score !== null && score !== undefined && score > 0,
+  );
+  if (scores.length === 0) return null;
 
-  return (ca1 || 0) + (ca2 || 0) + (ca3 || 0) + (exam || 0)
+  return (ca1 || 0) + (ca2 || 0) + (ca3 || 0) + (exam || 0);
 }
 
 // Enhanced grade calculation
@@ -222,35 +234,43 @@ export async function calculateGradeFromScore(
   totalScore: number | null,
   schoolId: string,
 ): Promise<{ grade: string; remark: string } | null> {
-  if (totalScore === null || totalScore === undefined) return null
+  if (totalScore === null || totalScore === undefined) return null;
 
   try {
-    const gradingSystem = await getGradingSystem(schoolId)
+    const gradingSystem = await getGradingSystem(schoolId);
 
     if (!gradingSystem?.levels || gradingSystem.levels.length === 0) {
       // Enhanced default grading system
-      if (totalScore >= 80) return { grade: "A1", remark: "Excellent" }
-      if (totalScore >= 70) return { grade: "A2", remark: "Very Good" }
-      if (totalScore >= 60) return { grade: "B1", remark: "Good" }
-      if (totalScore >= 50) return { grade: "B2", remark: "Fair" }
-      if (totalScore >= 45) return { grade: "C1", remark: "Pass" }
-      if (totalScore >= 40) return { grade: "C2", remark: "Weak Pass" }
-      return { grade: "F", remark: "Fail" }
+      if (totalScore >= 80) return { grade: "A1", remark: "Excellent" };
+      if (totalScore >= 70) return { grade: "A2", remark: "Very Good" };
+      if (totalScore >= 60) return { grade: "B1", remark: "Good" };
+      if (totalScore >= 50) return { grade: "B2", remark: "Fair" };
+      if (totalScore >= 45) return { grade: "C1", remark: "Pass" };
+      if (totalScore >= 40) return { grade: "C2", remark: "Weak Pass" };
+      return { grade: "F", remark: "Fail" };
     }
 
-    const level = gradingSystem.levels.find((l) => totalScore >= l.minScore && totalScore <= l.maxScore)
+    const level = gradingSystem.levels.find(
+      (l) => totalScore >= l.minScore && totalScore <= l.maxScore,
+    );
 
-    return level ? { grade: level.grade, remark: level.remark } : { grade: "F", remark: "Fail" }
+    return level
+      ? { grade: level.grade, remark: level.remark }
+      : { grade: "F", remark: "Fail" };
   } catch (error) {
-    console.error("Error calculating grade:", error)
-    return { grade: "F", remark: "Error" }
+    console.error("Error calculating grade:", error);
+    return { grade: "F", remark: "Error" };
   }
 }
 
 // NEW: Enhanced function to get assessments with completion status for a class term and subject
-export async function getAssessmentsWithStatus(classTermId: string, subjectId: string, termId: string) {
+export async function getAssessmentsWithStatus(
+  classTermId: string,
+  subjectId: string,
+  termId: string,
+) {
   try {
-    const { schoolId } = await authorizeAndGetUser()
+    const { schoolId } = await authorizeAndGetUser();
 
     // Verify the class term exists and user has access
     const classTerm = await prisma.classTerm.findFirst({
@@ -274,13 +294,13 @@ export async function getAssessmentsWithStatus(classTermId: string, subjectId: s
           },
         },
       },
-    })
+    });
 
     if (!classTerm) {
       return {
         success: false,
         error: "Class term not found or you don't have access to it",
-      }
+      };
     }
 
     // Get all student class terms for this class term
@@ -325,65 +345,79 @@ export async function getAssessmentsWithStatus(classTermId: string, subjectId: s
           },
         },
       },
-    })
+    });
 
     // Calculate completion statistics
-    const totalStudents = studentClassTerms.length
-    let studentsWithData = 0
-    let completeAssessments = 0
-    let partialAssessments = 0
-    let absentStudents = 0
-    let exemptStudents = 0
+    const totalStudents = studentClassTerms.length;
+    let studentsWithData = 0;
+    let completeAssessments = 0;
+    let partialAssessments = 0;
+    let absentStudents = 0;
+    let exemptStudents = 0;
 
     // Format the data with enhanced status information
     const assessments = await Promise.all(
       studentClassTerms.map(async (sct) => {
-        const assessment = sct.assessments[0] // Should only be one assessment per student per subject per term
+        const assessment = sct.assessments[0]; // Should only be one assessment per student per subject per term
 
-        let totalScore = null
-        let grade = null
-        let remark = null
-        let completionStatus = "not_started"
-        let hasData = false
+        let totalScore = null;
+        let grade = null;
+        let remark = null;
+        let completionStatus = "not_started";
+        let hasData = false;
 
         if (assessment) {
-          hasData = true
-          studentsWithData++
+          hasData = true;
+          studentsWithData++;
 
           if (assessment.isAbsent) {
-            absentStudents++
-            completionStatus = "absent"
+            absentStudents++;
+            completionStatus = "absent";
           } else if (assessment.isExempt) {
-            exemptStudents++
-            completionStatus = "exempt"
+            exemptStudents++;
+            completionStatus = "exempt";
           } else {
             // Check completion status
-            const hasCA1 = assessment.ca1 !== null && assessment.ca1 !== undefined
-            const hasCA2 = assessment.ca2 !== null && assessment.ca2 !== undefined
-            const hasCA3 = assessment.ca3 !== null && assessment.ca3 !== undefined
-            const hasExam = assessment.exam !== null && assessment.exam !== undefined
+            const hasCA1 =
+              assessment.ca1 !== null && assessment.ca1 !== undefined;
+            const hasCA2 =
+              assessment.ca2 !== null && assessment.ca2 !== undefined;
+            const hasCA3 =
+              assessment.ca3 !== null && assessment.ca3 !== undefined;
+            const hasExam =
+              assessment.exam !== null && assessment.exam !== undefined;
 
-            const completedFields = [hasCA1, hasCA2, hasCA3, hasExam].filter(Boolean).length
+            const completedFields = [hasCA1, hasCA2, hasCA3, hasExam].filter(
+              Boolean,
+            ).length;
 
             if (completedFields === 4) {
-              completionStatus = "complete"
-              completeAssessments++
+              completionStatus = "complete";
+              completeAssessments++;
             } else if (completedFields > 0) {
-              completionStatus = "partial"
-              partialAssessments++
+              completionStatus = "partial";
+              partialAssessments++;
             } else {
-              completionStatus = "not_started"
+              completionStatus = "not_started";
             }
 
             // Calculate totals and grades
             if (completedFields > 0) {
-              totalScore = calculateTotalScore(assessment.ca1, assessment.ca2, assessment.ca3, assessment.exam)
+              totalScore = calculateTotalScore(
+                assessment.ca1,
+                assessment.ca2,
+                assessment.ca3,
+                assessment.exam,
+              );
 
               if (totalScore !== null && schoolId) {
-                const gradeInfo = await calculateGradeFromScore(totalScore, schoolId)
+                const gradeInfo = await calculateGradeFromScore(
+                  totalScore,
+                  schoolId,
+                );
                 if (gradeInfo) {
-                  grade = gradeInfo.grade
-                  remark = gradeInfo.remark
+                  grade = gradeInfo.grade;
+                  remark = gradeInfo.remark;
                 }
               }
             }
@@ -409,15 +443,19 @@ export async function getAssessmentsWithStatus(classTermId: string, subjectId: s
           completionStatus,
           hasData,
           lastUpdated: assessment?.updatedAt || null,
-        }
+        };
       }),
-    )
+    );
 
     // Calculate completion percentage
     const completionPercentage =
       totalStudents > 0
-        ? Math.round(((completeAssessments + absentStudents + exemptStudents) / totalStudents) * 100)
-        : 0
+        ? Math.round(
+            ((completeAssessments + absentStudents + exemptStudents) /
+              totalStudents) *
+              100,
+          )
+        : 0;
 
     return {
       success: true,
@@ -438,13 +476,14 @@ export async function getAssessmentsWithStatus(classTermId: string, subjectId: s
           termName: classTerm.term.name,
         },
       },
-    }
+    };
   } catch (error) {
-    console.error("Failed to get assessments with status:", error)
+    console.error("Failed to get assessments with status:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to load assessments",
-    }
+      error:
+        error instanceof Error ? error.message : "Failed to load assessments",
+    };
   }
 }
 
@@ -456,80 +495,89 @@ export async function saveAssessments(
   schoolId: string,
 ) {
   try {
-    console.log("\n=== SAVE ASSESSMENTS START ===")
+    console.log("\n=== SAVE ASSESSMENTS START ===");
 
-    const { user, teacherId: userTeacherId } = await authorizeAndGetUser()
+    const { user, teacherId: userTeacherId } = await authorizeAndGetUser();
 
     if (!user) {
-      throw new Error("Authentication required")
+      throw new Error("Authentication required");
     }
 
     // Validate input data
     if (!assessments || assessments.length === 0) {
-      throw new Error("No assessments provided")
+      throw new Error("No assessments provided");
     }
 
     if (!termId || !subjectId) {
-      throw new Error("Term ID and Subject ID are required")
+      throw new Error("Term ID and Subject ID are required");
     }
 
-    console.log("Input Parameters:")
-    console.log("- termId:", termId)
-    console.log("- subjectId:", subjectId)
-    console.log("- schoolId:", schoolId)
-    console.log("- assessments count:", assessments.length)
-    console.log("- user teacherId:", userTeacherId)
+    console.log("Input Parameters:");
+    console.log("- termId:", termId);
+    console.log("- subjectId:", subjectId);
+    console.log("- schoolId:", schoolId);
+    console.log("- assessments count:", assessments.length);
+    console.log("- user teacherId:", userTeacherId);
 
     // Validate that all required entities exist
     const [termExists, subjectExists] = await Promise.all([
       prisma.term.findUnique({ where: { id: termId }, select: { id: true } }),
-      prisma.subject.findUnique({ where: { id: subjectId }, select: { id: true } }),
-    ])
+      prisma.subject.findUnique({
+        where: { id: subjectId },
+        select: { id: true },
+      }),
+    ]);
 
     if (!termExists) {
-      throw new Error(`Term with ID ${termId} not found`)
+      throw new Error(`Term with ID ${termId} not found`);
     }
 
     if (!subjectExists) {
-      throw new Error(`Subject with ID ${subjectId} not found`)
+      throw new Error(`Subject with ID ${subjectId} not found`);
     }
 
     // Validate all students exist
-    const studentIds = assessments.map((a) => a.studentId)
+    const studentIds = assessments.map((a) => a.studentId);
     const existingStudents = await prisma.student.findMany({
       where: { id: { in: studentIds } },
       select: { id: true },
-    })
+    });
 
     if (existingStudents.length !== studentIds.length) {
-      const missingStudents = studentIds.filter((id) => !existingStudents.find((s) => s.id === id))
-      throw new Error(`Students not found: ${missingStudents.join(", ")}`)
+      const missingStudents = studentIds.filter(
+        (id) => !existingStudents.find((s) => s.id === id),
+      );
+      throw new Error(`Students not found: ${missingStudents.join(", ")}`);
     }
 
     // Validate all studentClassTerms exist
-    const studentClassTermIds = assessments.map((a) => a.studentClassTermId)
+    const studentClassTermIds = assessments.map((a) => a.studentClassTermId);
     const existingStudentClassTerms = await prisma.studentClassTerm.findMany({
       where: { id: { in: studentClassTermIds } },
       select: { id: true, classTermId: true },
-    })
+    });
 
     if (existingStudentClassTerms.length !== studentClassTermIds.length) {
-      const missingIds = studentClassTermIds.filter((id) => !existingStudentClassTerms.find((sct) => sct.id === id))
-      throw new Error(`Student class terms not found: ${missingIds.join(", ")}`)
+      const missingIds = studentClassTermIds.filter(
+        (id) => !existingStudentClassTerms.find((sct) => sct.id === id),
+      );
+      throw new Error(
+        `Student class terms not found: ${missingIds.join(", ")}`,
+      );
     }
 
     // Find the class term ID from the first assessment (they should all be the same)
-    const firstStudentClassTerm = existingStudentClassTerms[0]
-    const classTermId = firstStudentClassTerm.classTermId
+    const firstStudentClassTerm = existingStudentClassTerms[0];
+    const classTermId = firstStudentClassTerm.classTermId;
 
     // Find assigned teacher for this subject and class
-    const teacherAssignment = await findAssignedTeacher(subjectId, classTermId)
+    const teacherAssignment = await findAssignedTeacher(subjectId, classTermId);
 
-    console.log("Teacher assignment result:")
-    console.log("- teacherId:", teacherAssignment.teacherId)
-    console.log("- teacherName:", teacherAssignment.teacherName)
-    console.log("- isAssigned:", teacherAssignment.isAssigned)
-    console.log("- message:", teacherAssignment.message)
+    console.log("Teacher assignment result:");
+    console.log("- teacherId:", teacherAssignment.teacherId);
+    console.log("- teacherName:", teacherAssignment.teacherName);
+    console.log("- isAssigned:", teacherAssignment.isAssigned);
+    console.log("- message:", teacherAssignment.message);
 
     // Check for existing assessments to avoid unique constraint violations
     const existingAssessments = await prisma.assessment.findMany({
@@ -542,39 +590,47 @@ export async function saveAssessments(
         id: true,
         studentId: true,
       },
-    })
+    });
 
-    console.log(`Found ${existingAssessments.length} existing assessments`)
+    console.log(`Found ${existingAssessments.length} existing assessments`);
 
     // Process assessments in batches for better performance
-    const BATCH_SIZE = 5
-    const savedAssessments = []
+    const BATCH_SIZE = 5;
+    const savedAssessments = [];
 
     for (let i = 0; i < assessments.length; i += BATCH_SIZE) {
-      const batch = assessments.slice(i, i + BATCH_SIZE)
+      const batch = assessments.slice(i, i + BATCH_SIZE);
       console.log(
         `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}, items ${i + 1} to ${Math.min(i + BATCH_SIZE, assessments.length)}`,
-      )
+      );
 
       try {
         const batchResults = await prisma.$transaction(
           batch.map((assessment, batchIndex) => {
-            const globalIndex = i + batchIndex
-            console.log(`Processing assessment ${globalIndex + 1} for student ${assessment.studentId}`)
+            const globalIndex = i + batchIndex;
+            console.log(
+              `Processing assessment ${globalIndex + 1} for student ${assessment.studentId}`,
+            );
 
             // Validate score ranges
-            const validateScore = (score: number | null | undefined, field: string, max: number) => {
+            const validateScore = (
+              score: number | null | undefined,
+              field: string,
+              max: number,
+            ) => {
               if (score !== null && score !== undefined) {
                 if (score < 0 || score > max) {
-                  throw new Error(`${field} score must be between 0 and ${max}, got ${score}`)
+                  throw new Error(
+                    `${field} score must be between 0 and ${max}, got ${score}`,
+                  );
                 }
               }
-            }
+            };
 
-            validateScore(assessment.ca1, "CA1", 10)
-            validateScore(assessment.ca2, "CA2", 10)
-            validateScore(assessment.ca3, "CA3", 10)
-            validateScore(assessment.exam, "Exam", 70)
+            validateScore(assessment.ca1, "CA1", 10);
+            validateScore(assessment.ca2, "CA2", 10);
+            validateScore(assessment.ca3, "CA3", 10);
+            validateScore(assessment.exam, "Exam", 70);
 
             // Prepare data according to schema
             const data = {
@@ -591,32 +647,45 @@ export async function saveAssessments(
               isExempt: assessment.isExempt || false,
               isPublished: false,
               editedBy: user.id,
-            }
+              createdBy: user.id,
+            };
 
-            console.log(`Assessment data for student ${assessment.studentId}:`, JSON.stringify(data, null, 2))
+            console.log(
+              `Assessment data for student ${assessment.studentId}:`,
+              JSON.stringify(data, null, 2),
+            );
 
             // Check if this is an update or create operation
-            const existingAssessment = existingAssessments.find((ea) => ea.studentId === assessment.studentId)
+            const existingAssessment = existingAssessments.find(
+              (ea) => ea.studentId === assessment.studentId,
+            );
 
             if (assessment.id || existingAssessment) {
-              const assessmentId = assessment.id || existingAssessment?.id
-              console.log(`Updating existing assessment ${assessmentId}`)
+              const assessmentId = assessment.id || existingAssessment?.id;
+              console.log(`Updating existing assessment ${assessmentId}`);
               return prisma.assessment.update({
                 where: { id: assessmentId },
                 data: {
                   ...data,
+                  updatedBy: user.id,
                   editedByUser: {
                     connect: {
                       id: user.id,
                     },
                   },
+                  updatedByUser: {
+                    connect: {
+                      id: user.id,
+                    },
+                  },
                 },
-              })
-
+              });
             } else {
-              console.log(`Creating new assessment for student ${assessment.studentId}`)
+              console.log(
+                `Creating new assessment for student ${assessment.studentId}`,
+              );
               // Use simple create instead of upsert to avoid relationship issues
-             return prisma.assessment.create({
+              return prisma.assessment.create({
                 data: {
                   ...data,
                   editedByUser: {
@@ -624,40 +693,51 @@ export async function saveAssessments(
                       id: user.id,
                     },
                   },
+                  createdByUser: {
+                    connect: {
+                      id: user.id,
+                    },
+                  },
                 },
-              })
-
+              });
             }
           }),
-        )
+        );
 
-        savedAssessments.push(...batchResults)
-        console.log(`Batch ${Math.floor(i / BATCH_SIZE) + 1} completed successfully`)
+        savedAssessments.push(...batchResults);
+        console.log(
+          `Batch ${Math.floor(i / BATCH_SIZE) + 1} completed successfully`,
+        );
       } catch (batchError) {
-        console.error(`Error in batch ${Math.floor(i / BATCH_SIZE) + 1}:`, batchError)
+        console.error(
+          `Error in batch ${Math.floor(i / BATCH_SIZE) + 1}:`,
+          batchError,
+        );
 
         // Log the specific Prisma error details
         if (batchError.code) {
-          console.error("Prisma error code:", batchError.code)
+          console.error("Prisma error code:", batchError.code);
         }
         if (batchError.meta) {
-          console.error("Prisma error meta:", batchError.meta)
+          console.error("Prisma error meta:", batchError.meta);
         }
         if (batchError.message) {
-          console.error("Prisma error message:", batchError.message)
+          console.error("Prisma error message:", batchError.message);
         }
 
-        throw new Error(`Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batchError.message}`)
+        throw new Error(
+          `Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batchError.message}`,
+        );
       }
     }
 
     // Revalidate relevant caches
-    revalidateTag(`assessments-${termId}-${subjectId}`)
-    revalidateTag("assessments")
+    revalidateTag(`assessments-${termId}-${subjectId}`);
+    revalidateTag("assessments");
 
-    console.log(`Successfully saved ${savedAssessments.length} assessments`)
-    console.log("Teacher assignment info:", teacherAssignment.message)
-    console.log("=== SAVE ASSESSMENTS COMPLETE ===\n")
+    console.log(`Successfully saved ${savedAssessments.length} assessments`);
+    console.log("Teacher assignment info:", teacherAssignment.message);
+    console.log("=== SAVE ASSESSMENTS COMPLETE ===\n");
 
     return {
       success: true,
@@ -667,37 +747,43 @@ export async function saveAssessments(
         teacherName: teacherAssignment.teacherName,
         message: teacherAssignment.message,
       },
-    }
+    };
   } catch (error) {
-    console.error("Failed to save assessments:", error)
+    console.error("Failed to save assessments:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
-    }
+    };
   }
 }
 
 // Function to check teacher assignment for a subject and class (for UI feedback)
-export async function checkTeacherAssignment(subjectId: string, classTermId: string) {
+export async function checkTeacherAssignment(
+  subjectId: string,
+  classTermId: string,
+) {
   try {
-    const teacherAssignment = await findAssignedTeacher(subjectId, classTermId)
+    const teacherAssignment = await findAssignedTeacher(subjectId, classTermId);
     return {
       success: true,
       data: teacherAssignment,
-    }
+    };
   } catch (error) {
-    console.error("Failed to check teacher assignment:", error)
+    console.error("Failed to check teacher assignment:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
-    }
+    };
   }
 }
 
 // Enhanced getAssessmentsForSubject with better error handling
-export async function getAssessmentsForSubject(termId: string, subjectId: string) {
+export async function getAssessmentsForSubject(
+  termId: string,
+  subjectId: string,
+) {
   try {
-    const { schoolId, teacherId } = await authorizeAndGetUser()
+    const { schoolId, teacherId } = await authorizeAndGetUser();
 
     // First, let's find all assessments for the term and subject
     const assessments = await prisma.assessment.findMany({
@@ -744,25 +830,33 @@ export async function getAssessmentsForSubject(termId: string, subjectId: string
           },
         },
       },
-    })
+    });
 
     // Calculate totals and grades with error handling
     const assessmentsWithCalculations = await Promise.all(
       assessments.map(async (assessment) => {
         try {
-          let totalScore = null
-          let grade = null
-          let remark = null
+          let totalScore = null;
+          let grade = null;
+          let remark = null;
 
           // Calculate total only if student is not absent or exempt
           if (!assessment.isAbsent && !assessment.isExempt) {
-            totalScore = calculateTotalScore(assessment.ca1, assessment.ca2, assessment.ca3, assessment.exam)
+            totalScore = calculateTotalScore(
+              assessment.ca1,
+              assessment.ca2,
+              assessment.ca3,
+              assessment.exam,
+            );
 
             if (totalScore !== null && schoolId) {
-              const gradeInfo = await calculateGradeFromScore(totalScore, schoolId)
+              const gradeInfo = await calculateGradeFromScore(
+                totalScore,
+                schoolId,
+              );
               if (gradeInfo) {
-                grade = gradeInfo.grade
-                remark = gradeInfo.remark
+                grade = gradeInfo.grade;
+                remark = gradeInfo.remark;
               }
             }
           }
@@ -780,9 +874,9 @@ export async function getAssessmentsForSubject(termId: string, subjectId: string
             isAbsent: assessment.isAbsent,
             isExempt: assessment.isExempt,
             isPublished: assessment.isPublished,
-          }
+          };
         } catch (error) {
-          console.error(`Error processing assessment ${assessment.id}:`, error)
+          console.error(`Error processing assessment ${assessment.id}:`, error);
           return {
             id: assessment.id,
             studentId: assessment.studentId,
@@ -796,18 +890,18 @@ export async function getAssessmentsForSubject(termId: string, subjectId: string
             isAbsent: assessment.isAbsent,
             isExempt: assessment.isExempt,
             isPublished: assessment.isPublished,
-          }
+          };
         }
       }),
-    )
+    );
 
-    return { success: true, data: assessmentsWithCalculations }
+    return { success: true, data: assessmentsWithCalculations };
   } catch (error) {
-    console.error("Failed to get assessments:", error)
+    console.error("Failed to get assessments:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
-    }
+    };
   }
 }
 
@@ -818,7 +912,7 @@ export async function bulkUpdateAssessments(
   subjectId: string,
 ) {
   try {
-    const { user } = await authorizeAndGetUser()
+    const { user } = await authorizeAndGetUser();
 
     const results = await prisma.$transaction(
       updates.map(({ id, data }) =>
@@ -830,17 +924,18 @@ export async function bulkUpdateAssessments(
           },
         }),
       ),
-    )
+    );
 
     // Revalidate cache
-    revalidateTag(`assessments-${termId}-${subjectId}`)
+    revalidateTag(`assessments-${termId}-${subjectId}`);
 
-    return { success: true, data: results }
+    return { success: true, data: results };
   } catch (error) {
-    console.error("Failed to bulk update assessments:", error)
+    console.error("Failed to bulk update assessments:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to update assessments",
-    }
+      error:
+        error instanceof Error ? error.message : "Failed to update assessments",
+    };
   }
 }
