@@ -668,16 +668,6 @@ export async function saveAssessments(
                 data: {
                   ...data,
                   updatedBy: user.id,
-                  editedByUser: {
-                    connect: {
-                      id: user.id,
-                    },
-                  },
-                  updatedByUser: {
-                    connect: {
-                      id: user.id,
-                    },
-                  },
                 },
               });
             } else {
@@ -688,16 +678,6 @@ export async function saveAssessments(
               return prisma.assessment.create({
                 data: {
                   ...data,
-                  editedByUser: {
-                    connect: {
-                      id: user.id,
-                    },
-                  },
-                  createdByUser: {
-                    connect: {
-                      id: user.id,
-                    },
-                  },
                 },
               });
             }
