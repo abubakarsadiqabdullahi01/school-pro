@@ -14,7 +14,7 @@ async function getAuthenticatedUser() {
   if (!session?.user?.id) {
     throw new Error("Unauthorized: No authenticated user");
   }
-  
+
   // Get the admin's school
   const admin = await prisma.admin.findUnique({
     where: { userId: session.user.id },
@@ -65,6 +65,10 @@ export async function createStudent(data: {
       return { success: false, error: "School not found" };
     }
 
+    // Validate required fields for class assignment
+    if (!data.classId || !data.termId) {
+      return { success: false, error: "Class and Term are required" };
+    }
 
     // ============================================
     // GENERATE ADMISSION NUMBER (SAFE)
@@ -97,7 +101,7 @@ export async function createStudent(data: {
           .replace("{YEAR}", data.year.toString())
           .replace(
             "{NUMBER}",
-            admissionSequence.lastSequence.toString().padStart(4, "0")
+            admissionSequence.lastSequence.toString().padStart(4, "0"),
           );
 
         break; // ✅ success, exit loop
@@ -168,53 +172,76 @@ export async function createStudent(data: {
         });
       }
 
-      console.log("admissionNo:", admissionNo);
+      // ============================================
+      // CRITICAL FIX: ENROLL IN CLASS
+      // ============================================
+      console.log(
+        "Enrolling student with classId:",
+        data.classId,
+        "termId:",
+        data.termId,
+      );
 
-      // Enroll in class if provided
-      if (data.classId && data.termId) {
-        // Get ClassTerm
-        const classTerm = await tx.classTerm.findFirst({
-          where: {
+      // First, get or create the ClassTerm
+      let classTerm = await tx.classTerm.findFirst({
+        where: {
+          classId: data.classId,
+          termId: data.termId,
+        },
+      });
+
+      // If ClassTerm doesn't exist, create it
+      if (!classTerm) {
+        console.log("ClassTerm not found, creating new one...");
+        classTerm = await tx.classTerm.create({
+          data: {
             classId: data.classId,
             termId: data.termId,
           },
         });
-
-        if (classTerm) {
-          // Create StudentClassTerm enrollment
-          await tx.studentClassTerm.create({
-            data: {
-              studentId: student.id,
-              classTermId: classTerm.id,
-              termId: data.termId,
-              status: "ACTIVE",
-            },
-          });
-
-          // Log enrollment history
-          await tx.studentEnrollmentHistory.create({
-            data: {
-              studentId: student.id,
-              classTermId: classTerm.id,
-              termId: data.termId,
-              action: "ENROLLED",
-              createdBy: userId,
-            },
-          });
-        }
       }
 
-      return { user, student, admissionNo };
+      if (classTerm) {
+        console.log("Found/Created ClassTerm:", classTerm.id);
+
+        // Create StudentClassTerm enrollment
+        await tx.studentClassTerm.create({
+          data: {
+            studentId: student.id,
+            classTermId: classTerm.id,
+            termId: data.termId,
+            status: "ACTIVE",
+          },
+        });
+
+        // Log enrollment history
+        await tx.studentEnrollmentHistory.create({
+          data: {
+            studentId: student.id,
+            classTermId: classTerm.id,
+            termId: data.termId,
+            action: "ENROLLED",
+            createdBy: userId,
+          },
+        });
+
+        console.log("Student enrolled successfully!");
+      } else {
+        console.error("Failed to create/find ClassTerm");
+      }
+
+      return { user, student, admissionNo, classTerm };
     });
 
     revalidatePath("/dashboard/admin/students");
-    
+
     return {
       success: true,
       data: {
         id: result.student.id,
         userId: result.user.id,
         admissionNo: result.admissionNo,
+        classTermId: result.classTerm?.id,
       },
     };
   } catch (error: any) {
@@ -229,8 +256,9 @@ export async function createStudent(data: {
 // ============================================
 // UPDATE STUDENT
 // ============================================
-export async function updateStudent(
-  studentId: string,
+// app/actions/student-management.ts
+export async function updateStudent(input: {
+  studentId: string;
   data: {
     firstName?: string;
     lastName?: string;
@@ -244,8 +272,14 @@ export async function updateStudent(
     termId?: string;
     year?: number;
     isActive?: boolean;
+  };
+}) {
+  const { studentId, data } = input;
+
+  if (!studentId || typeof studentId !== "string") {
+    return { success: false, error: "Invalid student ID" };
   }
-) {
+
   try {
     const { userId, schoolId } = await getAuthenticatedUser();
 
@@ -267,7 +301,10 @@ export async function updateStudent(
 
     // Verify school ownership
     if (existingStudent.schoolId !== schoolId) {
-      return { success: false, error: "Unauthorized: Student belongs to different school" };
+      return {
+        success: false,
+        error: "Unauthorized: Student belongs to different school",
+      };
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -277,7 +314,9 @@ export async function updateStudent(
         data: {
           firstName: data.firstName,
           lastName: data.lastName,
-          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
+          dateOfBirth: data.dateOfBirth
+            ? new Date(data.dateOfBirth)
+            : undefined,
           gender: data.gender,
           state: data.state,
           lga: data.lga,
@@ -295,7 +334,7 @@ export async function updateStudent(
         },
       });
 
-      // Handle class change
+      // Handle class change if classId and termId are provided
       if (data.classId && data.termId) {
         // Get the new ClassTerm
         const newClassTerm = await tx.classTerm.findFirst({
@@ -309,7 +348,10 @@ export async function updateStudent(
           const currentEnrollment = existingStudent.classTerms[0];
 
           // Check if class is actually changing
-          if (!currentEnrollment || currentEnrollment.classTermId !== newClassTerm.id) {
+          if (
+            !currentEnrollment ||
+            currentEnrollment.classTermId !== newClassTerm.id
+          ) {
             // Deactivate old enrollment if exists
             if (currentEnrollment) {
               await tx.studentClassTerm.update({
@@ -343,7 +385,7 @@ export async function updateStudent(
               });
             }
 
-            // Create new enrollment
+            // Create or update new enrollment
             await tx.studentClassTerm.upsert({
               where: {
                 studentId_classTermId: {
@@ -382,11 +424,12 @@ export async function updateStudent(
     });
 
     revalidatePath("/dashboard/admin/students");
-    // revalidatePath(`/dashboard/admin/students/${studentId}`);
+    revalidatePath(`/dashboard/admin/students/${studentId}`);
 
     return {
       success: true,
       data: result,
+      message: "Student updated successfully",
     };
   } catch (error: any) {
     console.error("Error updating student:", error);
@@ -421,7 +464,10 @@ export async function deleteStudent(studentId: string) {
 
     // Verify school ownership
     if (student.schoolId !== schoolId) {
-      return { success: false, error: "Unauthorized: Student belongs to different school" };
+      return {
+        success: false,
+        error: "Unauthorized: Student belongs to different school",
+      };
     }
 
     // Check if student has critical data (assessments, payments)
@@ -456,10 +502,10 @@ export async function deleteStudent(studentId: string) {
       await tx.studentEnrollmentHistory.deleteMany({ where: { studentId } });
       await tx.studentTransition.deleteMany({ where: { studentId } });
       await tx.attendance.deleteMany({ where: { studentId } });
-      
+
       // Delete student
       await tx.student.delete({ where: { id: studentId } });
-      
+
       // Delete user and credentials (cascade should handle this, but explicit is safer)
       await tx.credential.deleteMany({ where: { userId: student.userId } });
       await tx.user.delete({ where: { id: student.userId } });
@@ -532,7 +578,19 @@ export async function toggleStudentStatus(studentId: string) {
 // ============================================
 // GET STUDENT (READ)
 // ============================================
-export async function getStudent(studentId: string) {
+
+export async function getStudent(input: { studentId: string }) {
+  // Check if input is undefined or not an object
+  if (!input || typeof input !== "object") {
+    return { success: false, error: "Invalid input format" };
+  }
+
+  const { studentId } = input;
+
+  if (!studentId) {
+    return { success: false, error: "Student ID is required" };
+  }
+
   try {
     const { schoolId } = await getAuthenticatedUser();
 
@@ -565,9 +623,7 @@ export async function getStudent(studentId: string) {
           },
         },
         assessments: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
           take: 10,
           include: {
             subject: true,
@@ -579,15 +635,11 @@ export async function getStudent(studentId: string) {
           },
         },
         payments: {
-          orderBy: {
-            paymentDate: "desc",
-          },
+          orderBy: { paymentDate: "desc" },
           take: 5,
         },
         enrollmentHistory: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
           include: {
             classTerm: {
               include: {
@@ -612,75 +664,80 @@ export async function getStudent(studentId: string) {
       return { success: false, error: "Unauthorized" };
     }
 
-    // Format response
     const currentEnrollment = student.classTerms[0];
-    
-    const formattedStudent = {
-      id: student.id,
-      userId: student.user.id,
-      admissionNo: student.admissionNo,
-      firstName: student.user.firstName,
-      lastName: student.user.lastName,
-      fullName: `${student.user.firstName} ${student.user.lastName}`,
-      dateOfBirth: student.user.dateOfBirth?.toISOString() || "",
-      gender: student.user.gender || "",
-      state: student.user.state || "",
-      lga: student.user.lga || "",
-      address: student.user.address || "",
-      phone: student.user.phone || "",
-      year: student.year,
-      isActive: student.user.isActive,
-      createdAt: student.createdAt.toISOString(),
-      currentClass: currentEnrollment ? {
-        id: currentEnrollment.classTerm.class.id,
-        name: currentEnrollment.classTerm.class.name,
-        termId: currentEnrollment.classTerm.term.id,
-        termName: currentEnrollment.classTerm.term.name,
-        sessionName: currentEnrollment.classTerm.term.session.name,
-      } : null,
-      parents: student.parents.map((sp) => ({
-        id: sp.parent.id,
-        name: `${sp.parent.user.firstName} ${sp.parent.user.lastName}`,
-        relationship: sp.relationship,
-        phone: sp.parent.user.phone || "",
-      })),
-      academicHistory: student.enrollmentHistory.map((eh) => ({
-        id: eh.id,
-        className: eh.classTerm.class.name,
-        termName: eh.classTerm.term.name,
-        sessionName: eh.classTerm.term.session.name,
-        action: eh.action,
-        startDate: eh.createdAt,
-        endDate: eh.createdAt,
-      })),
-      assessments: student.assessments.map((a) => ({
-        id: a.id,
-        subject: a.subject.name,
-        ca1: a.ca1,
-        ca2: a.ca2,
-        ca3: a.ca3,
-        exam: a.exam,
-        totalScore: ((a.ca1 || 0) + (a.ca2 || 0) + (a.ca3 || 0) + (a.exam || 0)).toFixed(2),
-        term: a.term.name,
-        session: a.term.session.name,
-        isAbsent: a.isAbsent,
-        isExempt: a.isExempt,
-        isPublished: a.isPublished,
-        createdAt: a.createdAt.toISOString(),
-      })),
-      payments: student.payments.map((p) => ({
-        id: p.id,
-        amount: p.amount,
-        status: p.status,
-        paymentDate: p.paymentDate.toISOString(),
-        receiptNo: p.receiptNo,
-        createdAt: p.createdAt,
-      })),
-    };
+    const parents = student.parents.map((p) => ({
+      id: p.parent.id,
+      name: `${p.parent.user.firstName} ${p.parent.user.lastName}`,
+      relationship: p.relationship,
+      phone: p.parent.user.phone || "",
+    }));
+
+    const assessments = student.assessments.map((a) => ({
+      id: a.id,
+      subject: a.subject?.name || "Unknown",
+      ca1: a.ca1,
+      ca2: a.ca2,
+      ca3: a.ca3,
+      exam: a.exam,
+      totalScore: calculateTotalScore(a),
+      term: a.term?.name || "Unknown",
+      session: a.term?.session?.name || "Unknown",
+      isAbsent: a.isAbsent,
+      isExempt: a.isExempt,
+      isPublished: a.isPublished,
+      createdAt: a.createdAt.toISOString(),
+    }));
+
+    const payments = student.payments.map((p) => ({
+      id: p.id,
+      amount: p.amount,
+      status: p.status,
+      paymentDate: p.paymentDate.toISOString().split("T")[0],
+      receiptNo: p.receiptNo,
+    }));
+
+    const enrollmentHistory = student.enrollmentHistory.map((h) => ({
+      id: h.id,
+      className: h.classTerm?.class?.name || "Unknown",
+      termName: h.classTerm?.term?.name || "Unknown",
+      sessionName: h.classTerm?.term?.session?.name || "Unknown",
+      action: h.action,
+      createdAt: h.createdAt,
+    }));
 
     return {
       success: true,
-      data: formattedStudent,
+      data: {
+        id: student.id,
+        userId: student.user.id,
+        admissionNo: student.admissionNo,
+        firstName: student.user.firstName,
+        lastName: student.user.lastName,
+        fullName: `${student.user.firstName} ${student.user.lastName}`,
+        dateOfBirth:
+          student.user.dateOfBirth?.toISOString().split("T")[0] || "",
+        gender: student.user.gender || "OTHER",
+        state: student.user.state || "",
+        lga: student.user.lga || "",
+        address: student.user.address || "",
+        phone: student.user.phone || "",
+        year: student.year,
+        isActive: student.user.isActive,
+        currentClass: currentEnrollment
+          ? {
+              id: currentEnrollment.classTerm.class.id,
+              name: currentEnrollment.classTerm.class.name,
+              termId: currentEnrollment.classTerm.term.id,
+              termName: currentEnrollment.classTerm.term.name,
+              sessionName: currentEnrollment.classTerm.term.session.name,
+            }
+          : null,
+        parents,
+        assessments,
+        payments,
+        enrollmentHistory,
+        createdAt: student.createdAt,
+      },
     };
   } catch (error: any) {
     console.error("Error fetching student:", error);
@@ -689,6 +746,27 @@ export async function getStudent(studentId: string) {
       error: error.message || "Failed to fetch student",
     };
   }
+}
+
+// Helper function to calculate total score
+function calculateTotalScore(assessment: any): string {
+  if (assessment.isAbsent) return "Absent";
+  if (assessment.isExempt) return "Exempt";
+
+  const scores = [
+    assessment.ca1,
+    assessment.ca2,
+    assessment.ca3,
+    assessment.exam,
+  ];
+  const validScores = scores.filter(
+    (score) => score !== null && score !== undefined,
+  );
+
+  if (validScores.length === 0) return "-";
+
+  const total = validScores.reduce((sum, score) => sum + score, 0);
+  return total.toFixed(1);
 }
 
 // ============================================
@@ -767,6 +845,7 @@ export async function getStudents({
             classTerm: {
               include: {
                 class: true,
+                term: true,
               },
             },
           },
@@ -796,24 +875,29 @@ export async function getStudents({
     return {
       success: true,
       data: {
-        students: students.map((s) => ({
-          id: s.id,
-          admissionNo: s.admissionNo,
-          firstName: s.user.firstName,
-          lastName: s.user.lastName,
-          fullName: `${s.user.firstName} ${s.user.lastName}`,
-          class: s.classTerms[0]?.classTerm.class.name || "Not Assigned",
-          gender: s.user.gender || "Not Specified",
-          state: s.user.state || "Not Specified",
-          lga: s.user.lga || "Not Specified",
-          address: s.user.address || "Not Specified",
-          year: s.year,
-          parentName: s.parents[0]
-            ? `${s.parents[0].parent.user.firstName} ${s.parents[0].parent.user.lastName}`
-            : undefined,
-          registrationDate: s.createdAt.toISOString(),
-          isActive: s.user.isActive,
-        })),
+        students: students.map((s) => {
+          const activeClassTerm = s.classTerms[0];
+          return {
+            id: s.id,
+            admissionNo: s.admissionNo,
+            firstName: s.user.firstName,
+            lastName: s.user.lastName,
+            fullName: `${s.user.firstName} ${s.user.lastName}`,
+            class: activeClassTerm?.classTerm?.class?.name || "Not Assigned",
+            classTermId: activeClassTerm?.classTermId,
+            termName: activeClassTerm?.classTerm?.term?.name,
+            gender: s.user.gender || "Not Specified",
+            state: s.user.state || "Not Specified",
+            lga: s.user.lga || "Not Specified",
+            address: s.user.address || "Not Specified",
+            year: s.year,
+            parentName: s.parents[0]
+              ? `${s.parents[0].parent.user.firstName} ${s.parents[0].parent.user.lastName}`
+              : undefined,
+            registrationDate: s.createdAt.toISOString(),
+            isActive: s.user.isActive,
+          };
+        }),
         classes,
         pagination: {
           page,
@@ -1008,6 +1092,58 @@ export async function createParent(data: {
     };
   } catch (error: any) {
     console.error("Error creating parent:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function checkClassTerms() {
+  try {
+    const { schoolId } = await getAuthenticatedUser();
+
+    // Get all classes
+    const classes = await prisma.class.findMany({
+      where: { schoolId },
+      select: { id: true, name: true },
+    });
+
+    // Get current term
+    const currentTerm = await prisma.term.findFirst({
+      where: { session: { schoolId, isCurrent: true }, isCurrent: true },
+      select: { id: true, name: true },
+    });
+
+    if (!currentTerm) {
+      return { success: false, error: "No current term found" };
+    }
+
+    // Check existing ClassTerms
+    const classTerms = await prisma.classTerm.findMany({
+      where: {
+        class: { schoolId },
+        termId: currentTerm.id,
+      },
+      include: {
+        class: true,
+        term: true,
+      },
+    });
+
+    return {
+      success: true,
+      data: {
+        currentTerm,
+        classes,
+        classTerms: classTerms.map((ct) => ({
+          id: ct.id,
+          className: ct.class.name,
+          termName: ct.term.name,
+        })),
+        missingClasses: classes
+          .filter((c) => !classTerms.some((ct) => ct.classId === c.id))
+          .map((c) => c.name),
+      },
+    };
+  } catch (error: any) {
     return { success: false, error: error.message };
   }
 }

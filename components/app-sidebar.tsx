@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import Image from "next/image"
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import Image from "next/image";
 import {
   BarChart3,
   BookOpen,
@@ -23,7 +23,7 @@ import {
   Users,
   ScreenShare,
   ComputerIcon,
-} from "lucide-react"
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -37,23 +37,27 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-} from "@/components/ui/sidebar"
-import { SidebarMenuButton } from "@/components/ui/sidebar-menu-button"
-import { Button } from "@/components/ui/button"
-import { useState } from "react"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+} from "@/components/ui/sidebar";
+import { SidebarMenuButton } from "@/components/ui/sidebar-menu-button";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 interface AppSidebarProps {
-  userRole: string | null // Change from Role to string
+  userRole: string | null; // Change from Role to string
   schoolInfo?: {
-    name: string
-    code: string
-    logoUrl?: string | null
-  } | null
+    name: string;
+    code: string;
+    logoUrl?: string | null;
+  } | null;
 }
 
 export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
-  const pathname = usePathname()
+  const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     overview: true,
     administration: true,
@@ -63,27 +67,27 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
     children: true,
     account: true,
     resultsCompilation: true,
-  })
+  });
 
   // Convert string role to the format used in component
   const getRoleString = (role: string | null): string | null => {
-    if (!role) return null
+    if (!role) return null;
     // Convert to lowercase and replace underscores with hyphens
-    return role.toLowerCase().replace("_", "-")
-  }
+    return role.toLowerCase().replace("_", "-");
+  };
 
-  const roleString = getRoleString(userRole)
+  const roleString = getRoleString(userRole);
 
   const toggleGroup = (group: string) => {
     setOpenGroups((prev) => ({
       ...prev,
       [group]: !prev[group],
-    }))
-  }
+    }));
+  };
 
   const handleLogout = async () => {
-    window.location.href = "/api/auth/signout?callbackUrl=/auth/login"
-  }
+    window.location.href = "/api/auth/signout?callbackUrl=/auth/login";
+  };
 
   // Generate school abbreviation from school name
   const getSchoolAbbreviation = (schoolName: string): string => {
@@ -91,8 +95,8 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
       .split(" ")
       .map((word) => word.charAt(0).toUpperCase())
       .join("")
-      .slice(0, 3) // Limit to 3 characters
-  }
+      .slice(0, 3); // Limit to 3 characters
+  };
 
   return (
     <Sidebar>
@@ -104,32 +108,44 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
               {schoolInfo.logoUrl ? (
                 <div className="flex-shrink-0 relative h-8 w-8">
                   <Image
-                  src={schoolInfo.logoUrl as string}
-                  alt={`${schoolInfo.name} Logo`}
-                  width={32}
-                  height={32}
-                  className="rounded-md object-contain h-8 w-8"
-                  onError={(e) => {
-                    console.error("Failed to load school logo:", schoolInfo.logoUrl)
-                    // hide the broken image
-                    e.currentTarget.style.display = "none"
-                    // reveal the fallback icon element
-                    const fallback = e.currentTarget.parentElement?.querySelector(".fallback-icon")
-                    if (fallback) fallback.classList.remove("invisible")
-                  }}
+                    src={schoolInfo.logoUrl as string}
+                    alt={`${schoolInfo.name} Logo`}
+                    width={32}
+                    height={32}
+                    className="rounded-md object-contain h-8 w-8"
+                    onError={(e) => {
+                      console.error(
+                        "Failed to load school logo:",
+                        schoolInfo.logoUrl,
+                      );
+                      // hide the broken image
+                      e.currentTarget.style.display = "none";
+                      // reveal the fallback icon element
+                      const fallback =
+                        e.currentTarget.parentElement?.querySelector(
+                          ".fallback-icon",
+                        );
+                      if (fallback) fallback.classList.remove("invisible");
+                    }}
                   />
                   <div className="fallback-icon invisible h-8 w-8 bg-primary/10 rounded-md flex items-center justify-center absolute inset-0">
-                  <School className="h-4 w-4 text-primary" />
+                    <School className="h-4 w-4 text-primary" />
                   </div>
                 </div>
               ) : (
                 <div className="flex-shrink-0 h-8 w-8 bg-primary/10 rounded-md flex items-center justify-center">
-                  <span className="text-xs font-bold text-primary">{getSchoolAbbreviation(schoolInfo.name)}</span>
+                  <span className="text-xs font-bold text-primary">
+                    {getSchoolAbbreviation(schoolInfo.name)}
+                  </span>
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold truncate">{schoolInfo.name}</div>
-                <div className="text-xs text-muted-foreground">{schoolInfo.code}</div>
+                <div className="text-sm font-semibold truncate">
+                  {schoolInfo.name}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {schoolInfo.code}
+                </div>
               </div>
             </>
           ) : (
@@ -144,19 +160,27 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
 
       <SidebarContent>
         {/* Overview Group */}
-        <Collapsible open={openGroups.overview} onOpenChange={() => toggleGroup("overview")}>
+        <Collapsible
+          open={openGroups.overview}
+          onOpenChange={() => toggleGroup("overview")}
+        >
           <SidebarGroup>
             <CollapsibleTrigger asChild>
               <SidebarGroupLabel className="flex justify-between cursor-pointer">
                 Overview
-                <ChevronDown className={`h-4 w-4 transition-transform ${openGroups.overview ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${openGroups.overview ? "rotate-180" : ""}`}
+                />
               </SidebarGroupLabel>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton href="/dashboard" isActive={pathname === "/dashboard"}>
+                    <SidebarMenuButton
+                      href="/dashboard"
+                      isActive={pathname === "/dashboard"}
+                    >
                       <LayoutDashboard className="h-4 w-4" />
                       <span>Dashboard</span>
                     </SidebarMenuButton>
@@ -169,7 +193,10 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
 
         {/* Role-specific Groups */}
         {roleString === "super-admin" && (
-          <Collapsible open={openGroups.administration} onOpenChange={() => toggleGroup("administration")}>
+          <Collapsible
+            open={openGroups.administration}
+            onOpenChange={() => toggleGroup("administration")}
+          >
             <SidebarGroup>
               <CollapsibleTrigger asChild>
                 <SidebarGroupLabel className="flex justify-between cursor-pointer">
@@ -196,16 +223,28 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/super-admin/sessions"}>
-                                <Link href="/dashboard/super-admin/sessions">All Sessions</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/super-admin/sessions"
+                                }
+                              >
+                                <Link href="/dashboard/super-admin/sessions">
+                                  All Sessions
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/super-admin/sessions/create"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/super-admin/sessions/create"
+                                }
                               >
-                                <Link href="/dashboard/super-admin/sessions/create">Create Session</Link>
+                                <Link href="/dashboard/super-admin/sessions/create">
+                                  Create Session
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                           </SidebarMenuSub>
@@ -227,16 +266,28 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/super-admin/terms"}>
-                                <Link href="/dashboard/super-admin/terms">All Terms</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/super-admin/terms"
+                                }
+                              >
+                                <Link href="/dashboard/super-admin/terms">
+                                  All Terms
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/super-admin/terms/create"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/super-admin/terms/create"
+                                }
                               >
-                                <Link href="/dashboard/super-admin/terms/create">Create Term</Link>
+                                <Link href="/dashboard/super-admin/terms/create">
+                                  Create Term
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                           </SidebarMenuSub>
@@ -258,16 +309,28 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/super-admin/schools"}>
-                                <Link href="/dashboard/super-admin/schools">View All</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/super-admin/schools"
+                                }
+                              >
+                                <Link href="/dashboard/super-admin/schools">
+                                  View All
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/super-admin/schools/add"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/super-admin/schools/add"
+                                }
                               >
-                                <Link href="/dashboard/super-admin/schools/add">Add School</Link>
+                                <Link href="/dashboard/super-admin/schools/add">
+                                  Add School
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                           </SidebarMenuSub>
@@ -291,9 +354,14 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/super-admin/users/admins"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/super-admin/users/admins"
+                                }
                               >
-                                <Link href="/dashboard/super-admin/users/admins">Admins</Link>
+                                <Link href="/dashboard/super-admin/users/admins">
+                                  Admins
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             {/* <SidebarMenuSubItem>
@@ -330,7 +398,9 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/super-admin/analytics"
-                        isActive={pathname === "/dashboard/super-admin/analytics"}
+                        isActive={
+                          pathname === "/dashboard/super-admin/analytics"
+                        }
                       >
                         <BarChart3 className="h-4 w-4" />
                         <span>Analytics</span>
@@ -344,7 +414,10 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
         )}
 
         {roleString === "admin" && (
-          <Collapsible open={openGroups.schoolManagement} onOpenChange={() => toggleGroup("schoolManagement")}>
+          <Collapsible
+            open={openGroups.schoolManagement}
+            onOpenChange={() => toggleGroup("schoolManagement")}
+          >
             <SidebarGroup>
               <CollapsibleTrigger asChild>
                 <SidebarGroupLabel className="flex justify-between cursor-pointer">
@@ -381,13 +454,27 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/teachers"}>
-                                <Link href="/dashboard/admin/teachers">All Teachers</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/teachers"
+                                }
+                              >
+                                <Link href="/dashboard/admin/teachers">
+                                  All Teachers
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/teachers/new"}>
-                                <Link href="/dashboard/admin/teachers/new">Add Teacher</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/teachers/new"
+                                }
+                              >
+                                <Link href="/dashboard/admin/teachers/new">
+                                  Add Teacher
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                           </SidebarMenuSub>
@@ -409,21 +496,41 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/students"}>
-                                <Link href="/dashboard/admin/students">All Students</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/students"
+                                }
+                              >
+                                <Link href="/dashboard/admin/students">
+                                  All Students
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/students/create"}>
-                                <Link href="/dashboard/admin/students/create">Add Student</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/students/create"
+                                }
+                              >
+                                <Link href="/dashboard/admin/students/create">
+                                  Add Student
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === "/dashboard/admin/compiler/student-transitions"}
-                              >
-                                <Link href="/dashboard/admin/compiler/student-transitions">Class Configuration</Link>
-                              </SidebarMenuSubButton>
+                              asChild
+                              isActive={
+                                pathname ===
+                                "/dashboard/admin/compiler/student-transitions"
+                              }
+                            >
+                              <Link href="/dashboard/admin/compiler/student-transitions">
+                                Class Configuration
+                              </Link>
+                            </SidebarMenuSubButton>
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
@@ -476,37 +583,56 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/admin/compiler/subject-results/entry"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/compiler/subject-results/entry"
+                                }
                               >
-                                <Link href="/dashboard/admin/compiler/subject-results/entry">Results Entry</Link>
+                                <Link href="/dashboard/admin/compiler/subject-results/entry">
+                                  Results Entry
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/admin/compiler/class-results"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/compiler/class-results"
+                                }
                               >
-                                <Link href="/dashboard/admin/compiler/class-results">Class Results</Link>
+                                <Link href="/dashboard/admin/compiler/class-results">
+                                  Class Results
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/admin/compiler/continuous-assessments"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/compiler/continuous-assessments"
+                                }
                               >
-                                <Link href="/dashboard/admin/compiler/continuous-assessments">C. A Sheet</Link>
+                                <Link href="/dashboard/admin/compiler/continuous-assessments">
+                                  C. A Sheet
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/admin/compiler/student-reports"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/compiler/student-reports"
+                                }
                               >
-                                <Link href="/dashboard/admin/compiler/student-reports">Student Termly Result</Link>
+                                <Link href="/dashboard/admin/compiler/student-reports">
+                                  Student Termly Result
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
-                            <SidebarMenuSubItem>
-                            </SidebarMenuSubItem>
+                            <SidebarMenuSubItem></SidebarMenuSubItem>
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
@@ -526,29 +652,41 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/school-terms"}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/school-terms"
+                                }
+                              >
                                 <Link href="/dashboard/admin/school-terms">
                                   View Terms
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuItem>
-                            <SidebarMenuButton
-                              href="/dashboard/admin/class-terms"
-                              isActive={pathname === "/dashboard/admin/class-terms"}
-                            >
-                              {/* <ClipboardList className="h-4 w-4" /> */}
-                              <span>Class Terms</span>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                            {/* <SidebarMenuSubItem>
+                              <SidebarMenuButton
+                                href="/dashboard/admin/class-terms"
+                                isActive={
+                                  pathname === "/dashboard/admin/class-terms"
+                                }
+                              >
+                                {/* <ClipboardList className="h-4 w-4" /> */}
+                                <span>Class Terms</span>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                            <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
-                                isActive={pathname === "/dashboard/admin/school-terms/create"}
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/school-terms/create"
+                                }
                               >
-                                <Link href="/dashboard/admin/school-terms/create">Create Term</Link>
+                                <Link href="/dashboard/admin/school-terms/create">
+                                  Create Term
+                                </Link>
                               </SidebarMenuSubButton>
-                            </SidebarMenuSubItem> */}
+                            </SidebarMenuSubItem>
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
@@ -568,13 +706,27 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/classes"}>
-                                <Link href="/dashboard/admin/classes">View Classes</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/classes"
+                                }
+                              >
+                                <Link href="/dashboard/admin/classes">
+                                  View Classes
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/classes/create"}>
-                                <Link href="/dashboard/admin/classes/create">Create Class</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/classes/create"
+                                }
+                              >
+                                <Link href="/dashboard/admin/classes/create">
+                                  Create Class
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                           </SidebarMenuSub>
@@ -595,13 +747,28 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/subjects"}>
-                                <Link href="/dashboard/admin/subjects">View Subjects</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/subjects"
+                                }
+                              >
+                                <Link href="/dashboard/admin/subjects">
+                                  View Subjects
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/subjects/create"}>
-                                <Link href="/dashboard/admin/subjects/create">Create Subject</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/subjects/create"
+                                }
+                              >
+                                <Link href="/dashboard/admin/subjects/create">
+                                  Create Subject
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                           </SidebarMenuSub>
@@ -623,13 +790,27 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <CollapsibleContent>
                           <SidebarMenuSub>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/parents"}>
-                                <Link href="/dashboard/admin/parents">All Parents</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/parents"
+                                }
+                              >
+                                <Link href="/dashboard/admin/parents">
+                                  All Parents
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                             <SidebarMenuSubItem>
-                              <SidebarMenuSubButton asChild isActive={pathname === "/dashboard/admin/parents/create"}>
-                                <Link href="/dashboard/admin/parents/create">Add Parent</Link>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname === "/dashboard/admin/parents/create"
+                                }
+                              >
+                                <Link href="/dashboard/admin/parents/create">
+                                  Add Parent
+                                </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
                           </SidebarMenuSub>
@@ -640,7 +821,9 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/admin/school-settings"
-                        isActive={pathname.startsWith("/dashboard/admin/school-settings")}
+                        isActive={pathname.startsWith(
+                          "/dashboard/admin/school-settings",
+                        )}
                       >
                         <Settings className="h-4 w-4" />
                         <span>School Settings</span>
@@ -654,12 +837,17 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
         )}
 
         {roleString === "teacher" && (
-          <Collapsible open={openGroups.teaching} onOpenChange={() => toggleGroup("teaching")}>
+          <Collapsible
+            open={openGroups.teaching}
+            onOpenChange={() => toggleGroup("teaching")}
+          >
             <SidebarGroup>
               <CollapsibleTrigger asChild>
                 <SidebarGroupLabel className="flex justify-between cursor-pointer">
                   Teaching
-                  <ChevronDown className={`h-4 w-4 transition-transform ${openGroups.teaching ? "rotate-180" : ""}`} />
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${openGroups.teaching ? "rotate-180" : ""}`}
+                  />
                 </SidebarGroupLabel>
               </CollapsibleTrigger>
               <CollapsibleContent>
@@ -709,12 +897,17 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
         )}
 
         {roleString === "student" && (
-          <Collapsible open={openGroups.academics} onOpenChange={() => toggleGroup("academics")}>
+          <Collapsible
+            open={openGroups.academics}
+            onOpenChange={() => toggleGroup("academics")}
+          >
             <SidebarGroup>
               <CollapsibleTrigger asChild>
                 <SidebarGroupLabel className="flex justify-between cursor-pointer">
                   Academics
-                  <ChevronDown className={`h-4 w-4 transition-transform ${openGroups.academics ? "rotate-180" : ""}`} />
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${openGroups.academics ? "rotate-180" : ""}`}
+                  />
                 </SidebarGroupLabel>
               </CollapsibleTrigger>
               <CollapsibleContent>
@@ -764,12 +957,17 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
         )}
 
         {roleString === "parent" && (
-          <Collapsible open={openGroups.children} onOpenChange={() => toggleGroup("children")}>
+          <Collapsible
+            open={openGroups.children}
+            onOpenChange={() => toggleGroup("children")}
+          >
             <SidebarGroup>
               <CollapsibleTrigger asChild>
                 <SidebarGroupLabel className="flex justify-between cursor-pointer">
                   Children
-                  <ChevronDown className={`h-4 w-4 transition-transform ${openGroups.children ? "rotate-180" : ""}`} />
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${openGroups.children ? "rotate-180" : ""}`}
+                  />
                 </SidebarGroupLabel>
               </CollapsibleTrigger>
               <CollapsibleContent>
@@ -787,7 +985,9 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/parent/academic-progress"
-                        isActive={pathname === "/dashboard/parent/academic-progress"}
+                        isActive={
+                          pathname === "/dashboard/parent/academic-progress"
+                        }
                       >
                         <BookOpenCheck className="h-4 w-4" />
                         <span>Academic Progress</span>
@@ -803,7 +1003,10 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
-                      <SidebarMenuButton href="/dashboard/parent/fees" isActive={pathname === "/dashboard/parent/fees"}>
+                      <SidebarMenuButton
+                        href="/dashboard/parent/fees"
+                        isActive={pathname === "/dashboard/parent/fees"}
+                      >
                         <DollarSign className="h-4 w-4" />
                         <span>Fees</span>
                       </SidebarMenuButton>
@@ -816,19 +1019,27 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
         )}
 
         {/* Account Group - Common for all roles */}
-        <Collapsible open={openGroups.account} onOpenChange={() => toggleGroup("account")}>
+        <Collapsible
+          open={openGroups.account}
+          onOpenChange={() => toggleGroup("account")}
+        >
           <SidebarGroup>
             <CollapsibleTrigger asChild>
               <SidebarGroupLabel className="flex justify-between cursor-pointer">
                 Account
-                <ChevronDown className={`h-4 w-4 transition-transform ${openGroups.account ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${openGroups.account ? "rotate-180" : ""}`}
+                />
               </SidebarGroupLabel>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton href="/dashboard/profile" isActive={pathname === "/dashboard/profile"}>
+                    <SidebarMenuButton
+                      href="/dashboard/profile"
+                      isActive={pathname === "/dashboard/profile"}
+                    >
                       <User className="h-4 w-4" />
                       <span>Profile</span>
                     </SidebarMenuButton>
@@ -848,12 +1059,16 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
 
       <SidebarFooter>
         <div className="px-3 py-2">
-          <Button variant="outline" className="w-full justify-start gap-2 bg-transparent" onClick={handleLogout}>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 bg-transparent"
+            onClick={handleLogout}
+          >
             <LogOut className="h-4 w-4" />
             <span>Log out</span>
           </Button>
         </div>
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }

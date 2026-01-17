@@ -1,52 +1,52 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
-import { prisma } from "@/lib/db"
-import { PageTransition } from "@/components/dashboard/page-transition"
-import StudentEditForm from "@/components/student-management/student-edit-form"
+// app/dashboard/(roles)/admin/students/[id]/edit/page.tsx
+import { auth } from "@/auth";
+import { redirect, notFound } from "next/navigation";
+import { PageTransition } from "@/components/dashboard/page-transition";
+import StudentEditForm from "@/components/student-management/student-edit-form";
+import { BackButtonClient } from "./back-button-client"; // We'll create this
 
 interface EditStudentPageProps {
-  params: {
-    id: string
-  }
+  params: Promise<{
+    id: string;
+  }>;
 }
 
-export default async function EditStudentPage({ params }: EditStudentPageProps) {
-  const session = await auth()
+export default async function EditStudentPage({
+  params,
+}: EditStudentPageProps) {
+  // Resolve dynamic params
+  const { id: studentId } = await params;
 
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
+  if (!studentId) {
+    notFound();
   }
 
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  })
+  // Authenticate user
+  const session = await auth();
 
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error")
+  if (!session?.user) {
+    redirect("/login");
+  }
+
+  // Authorize role
+  if (session.user.role !== "ADMIN") {
+    redirect("/dashboard");
   }
 
   return (
     <PageTransition>
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Edit Student</h2>
-          <p className="text-muted-foreground">
-            Update student information for {admin.school.name} ({admin.school.code})
-          </p>
+      <section className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Edit Student</h1>
+            <p className="text-muted-foreground">Update student information</p>
+          </div>
+          {/* Client component for interactive button */}
+          <BackButtonClient />
         </div>
-        <StudentEditForm studentId={params.id} />
-      </div>
+
+        <StudentEditForm studentId={studentId} />
+      </section>
     </PageTransition>
-  )
+  );
 }
