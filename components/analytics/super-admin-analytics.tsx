@@ -79,7 +79,7 @@ export function SuperAdminAnalytics() {
       setIsLoading(true)
       setError(null)
       const result = await getSystemAnalytics()
-      if (result.success) {
+      if (result.success && result.data) {
         setAnalyticsData(result.data)
       } else {
         setError(result.error || "Failed to fetch analytics data.")

@@ -11,19 +11,20 @@ interface StepperProps {
 
 export function Stepper({ currentStep, className, children }: StepperProps) {
   // Filter out only Step components
-  const steps = React.Children.toArray(children).filter((child) => React.isValidElement(child) && child.type === Step)
+  const steps = React.Children.toArray(children).filter(
+    (child): child is React.ReactElement<StepProps> => React.isValidElement<StepProps>(child) && child.type === Step,
+  )
 
   return (
     <div className={cn("flex items-center justify-between", className)}>
       {steps.map((step, index) => {
-        const stepElement = step as React.ReactElement
-        const isActive = currentStep === stepElement.props.step
-        const isCompleted = currentStep > stepElement.props.step
+        const isActive = currentStep === step.props.step
+        const isCompleted = currentStep > step.props.step
 
         return (
-          <React.Fragment key={stepElement.props.step}>
+          <React.Fragment key={step.props.step}>
             {index > 0 && <div className={cn("flex-1 h-1 mx-2", isCompleted ? "bg-primary" : "bg-muted")} />}
-            {React.cloneElement(stepElement, { isActive, isCompleted })}
+            {React.cloneElement(step, { isActive, isCompleted })}
           </React.Fragment>
         )
       })}

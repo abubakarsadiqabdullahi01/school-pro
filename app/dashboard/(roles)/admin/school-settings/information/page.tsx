@@ -1,19 +1,14 @@
 import { Suspense } from "react"
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { SchoolInformationForm } from "@/components/school-settings-management/school-information-form"
 import { getSchoolInformationData } from "@/app/actions/school-settings"
 import { LoadingSpinner } from "@/components/dashboard/loading-spinner"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function SchoolInformationPage() {
-  const session = await auth()
-
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
+  await requireAdminSchool()
 
   return (
     <div className="space-y-6">
@@ -40,7 +35,7 @@ export default async function SchoolInformationPage() {
 async function SchoolInformationContent() {
   const informationData = await getSchoolInformationData()
 
-  if (!informationData.success) {
+  if (!informationData.success || !informationData.data) {
     return (
       <div className="text-center py-8">
         <p className="text-destructive">Failed to load school information</p>

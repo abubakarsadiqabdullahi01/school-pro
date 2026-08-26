@@ -58,6 +58,7 @@ export default async function TeacherSubjectsPage() {
           name: true,
           startDate: true,
           endDate: true,
+          schoolId: true,
         },
       },
     },
@@ -77,6 +78,7 @@ export default async function TeacherSubjectsPage() {
           name: true,
           startDate: true,
           endDate: true,
+          schoolId: true,
         },
       },
     },
@@ -95,6 +97,7 @@ export default async function TeacherSubjectsPage() {
           id: true,
           name: true,
           code: true,
+          schoolId: true,
         },
       },
       term: {
@@ -128,6 +131,7 @@ export default async function TeacherSubjectsPage() {
               id: true,
               name: true,
               level: true,
+              schoolId: true,
             },
           },
           term: {
@@ -138,6 +142,7 @@ export default async function TeacherSubjectsPage() {
                   name: true,
                   startDate: true,
                   endDate: true,
+                  schoolId: true,
                 },
               },
             },
@@ -149,6 +154,7 @@ export default async function TeacherSubjectsPage() {
                   id: true,
                   name: true,
                   code: true,
+                  schoolId: true,
                 },
               },
             },
@@ -247,9 +253,7 @@ export default async function TeacherSubjectsPage() {
         (sum, tct) => sum + tct.classTerm.students.length,
         0,
       ),
-      currentTermAssignment: relevantClassTerms.find(
-        (tct) => tct.classTerm.term.isCurrent,
-      ),
+      currentTermAssignment: undefined,
     };
   });
 
@@ -272,10 +276,10 @@ export default async function TeacherSubjectsPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+              <h1 className="text-3xl font-bold tracking-tight text-foreground">
                 My Teaching Assignments
               </h1>
-              <p className="text-lg text-gray-600 mt-1">
+              <p className="text-lg text-muted-foreground mt-1">
                 Current term subjects and classes assigned to you
               </p>
             </div>
@@ -292,7 +296,7 @@ export default async function TeacherSubjectsPage() {
 
           {/* Teacher Info Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                   <span className="text-blue-600 font-semibold text-sm">
@@ -301,40 +305,40 @@ export default async function TeacherSubjectsPage() {
                   </span>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">
+                  <p className="font-medium text-foreground">
                     {teacher.user.firstName} {teacher.user.lastName}
                   </p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-muted-foreground">
                     Staff ID: {teacher.staffId}
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
               <div className="text-center">
                 <p className="text-2xl font-bold text-blue-600">
                   {summaryStats.totalSubjects}
                 </p>
-                <p className="text-sm text-gray-600">Subjects Assigned</p>
+                <p className="text-sm text-muted-foreground">Subjects Assigned</p>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
               <div className="text-center">
                 <p className="text-2xl font-bold text-green-600">
                   {summaryStats.totalClasses}
                 </p>
-                <p className="text-sm text-gray-600">Classes</p>
+                <p className="text-sm text-muted-foreground">Classes</p>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
               <div className="text-center">
                 <p className="text-2xl font-bold text-purple-600">
                   {summaryStats.totalStudents}
                 </p>
-                <p className="text-sm text-gray-600">Total Students</p>
+                <p className="text-sm text-muted-foreground">Total Students</p>
               </div>
             </div>
           </div>

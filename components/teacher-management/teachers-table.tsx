@@ -188,7 +188,7 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger>
-            <Badge variant="default" className="bg-green-100 text-green-800">
+            <Badge variant="default" className="bg-green-500/10 text-green-700 dark:text-green-400">
               {classes.length} class{classes.length !== 1 ? "es" : ""}
             </Badge>
           </TooltipTrigger>
@@ -226,7 +226,7 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger>
-            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+            <Badge variant="secondary" className="bg-blue-500/10 text-blue-700 dark:text-blue-400">
               {subjects.length} subject{subjects.length !== 1 ? "s" : ""}
             </Badge>
           </TooltipTrigger>
@@ -295,7 +295,7 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
               Teachers
               <Badge
                 variant="secondary"
-                className="bg-green-100 text-green-800 text-xs"
+                className="bg-green-500/10 text-green-700 dark:text-green-400 text-xs"
               >
                 Current Term
               </Badge>

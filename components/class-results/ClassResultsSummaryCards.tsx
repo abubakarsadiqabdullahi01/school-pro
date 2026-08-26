@@ -51,18 +51,18 @@ export const ClassResultsSummaryCards = memo(function ClassResultsSummaryCards({
     const firstChar = grade.charAt(0).toUpperCase()
     switch (firstChar) {
       case "A":
-        return "bg-green-100 text-green-800"
+        return "bg-green-500/10 text-green-700 dark:text-green-400"
       case "B":
-        return "bg-blue-100 text-blue-800"
+        return "bg-blue-500/10 text-blue-700 dark:text-blue-400"
       case "C":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
       case "D":
       case "E":
-        return "bg-orange-100 text-orange-800"
+        return "bg-orange-500/10 text-orange-700 dark:text-orange-400"
       case "F":
-        return "bg-red-100 text-red-800"
+        return "bg-red-500/10 text-red-700 dark:text-red-400"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 

@@ -13,7 +13,7 @@ export default async function SessionsPage() {
 
   const sessionsResult = await getSessions()
 
-  if (!sessionsResult.success) {
+  if (!sessionsResult.success || !sessionsResult.data) {
     return (
       <PageTransition>
         <div className="flex items-center justify-center h-96">

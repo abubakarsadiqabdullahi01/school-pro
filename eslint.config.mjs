@@ -4,6 +4,16 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
+  {
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "dist/**",
+      "build/**",
+      "coverage/**",
+      "tsconfig.tsbuildinfo",
+    ],
+  },
   js.configs.recommended,
   {
     plugins: {

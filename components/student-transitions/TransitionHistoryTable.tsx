@@ -32,15 +32,15 @@ export const TransitionHistoryTable = memo(function TransitionHistoryTable({
   const getTransitionTypeColor = (type: string) => {
     switch (type) {
       case "PROMOTION":
-        return "bg-green-100 text-green-800"
+        return "bg-green-500/10 text-green-700 dark:text-green-400"
       case "SAME_CLASS":
-        return "bg-blue-100 text-blue-800"
+        return "bg-blue-500/10 text-blue-700 dark:text-blue-400"
       case "DEMOTION":
-        return "bg-red-100 text-red-800"
+        return "bg-red-500/10 text-red-700 dark:text-red-400"
       case "LATERAL":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -57,28 +57,28 @@ export const TransitionHistoryTable = memo(function TransitionHistoryTable({
   if (!transitions.length) {
     return (
       <div className="py-12 text-center">
-        <p className="text-gray-500">No transition history found.</p>
+        <p className="text-muted-foreground">No transition history found.</p>
       </div>
     )
   }
 
   return (
-    <div className="rounded-md border border-gray-300 overflow-x-auto">
-      <Table className="min-w-full bg-white">
+    <div className="rounded-md border border-border overflow-x-auto">
+      <Table className="min-w-full bg-card">
         <TableHeader>
-          <TableRow className="bg-gray-50">
-            <TableHead className="font-bold text-gray-800">Student</TableHead>
-            <TableHead className="font-bold text-gray-800">Admission No.</TableHead>
-            <TableHead className="font-bold text-gray-800">From</TableHead>
-            <TableHead className="font-bold text-gray-800">To</TableHead>
-            <TableHead className="font-bold text-gray-800">Type</TableHead>
-            <TableHead className="font-bold text-gray-800">Date</TableHead>
-            <TableHead className="font-bold text-gray-800">Notes</TableHead>
+          <TableRow className="bg-muted/50">
+            <TableHead className="font-bold text-foreground">Student</TableHead>
+            <TableHead className="font-bold text-foreground">Admission No.</TableHead>
+            <TableHead className="font-bold text-foreground">From</TableHead>
+            <TableHead className="font-bold text-foreground">To</TableHead>
+            <TableHead className="font-bold text-foreground">Type</TableHead>
+            <TableHead className="font-bold text-foreground">Date</TableHead>
+            <TableHead className="font-bold text-foreground">Notes</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {transitions.map((transition) => (
-            <TableRow key={transition.id} className="hover:bg-gray-50">
+            <TableRow key={transition.id} className="hover:bg-muted/50">
               <TableCell className="font-medium">{transition.studentName}</TableCell>
               <TableCell className="font-mono">{transition.admissionNo}</TableCell>
               <TableCell>

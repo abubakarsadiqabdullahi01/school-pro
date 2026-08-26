@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { GraduationCap, BarChart3, School, ChevronRight, Users, Calendar, FileText } from "lucide-react"
+import { GraduationCap, BarChart3, School, ChevronRight, Users, Calendar, FileText, ClipboardList } from "lucide-react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 
@@ -15,16 +15,25 @@ interface SchoolSettingsData {
     address: string
     phone: string
     email: string
-    website?: string
-    logoUrl?: string
+    website?: string | null
+    logoUrl?: string | null
     admissionPrefix: string
     admissionFormat: string
     admissionSequenceStart: number
   }
+  /** Null when the school has never saved one — the default 10/10/10/70 applies. */
+  assessmentScheme: {
+    name: string
+    ca1Max: number
+    ca2Max: number
+    ca3Max: number
+    examMax: number
+    total: number
+  } | null
   gradingSystem: {
     id: string
     name: string
-    description?: string
+    description?: string | null
     isDefault: boolean
     passMark: number
     levelsCount: number
@@ -69,6 +78,20 @@ export function SchoolSettingsOverview({ data }: SchoolSettingsOverviewProps) {
             `Grade Levels: ${data.gradingSystem.levelsCount}`,
           ]
         : ["No grading system configured", "Default system will be used"],
+    },
+    {
+      title: "Assessment Scheme",
+      description: "Set how a subject's marks are split between CA and exam",
+      icon: ClipboardList,
+      href: "/dashboard/admin/school-settings/assessment-scheme",
+      status: data.assessmentScheme ? "Configured" : "Default",
+      details: data.assessmentScheme
+        ? [
+            `Scheme: ${data.assessmentScheme.name}`,
+            `CA: ${data.assessmentScheme.ca1Max} + ${data.assessmentScheme.ca2Max} + ${data.assessmentScheme.ca3Max}`,
+            `Exam: ${data.assessmentScheme.examMax}  ·  Total: ${data.assessmentScheme.total}`,
+          ]
+        : ["Using the default 10/10/10 CA plus 70 exam", "Subjects marked out of 100"],
     },
     {
       title: "School Information",

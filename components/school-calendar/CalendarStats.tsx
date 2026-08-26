@@ -63,66 +63,66 @@ export function CalendarStats({ sessions }: CalendarStatsProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Total Sessions</CardTitle>
             <CalendarDays className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{sessions.length}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{sessions.length}</div>
             <p className="text-xs text-muted-foreground">
               {sessions.filter((s) => s.isCurrent).length} currently active
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Avg Session Length</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{averageStats.avgSessionWeeks}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{averageStats.avgSessionWeeks}</div>
             <p className="text-xs text-muted-foreground">weeks per session</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Avg Academic Weeks</CardTitle>
             <BookOpen className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{averageStats.avgAcademicWeeks}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{averageStats.avgAcademicWeeks}</div>
             <p className="text-xs text-muted-foreground">learning weeks per session</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Avg Break Weeks</CardTitle>
             <Coffee className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{averageStats.avgBreakWeeks}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{averageStats.avgBreakWeeks}</div>
             <p className="text-xs text-muted-foreground">break weeks per session</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid items-stretch grid-cols-1 gap-5 xl:grid-cols-2">
         {/* Session Comparison */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Session Comparison</CardTitle>
+        <Card className="h-full shadow-sm">
+          <CardHeader className="p-4">
+            <CardTitle className="text-base">Session Comparison</CardTitle>
             <CardDescription>Compare academic and break weeks across sessions</CardDescription>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+          <CardContent className="p-4 pt-0">
+            <ResponsiveContainer width="100%" height={220}>
               <BarChart data={sessionData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />
@@ -136,13 +136,13 @@ export function CalendarStats({ sessions }: CalendarStatsProps) {
         </Card>
 
         {/* Academic vs Break Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Time Distribution</CardTitle>
+        <Card className="h-full shadow-sm">
+          <CardHeader className="p-4">
+            <CardTitle className="text-base">Time Distribution</CardTitle>
             <CardDescription>Overall academic vs break time distribution</CardDescription>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+          <CardContent className="p-4 pt-0">
+            <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie
                   data={pieData}
@@ -166,12 +166,12 @@ export function CalendarStats({ sessions }: CalendarStatsProps) {
       </div>
 
       {/* Term Analysis */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Term Analysis</CardTitle>
+      <Card className="shadow-sm">
+        <CardHeader className="p-4">
+          <CardTitle className="text-base">Term Analysis</CardTitle>
           <CardDescription>Detailed breakdown of terms across all sessions</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 pt-0">
           <div className="space-y-4">
             {sessions.map((session) => (
               <div key={session.id} className="space-y-3">
@@ -217,13 +217,13 @@ export function CalendarStats({ sessions }: CalendarStatsProps) {
 
       {/* Break Analysis */}
       {breakAnalysis.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Break Period Analysis</CardTitle>
+        <Card className="shadow-sm">
+          <CardHeader className="p-4">
+            <CardTitle className="text-base">Break Period Analysis</CardTitle>
             <CardDescription>Analysis of break periods across sessions</CardDescription>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+          <CardContent className="p-4 pt-0">
+            <ResponsiveContainer width="100%" height={220}>
               <BarChart data={breakAnalysis}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="break" />

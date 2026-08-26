@@ -33,7 +33,7 @@ export default async function AdminParentsPage() {
   // Fetch all parents for the admin's school with student count
   const parents = await prisma.parent.findMany({
     where: {
-      schoolId: admin.schoolId,
+      schoolId: admin.school.id,
     },
     include: {
       user: {

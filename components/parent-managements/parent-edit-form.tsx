@@ -91,7 +91,7 @@ export function ParentEditForm({ parentData }: ParentEditFormProps) {
         router.refresh()
       } else {
         toast.error("Update Failed", {
-          description: result.error || "Failed to update parent. Please try again.",
+          description: "error" in result ? result.error : "Failed to update parent. Please try again.",
         })
       }
     } catch (error) {

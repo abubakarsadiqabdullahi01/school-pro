@@ -6,28 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StudentScoreRow } from "./StudentScoreRow"
-import type { Student, ScoreEntry } from "./types"
-
-interface AssessmentDataItem {
-  id: string | null
-  studentId: string
-  studentClassTermId: string
-  studentName: string
-  admissionNo: string
-  ca1: number | null
-  ca2: number | null
-  ca3: number | null
-  exam: number | null
-  totalScore: number | null
-  grade: string | null
-  remark: string | null
-  isAbsent: boolean
-  isExempt: boolean
-  isPublished: boolean
-  completionStatus: string
-  hasData: boolean
-  lastUpdated: Date | null
-}
+import type { AssessmentDataItem, Student, ScoreEntry } from "./types"
 
 interface ScoreEntryTableProps {
   students: Student[]
@@ -67,7 +46,7 @@ export const ScoreEntryTable = memo(function ScoreEntryTable({
   if (students.length === 0) {
     return (
       <div className="py-12 text-center">
-        <p className="text-gray-500">No students found for this class.</p>
+        <p className="text-muted-foreground">No students found for this class.</p>
       </div>
     )
   }
@@ -78,7 +57,7 @@ export const ScoreEntryTable = memo(function ScoreEntryTable({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-muted-foreground">
           Showing {filteredStudents.length} of {students.length} students
           {assessmentData.length > 0 && (
             <span className="ml-2 text-blue-600">
@@ -98,40 +77,40 @@ export const ScoreEntryTable = memo(function ScoreEntryTable({
         </div>
       </div>
 
-      <div className="rounded-md border border-gray-300 overflow-x-auto">
-        <Table className="min-w-full bg-white">
+      <div className="rounded-md border border-border overflow-x-auto">
+        <Table className="min-w-full bg-card">
           <TableHeader>
-            <TableRow className="bg-gray-50">
-              <TableHead className="w-[60px] text-center font-bold text-gray-800">S/N</TableHead>
-              <TableHead className="w-[120px] text-center font-bold text-gray-800">Admission No.</TableHead>
-              <TableHead className="font-bold text-gray-800">Name</TableHead>
-              <TableHead className="w-[80px] text-center font-bold text-gray-800">
+            <TableRow className="bg-muted/50">
+              <TableHead className="w-[60px] text-center font-bold text-foreground">S/N</TableHead>
+              <TableHead className="w-[120px] text-center font-bold text-foreground">Admission No.</TableHead>
+              <TableHead className="font-bold text-foreground">Name</TableHead>
+              <TableHead className="w-[80px] text-center font-bold text-foreground">
                 Absent
                 <div className="text-xs font-normal">✓</div>
               </TableHead>
-              <TableHead className="w-[80px] text-center font-bold text-gray-800">
+              <TableHead className="w-[80px] text-center font-bold text-foreground">
                 Exempt
                 <div className="text-xs font-normal">✓</div>
               </TableHead>
-              <TableHead className="w-[100px] text-center font-bold text-gray-800">
+              <TableHead className="w-[100px] text-center font-bold text-foreground">
                 1st C.A
                 <div className="text-xs font-normal">(10 marks)</div>
               </TableHead>
-              <TableHead className="w-[100px] text-center font-bold text-gray-800">
+              <TableHead className="w-[100px] text-center font-bold text-foreground">
                 2nd C.A
                 <div className="text-xs font-normal">(10 marks)</div>
               </TableHead>
-              <TableHead className="w-[100px] text-center font-bold text-gray-800">
+              <TableHead className="w-[100px] text-center font-bold text-foreground">
                 3rd C.A
                 <div className="text-xs font-normal">(10 marks)</div>
               </TableHead>
-              <TableHead className="w-[100px] text-center font-bold text-gray-800">
+              <TableHead className="w-[100px] text-center font-bold text-foreground">
                 Exam
                 <div className="text-xs font-normal">(70 marks)</div>
               </TableHead>
-              <TableHead className="w-[100px] text-center font-bold text-gray-800">Total</TableHead>
-              <TableHead className="w-[80px] text-center font-bold text-gray-800">Grade</TableHead>
-              <TableHead className="w-[100px] text-center font-bold text-gray-800">Status</TableHead>
+              <TableHead className="w-[100px] text-center font-bold text-foreground">Total</TableHead>
+              <TableHead className="w-[80px] text-center font-bold text-foreground">Grade</TableHead>
+              <TableHead className="w-[100px] text-center font-bold text-foreground">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

@@ -40,7 +40,7 @@ export default async function AdminCreateParentPage() {
           </p>
         </div>
 
-        <ParentCreateForm schoolId={admin.schoolId} schoolName={admin.school.name} />
+        <ParentCreateForm schoolId={admin.school.id} schoolName={admin.school.name} />
       </div>
     </PageTransition>
   )

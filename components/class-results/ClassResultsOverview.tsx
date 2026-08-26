@@ -172,7 +172,7 @@ export function ClassResultsOverview({
     }
 
     const totalStudents = results.length
-    const totalScores = results.map((r) => r.averageScore).filter((score) => score > 0)
+    const totalScores = results.map((r) => r.averageScore).filter((score) => Number.isFinite(score))
     const averageScore = totalScores.length > 0 ? totalScores.reduce((a, b) => a + b, 0) / totalScores.length : 0
     const passCount = results.filter((r) => r.averageScore >= (gradingSystem?.passMark || 40)).length
     const passRate = totalStudents > 0 ? (passCount / totalStudents) * 100 : 0
@@ -423,7 +423,7 @@ export function ClassResultsOverview({
           <CardTitle className="text-2xl font-bold flex items-center gap-2">
             Class Results Overview
             {isLoadingGrading ? (
-              <span className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading grading system...
               </span>
@@ -441,12 +441,12 @@ export function ClassResultsOverview({
                 Academic Term
               </Label>
               <Select value={form.termId} onValueChange={handleTermChange}>
-                <SelectTrigger id="term" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+                <SelectTrigger id="term" className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a term" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+                <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
                   {terms.map((term) => (
-                    <SelectItem key={term.id} value={term.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors">
+                    <SelectItem key={term.id} value={term.id} className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors">
                       {term.session.name} - {term.name}
                       {term.isCurrent && " (Current)"}
                     </SelectItem>
@@ -460,12 +460,12 @@ export function ClassResultsOverview({
                 Class Section
               </Label>
               <Select value={form.level} onValueChange={handleLevelChange}>
-                <SelectTrigger id="level" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+                <SelectTrigger id="level" className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a Section" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+                <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
                   {classLevels.map((level) => (
-                    <SelectItem key={level} value={level} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors">
+                    <SelectItem key={level} value={level} className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors">
                       {level}
                     </SelectItem>
                   ))}
@@ -484,25 +484,25 @@ export function ClassResultsOverview({
               >
                 <SelectTrigger
                   id="class"
-                  className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-muted disabled:cursor-not-allowed"
                 >
                   {isLoadingClasses ? (
                     <div className="flex items-center justify-center">
-                      <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     </div>
                   ) : (
                     <SelectValue placeholder="Select a class" />
                   )}
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+                <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
                   {classes.map((cls) => (
-                    <SelectItem key={cls.id} value={cls.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors">
+                    <SelectItem key={cls.id} value={cls.id} className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors">
                       {cls.name}
                       {cls.teacherName && ` (${cls.teacherName})`}
                     </SelectItem>
                   ))}
                   {classes.length === 0 && (
-                    <SelectItem value="none" disabled className="px-3 py-2 text-gray-500 cursor-not-allowed">
+                    <SelectItem value="none" disabled className="px-3 py-2 text-muted-foreground cursor-not-allowed">
                       No classes available
                     </SelectItem>
                   )}
@@ -517,8 +517,8 @@ export function ClassResultsOverview({
       {isLoadingGrading ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-gray-600" />
-            <p className="mt-4 text-gray-500">Loading grading system...</p>
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+            <p className="mt-4 text-muted-foreground">Loading grading system...</p>
           </CardContent>
         </Card>
       ) : !gradingSystem ? (
@@ -655,7 +655,7 @@ export function ClassResultsOverview({
                                             }}
                                           />
                                         ) : (
-                                          <div className="h-20 w-20 flex items-center justify-center rounded-full bg-gray-200 text-gray-700 font-semibold text-lg">
+                                          <div className="h-20 w-20 flex items-center justify-center rounded-full bg-muted text-foreground font-semibold text-lg">
                                             {schoolName
                                               ? schoolName
                                                   .split(" ")
@@ -671,23 +671,23 @@ export function ClassResultsOverview({
                     
                                 {/* School information - centered in remaining space */}
                                 <div className="flex-1 text-center space-y-2">
-                                  <h1 className="text-3xl font-bold text-gray-800">{schoolName.toUpperCase()}</h1>
-                                  <p className="text-base text-gray-600">{schoolAddress}</p>
-                                  <p className="text-base text-gray-600">
+                                  <h1 className="text-3xl font-bold text-foreground">{schoolName.toUpperCase()}</h1>
+                                  <p className="text-base text-muted-foreground">{schoolAddress}</p>
+                                  <p className="text-base text-muted-foreground">
                                     GSM: {schoolPhone} | Email: {schoolEmail}
                                   </p>
-                                  <h2 className="text-xl font-semibold text-gray-700">Students Termly Continuous Assessment Sheet</h2>
-                                  <hr className="border-t border-gray-400 my-2 w-3/4 mx-auto" />
+                                  <h2 className="text-xl font-semibold text-foreground">Students Termly Continuous Assessment Sheet</h2>
+                                  <hr className="border-t border-border my-2 w-3/4 mx-auto" />
                                 </div>
                               </div>
 
                     <div className="space-y-2">
-                      <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                      <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                         <span>Class: {selectedClass?.name || "-"}</span>
                         <span>Term: {selectedTerm?.name || "-"}</span>
                         <span>Session: {selectedTerm?.session.name || "-"}</span>
                       </div>
-                      <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                      <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                         <span>Teacher: {selectedClass?.teacherName || "Not Assigned"}</span>
                         <span>Total Students: {students.length}</span>
                         <span>Results Found: {filteredAndSortedResults.length}</span>

@@ -1,5 +1,3 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { format } from "date-fns"
 import { notFound } from "next/navigation"
@@ -10,33 +8,16 @@ import { Button } from "@/components/ui/button"
 import { CalendarRange, ArrowLeft, Edit, Plus } from "lucide-react"
 import Link from "next/link"
 import { AdminTermsTable } from "@/components/session-management/admin-terms-table"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
-export default async function AdminSessionDetailsPage({ params }: { params: { id: string } }) {
-  const session = await auth()
+export default async function AdminSessionDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { schoolId } = await requireAdminSchool()
+  const { id } = await params
 
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    select: { schoolId: true },
-  })
-
-  if (!admin) {
-    redirect("/dashboard/access-error")
-  }
-
-  // Ensure params is properly awaited
-  const id = (await params)?.id
-
-  // Fetch the session with terms, ensuring it belongs to the admin's school
-  const sessionData = await prisma.session.findUnique({
+  const sessionData = await prisma.session.findFirst({
     where: {
       id,
-      schoolId: admin.schoolId, // Ensure the session belongs to the admin's school
+      schoolId,
     },
     include: {
       school: {
@@ -83,9 +64,9 @@ export default async function AdminSessionDetailsPage({ params }: { params: { id
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" asChild>
-              <Link href={`/dashboard/admin/school-terms`}>
+              <Link href={`/dashboard/admin/school-sessions`}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Term
+                Back to Sessions
               </Link>
             </Button>
             {sessionData.isCurrent ? (

@@ -75,7 +75,7 @@ export default async function TeacherCompilerPage() {
           <p className="text-muted-foreground">
             Enter and manage assessment scores for your assigned classes and subjects
           </p>
-          <div className="mt-2 text-sm text-gray-600">
+          <div className="mt-2 text-sm text-muted-foreground">
             {teacher.school.name} ({teacher.school.code}) • {teacher.user.firstName} {teacher.user.lastName}
             {teacher.department && ` • ${teacher.department}`}
           </div>

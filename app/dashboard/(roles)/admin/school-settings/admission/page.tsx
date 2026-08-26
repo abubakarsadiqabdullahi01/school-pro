@@ -1,19 +1,14 @@
 import { Suspense } from "react"
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { AdmissionSettingsForm } from "@/components/school-settings-management/admission-settings-form"
 import { getAdmissionSettingsData } from "@/app/actions/school-settings"
 import { LoadingSpinner } from "@/components/dashboard/loading-spinner"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdmissionSettingsPage() {
-  const session = await auth()
-
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
+  await requireAdminSchool()
 
   return (
     <div className="space-y-6">
@@ -40,7 +35,7 @@ export default async function AdmissionSettingsPage() {
 async function AdmissionSettingsContent() {
   const settingsData = await getAdmissionSettingsData()
 
-  if (!settingsData.success) {
+  if (!settingsData.success || !settingsData.data) {
     return (
       <div className="text-center py-8">
         <p className="text-destructive">Failed to load admission settings</p>

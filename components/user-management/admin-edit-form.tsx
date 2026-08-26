@@ -150,7 +150,7 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
       email: admin.user.credentials[0]?.value || "",
       phone: sanitizeValue(admin.user.phone),
       dateOfBirth: admin.user.dateOfBirth ? new Date(admin.user.dateOfBirth) : undefined,
-      gender: (admin.user.gender as "MALE" | "FEMALE" | "OTHER") || "UNKNOWN",
+      gender: admin.user.gender && admin.user.gender !== "UNKNOWN" ? (admin.user.gender as "MALE" | "FEMALE" | "OTHER") : undefined,
       state: sanitizeValue(admin.user.state),
       lga: sanitizeValue(admin.user.lga),
       address: sanitizeValue(admin.user.address),
@@ -170,7 +170,7 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
         state: data.state || null,
         lga: data.lga || null,
         address: data.address || null,
-        schoolId: data.schoolId || null,
+        schoolId: data.schoolId === "NO_SCHOOL" ? null : data.schoolId || null,
       })
 
       if (result.success) {
@@ -195,7 +195,7 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
   // Show loading state until component is mounted to prevent hydration mismatch
   if (!isMounted) {
     return (
-      <Card className="max-w-4xl mx-auto">
+      <Card className="w-full">
         <CardContent className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin" />
           <span className="ml-2">Loading form...</span>
@@ -205,7 +205,7 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
   }
 
   return (
-    <Card className="max-w-4xl mx-auto">
+    <Card className="w-full">
       <CardHeader className="space-y-4">
         <div className="flex items-center gap-4">
           <Button variant="outline" size="icon" onClick={handleCancel}>
@@ -327,7 +327,10 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Gender</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "UNKNOWN"}>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === "UNKNOWN" ? undefined : value)}
+                        value={field.value || "UNKNOWN"}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select gender" />
@@ -353,7 +356,10 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>State</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "NO_STATE"}>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === "NO_STATE" ? "" : value)}
+                        value={field.value || "NO_STATE"}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select state" />
@@ -457,7 +463,7 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
                   <FormItem>
                     <FormLabel>Administrator Permissions *</FormLabel>
                     <FormDescription>Select the permissions this administrator should have</FormDescription>
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {availablePermissions.map((permission) => (
                         <FormField
                           key={permission.id}

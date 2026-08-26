@@ -33,7 +33,11 @@ const itemVariant = {
   visible: { opacity: 1, y: 0 },
 }
 
-function AnimatedSection({ children, className }: { children: React.ReactNode; className?: string }) {
+function AnimatedSection({
+  children,
+  className,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof motion.section>) {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, amount: 0.2 });
 
@@ -44,6 +48,7 @@ function AnimatedSection({ children, className }: { children: React.ReactNode; c
       animate={isInView ? "visible" : "hidden"}
       variants={fadeIn}
       className={className}
+      {...props}
     >
       {children}
     </motion.section>
@@ -108,7 +113,7 @@ export default function SchoolLandingPage() {
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
             <School className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">SchoolPro</span>
+            <span className="text-xl font-bold">DigiSchool-Pro</span>
           </div>
           <nav className="hidden md:flex gap-6">
             <Link href="#features" className="text-sm font-medium hover:text-primary transition-colors">
@@ -221,7 +226,7 @@ export default function SchoolLandingPage() {
                 className="relative w-full h-[260px] sm:h-[360px] lg:h-[420px] rounded-xl overflow-hidden shadow-2xl flex items-center justify-center bg-gradient-to-tr from-sky-600 via-indigo-600 to-slate-700"
               >
                 <div className="flex flex-col items-center justify-center text-center text-slate-50 px-5 sm:px-8">
-                  <div className="rounded-xl bg-white/8 p-4 sm:p-6 backdrop-blur-sm shadow-md">
+                  <div className="rounded-xl bg-card/8 p-4 sm:p-6 backdrop-blur-sm shadow-md">
                     {/* File with code icon (inline SVG) */}
                     <svg
                       role="img"
@@ -241,7 +246,7 @@ export default function SchoolLandingPage() {
 
                   <div className="mt-4">
                     <h3 className="text-xl sm:text-2xl lg:text-3xl font-semibold leading-tight">
-                      SchoolPro Premium
+                      DigiSchool-Pro Premium
                     </h3>
                     <p className="mt-2 text-xs sm:text-sm lg:text-base text-slate-100/90 max-w-xl">
                       Upgrade for advanced analytics, priority support and customizable reports tailored to your school's structure.
@@ -330,7 +335,7 @@ export default function SchoolLandingPage() {
               </div>
               <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Expert Developers</h2>
               <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
-                Meet the brilliant minds behind SchoolPro's powerful platform
+                Meet the brilliant minds behind DigiSchool-Pro's powerful platform
               </p>
             </div>
           </div>
@@ -374,7 +379,7 @@ export default function SchoolLandingPage() {
               </div>
               <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">Hear from our educators</h2>
               <p className="max-w-[900px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
-                Our teachers love using SchoolPro to manage their classes and student progress.
+                Our teachers love using DigiSchool-Pro to manage their classes and student progress.
               </p>
             </div>
           </div>
@@ -410,7 +415,7 @@ export default function SchoolLandingPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-muted-foreground">
-                    "SchoolPro has transformed how I manage my classroom. The attendance tracking and grade management
+                    "DigiSchool-Pro has transformed how I manage my classroom. The attendance tracking and grade management
                     features save me hours each week, allowing me to focus more on teaching."
                   </p>
                 </CardContent>
@@ -452,7 +457,7 @@ export default function SchoolLandingPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-muted-foreground">
-                    "As a department head, SchoolPro helps me coordinate with other teachers, track curriculum progress,
+                    "As a department head, DigiSchool-Pro helps me coordinate with other teachers, track curriculum progress,
                     and ensure we're meeting educational standards. It's an essential tool for our school."
                   </p>
                 </CardContent>
@@ -704,7 +709,7 @@ export default function SchoolLandingPage() {
             <div className="lg:col-span-2">
               <div className="flex items-center gap-2 mb-4">
                 <School className="h-6 w-6 text-primary" />
-                <span className="text-xl font-bold">SchoolPro</span>
+                <span className="text-xl font-bold">DigiSchool-Pro</span>
               </div>
               <p className="text-sm text-muted-foreground max-w-[300px]">
                 Empowering schools with modern management tools to enhance education and streamline administration.
@@ -749,7 +754,7 @@ export default function SchoolLandingPage() {
           </div>
           <div className="flex flex-col gap-4 sm:flex-row justify-between items-center mt-8 pt-8 border-t">
             <p className="text-xs text-muted-foreground">
-              © {new Date().getFullYear()} SchoolPro. All rights reserved.
+              © {new Date().getFullYear()} DigiSchool-Pro. All rights reserved.
             </p>
             <div className="flex gap-4">
               {["Facebook", "Twitter", "Instagram", "YouTube"].map((social, i) => (

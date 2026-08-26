@@ -73,7 +73,7 @@ export function CASheetComponent({
     queryKey: ["classes", selectedTermId, selectedLevel],
     queryFn: async () => {
       if (!selectedTermId || !selectedLevel) return []
-      const result = await getClassesForTerm(selectedTermId, selectedLevel)
+      const result = await getClassesForTerm(selectedTermId, selectedLevel as ClassLevel)
       return result.success ? result.data : []
     },
     enabled: !!selectedTermId && !!selectedLevel,
@@ -224,16 +224,16 @@ export function CASheetComponent({
         <CardContent>
           <div className="grid gap-6 md:grid-cols-3">
             <div className="space-y-2 min-w-0">
-              <Label htmlFor="term" className="text-lg font-semibold text-gray-700">
+              <Label htmlFor="term" className="text-lg font-semibold text-foreground">
                 Academic Term
               </Label>
               <Select value={selectedTermId} onValueChange={setSelectedTermId}>
-                <SelectTrigger id="term" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+                <SelectTrigger id="term" className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a term" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+                <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
                   {terms.map((term) => (
-                    <SelectItem key={term.id} value={term.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors text-gray-800">
+                    <SelectItem key={term.id} value={term.id} className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors text-foreground">
                       {term.session.name} - {term.name}
                       {term.isCurrent && " (Current)"}
                     </SelectItem>
@@ -243,16 +243,16 @@ export function CASheetComponent({
             </div>
 
             <div className="space-y-2 min-w-0">
-              <Label htmlFor="level" className="text-lg font-semibold text-gray-700">
+              <Label htmlFor="level" className="text-lg font-semibold text-foreground">
                 Class Section
               </Label>
               <Select value={selectedLevel} onValueChange={setSelectedLevel}>
-                <SelectTrigger id="level" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+                <SelectTrigger id="level" className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
                   <SelectValue placeholder="Select a section" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+                <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
                   {classLevels.map((level) => (
-                    <SelectItem key={level} value={level} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors text-gray-800">
+                    <SelectItem key={level} value={level} className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors text-foreground">
                       {level}
                     </SelectItem>
                   ))}
@@ -261,7 +261,7 @@ export function CASheetComponent({
             </div>
 
             <div className="space-y-2 min-w-0">
-              <Label htmlFor="class" className="text-lg font-semibold text-gray-700">
+              <Label htmlFor="class" className="text-lg font-semibold text-foreground">
                 Class
               </Label>
               <Select
@@ -271,25 +271,25 @@ export function CASheetComponent({
               >
                 <SelectTrigger
                   id="class"
-                  className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-muted disabled:cursor-not-allowed"
                 >
                   {isLoadingClasses ? (
                     <div className="flex items-center justify-center">
-                      <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     </div>
                   ) : (
                     <SelectValue placeholder="Select a class" />
                   )}
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+                <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
                   {classes?.map((cls) => (
-                    <SelectItem key={cls.id} value={cls.id} className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors text-gray-800">
+                    <SelectItem key={cls.id} value={cls.id} className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors text-foreground">
                       {cls.name}
                       {cls.teacherName && ` (${cls.teacherName})`}
                     </SelectItem>
                   ))}
                   {classes?.length === 0 && (
-                    <SelectItem value="none" disabled className="px-3 py-2 text-gray-500 cursor-not-allowed">
+                    <SelectItem value="none" disabled className="px-3 py-2 text-muted-foreground cursor-not-allowed">
                       No classes available for this term and level
                     </SelectItem>
                   )}
@@ -310,9 +310,9 @@ export function CASheetComponent({
                 size="sm"
                 onClick={handleExportPDF}
                 disabled={!filteredStudents.length || isLoadingStudents}
-                className="border-gray-300 hover:bg-gray-100"
+                className="border-border hover:bg-muted"
               >
-                <Download className="mr-2 h-4 w-4 text-gray-600" />
+                <Download className="mr-2 h-4 w-4 text-muted-foreground" />
                 Export to PDF
               </Button>
               <Button
@@ -320,9 +320,9 @@ export function CASheetComponent({
                 size="sm"
                 onClick={handlePrint}
                 disabled={!filteredStudents.length || isLoadingStudents}
-                className="border-gray-300 hover:bg-gray-100"
+                className="border-border hover:bg-muted"
               >
-                <FileText className="mr-2 h-4 w-4 text-gray-600" />
+                <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
                 Print
               </Button>
             </div>
@@ -342,10 +342,10 @@ export function CASheetComponent({
                         className="object-contain"
                       />
                     ) : (
-                      <div className="h-20 w-20 flex items-center justify-center rounded bg-gray-100 border border-gray-200">
+                      <div className="h-20 w-20 flex items-center justify-center rounded bg-muted border border-border">
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
-                          className="h-10 w-10 text-gray-500"
+                          className="h-10 w-10 text-muted-foreground"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
@@ -362,23 +362,23 @@ export function CASheetComponent({
 
             {/* School information - centered in remaining space */}
             <div className="flex-1 text-center space-y-2">
-              <h1 className="text-3xl font-bold text-gray-800">{schoolName.toUpperCase()}</h1>
-              <p className="text-base text-gray-600">{schoolAddress}</p>
-              <p className="text-base text-gray-600">
+              <h1 className="text-3xl font-bold text-foreground">{schoolName.toUpperCase()}</h1>
+              <p className="text-base text-muted-foreground">{schoolAddress}</p>
+              <p className="text-base text-muted-foreground">
                 GSM: {schoolPhone} | Email: {schoolEmail}
               </p>
-              <h2 className="text-xl font-semibold text-gray-700">Students Termly Continuous Assessment Sheet</h2>
-              <hr className="border-t border-gray-400 my-2 w-3/4 mx-auto" />
+              <h2 className="text-xl font-semibold text-foreground">Students Termly Continuous Assessment Sheet</h2>
+              <hr className="border-t border-border my-2 w-3/4 mx-auto" />
             </div>
           </div>
 
               <div className="space-y-2">
-                <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                   <span>Class: {selectedClass?.name || ""}</span>
                   <span>Term: {selectedTerm?.name || ""}</span>
                   <span>Session: {selectedTerm?.session.name || ""}</span>
                 </div>
-                <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                   <span>Subject: <span className="border-b border-dotted border-gray-500 w-64 inline-block"></span></span>
                   <span>Teacher: {selectedClass?.teacherName ? (
                     selectedClass.teacherName
@@ -396,25 +396,25 @@ export function CASheetComponent({
                 </div>
               ) : filteredStudents.length === 0 ? (
                 <div className="py-12 text-center">
-                  <p className="text-gray-500">No students found for this class.</p>
+                  <p className="text-muted-foreground">No students found for this class.</p>
                 </div>
               ) : (
-                <div className="rounded-md border border-gray-300 overflow-x-auto">
-                  <Table className="min-w-full bg-white">
+                <div className="rounded-md border border-border overflow-x-auto">
+                  <Table className="min-w-full bg-card">
                     <TableHeader>
-                      <TableRow className="bg-gray-200">
-                        <TableHead className="w-[60px] text-center font-bold text-gray-800">S/N</TableHead>
-                        <TableHead className="w-[120px] text-center font-bold text-gray-800">Admission No.</TableHead>
-                        <TableHead className="font-bold text-gray-800">Name</TableHead>
-                        <TableHead className="text-center font-bold text-gray-800">1st C.A (10%)</TableHead>
-                        <TableHead className="text-center font-bold text-gray-800">2nd C.A (10%)</TableHead>
-                        <TableHead className="text-center font-bold text-gray-800">3rd C.A (10%)</TableHead>
-                        <TableHead className="text-center font-bold text-gray-800">Exam (70%)</TableHead>
+                      <TableRow className="bg-muted">
+                        <TableHead className="w-[60px] text-center font-bold text-foreground">S/N</TableHead>
+                        <TableHead className="w-[120px] text-center font-bold text-foreground">Admission No.</TableHead>
+                        <TableHead className="font-bold text-foreground">Name</TableHead>
+                        <TableHead className="text-center font-bold text-foreground">1st C.A (10%)</TableHead>
+                        <TableHead className="text-center font-bold text-foreground">2nd C.A (10%)</TableHead>
+                        <TableHead className="text-center font-bold text-foreground">3rd C.A (10%)</TableHead>
+                        <TableHead className="text-center font-bold text-foreground">Exam (70%)</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredStudents.map((student, index) => (
-                        <TableRow key={student.id} className="hover:bg-gray-100">
+                        <TableRow key={student.id} className="hover:bg-muted">
                           <TableCell className="text-center">{index + 1}</TableCell>
                           <TableCell className="text-center">{student.admissionNo}</TableCell>
                           <TableCell>{student.fullName.toUpperCase()}</TableCell>

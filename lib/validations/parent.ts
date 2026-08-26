@@ -60,7 +60,7 @@ export const parentSearchSchema = z.object({
 export const linkStudentToParentSchema = z.object({
   parentId: z.string().min(1, "Parent ID is required"),
   studentId: z.string().min(1, "Student ID is required"),
-  relationship: z.enum(["FATHER", "MOTHER", "GUARDIAN", "OTHER"]).default("PARENT"),
+  relationship: z.enum(["FATHER", "MOTHER", "GUARDIAN", "OTHER"]).default("OTHER"),
 })
 
 // Schema for parent credential management

@@ -163,144 +163,123 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
   }
 
   return (
-    <div className="animate-in fade-in duration-500">
-      <Card className="max-w-4xl mx-auto">
-        <CardHeader className="space-y-4">
+    <div className="w-full animate-in fade-in duration-500">
+      <Card className="w-full shadow-sm">
+        <CardHeader className="p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <BookOpen className="h-6 w-6 text-primary" />
+            <div className="rounded-md bg-primary/10 p-2">
+              <BookOpen className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-2xl">{isEditMode ? "Edit Academic Term" : "Create Academic Term"}</CardTitle>
-              <CardDescription className="text-base">
+              <CardTitle className="text-xl">{isEditMode ? "Edit Academic Term" : "Create Academic Term"}</CardTitle>
+              <CardDescription>
                 {isEditMode ? "Update the term details below" : "Set up a new academic term within a session"}
               </CardDescription>
             </div>
           </div>
-
-          {selectedSession && (
-            <Alert>
-              <Clock className="h-4 w-4" />
-              <AlertDescription>
-                Creating term for session <strong>{selectedSession.name}</strong>
-                <br />
-                <span className="text-sm text-muted-foreground">
-                  Session period: {format(parseDate(selectedSession.startDate) || new Date(), "MMM d, yyyy")} to{" "}
-                  {format(parseDate(selectedSession.endDate) || new Date(), "MMM d, yyyy")}
-                </span>
-              </AlertDescription>
-            </Alert>
-          )}
         </CardHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
-            <CardContent className="space-y-8">
-              {/* Term Name - Changed to dropdown */}
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-base font-semibold">
-                      Term Name <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="w-full h-12 text-base">
-                          <SelectValue placeholder="Select a term" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="First Term">First Term</SelectItem>
-                        <SelectItem value="Second Term">Second Term</SelectItem>
-                        <SelectItem value="Third Term">Third Term</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Select the academic term (e.g., &quot;First Term&quot;, &quot;Second Term&quot;, &quot;Third Term&quot;)
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <CardContent className="space-y-5 p-4 pt-0">
+              <div className="grid gap-5 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="font-semibold">
+                        Term Name <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="h-11 w-full">
+                            <SelectValue placeholder="Select a term" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="First Term">First Term</SelectItem>
+                          <SelectItem value="Second Term">Second Term</SelectItem>
+                          <SelectItem value="Third Term">Third Term</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Select First, Second, or Third Term.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-              {/* Session Selection */}
-              <FormField
-                control={form.control}
-                name="sessionId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-base font-semibold">
-                      Academic Session <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value)
-                        handleSessionChange(value)
-                      }}
-                      defaultValue={field.value}
-                      disabled={isEditMode || !!preselectedSessionId}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="w-full h-12 text-base">
-                          <SelectValue placeholder="Select a session" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <div className="sticky top-0 z-10 bg-background p-2 border-b">
-                          <div className="relative">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input
-                              placeholder="Search sessions..."
-                              className="pl-8"
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                            />
+                <FormField
+                  control={form.control}
+                  name="sessionId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="font-semibold">
+                        Academic Session <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <Select
+                        onValueChange={(value) => {
+                          field.onChange(value)
+                          handleSessionChange(value)
+                        }}
+                        value={field.value}
+                        disabled={isEditMode || !!preselectedSessionId}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="h-11 w-full">
+                            <SelectValue placeholder="Select a session" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <div className="sticky top-0 z-10 border-b bg-background p-2">
+                            <div className="relative">
+                              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                              <Input
+                                placeholder="Search sessions..."
+                                className="pl-8"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                              />
+                            </div>
                           </div>
-                        </div>
-                        {filteredSessions.length === 0 ? (
-                          <div className="text-center py-4 text-sm text-muted-foreground">
-                            No sessions found
-                          </div>
-                        ) : (
-                          filteredSessions.map((session) => (
-                            <SelectItem key={session.id} value={session.id} className="py-3">
-                              <div className="flex flex-col">
-                                <span className="font-medium">{session.name}</span>
-                                <span className="text-sm text-muted-foreground">
-                                  {format(parseDate(session.startDate) || new Date(), "MMM yyyy")} –{" "}
-                                  {format(parseDate(session.endDate) || new Date(), "MMM yyyy")}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      {isEditMode || preselectedSessionId
-                        ? "Session cannot be changed after term creation."
-                        : "Select the academic session this term belongs to."}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                          {filteredSessions.length === 0 ? (
+                            <div className="py-4 text-center text-sm text-muted-foreground">No sessions found</div>
+                          ) : (
+                            filteredSessions.map((session) => (
+                              <SelectItem key={session.id} value={session.id} className="py-3">
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{session.name}</span>
+                                  <span className="text-sm text-muted-foreground">
+                                    {format(parseDate(session.startDate) || new Date(), "MMM yyyy")} -{" "}
+                                    {format(parseDate(session.endDate) || new Date(), "MMM yyyy")}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {isEditMode || preselectedSessionId
+                          ? "Session cannot be changed after term creation."
+                          : "Select the session this term belongs to."}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               {/* Session Date Range Info */}
               {selectedSession && (
-                <Alert>
+                <Alert className="py-3">
                   <Clock className="h-4 w-4" />
                   <AlertDescription>
-                    <div className="space-y-1">
-                      <p className="font-medium">Session Date Range:</p>
+                    <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                      <p className="font-medium">Session date range</p>
                       <p className="text-sm">
                         {format(parseDate(selectedSession.startDate) || new Date(), "MMMM d, yyyy")} to{" "}
                         {format(parseDate(selectedSession.endDate) || new Date(), "MMMM d, yyyy")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Note: Term dates must be within this session date range.
                       </p>
                     </div>
                   </AlertDescription>
@@ -308,13 +287,13 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
               )}
 
               {/* Date Range */}
-              <div className="grid gap-6 md:grid-cols-2">
+              <div className="grid gap-5 md:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="startDate"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel className="text-base font-semibold">
+                      <FormLabel className="font-semibold">
                         Start Date <span className="text-destructive">*</span>
                       </FormLabel>
                       <Popover>
@@ -323,7 +302,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                             <Button
                               variant={"outline"}
                               className={cn(
-                                "h-12 text-base pl-3 text-left font-normal",
+                                "h-11 w-full justify-start pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground"
                               )}
                             >
@@ -341,7 +320,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
+                        <PopoverContent className="w-auto p-0" align="start" side="bottom" sideOffset={6}>
                           <Calendar
                             mode="single"
                             selected={field.value}
@@ -370,34 +349,25 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                   name="endDate"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel className="text-base font-semibold">
+                      <FormLabel className="font-semibold">
                         End Date <span className="text-destructive">*</span>
                       </FormLabel>
                       <Popover>
                                 <PopoverTrigger asChild>
                                   <FormControl>
-                                    <Button
-                                      variant={"outline"}
-                                      className={cn(
-                                        "h-12 text-base pl-3 text-left font-normal",
-                                        !field.value && "text-muted-foreground"
-                                      )}
-                                    >
-                                      {field.value ? (
-                                        <div className="flex items-center gap-2">
-                                          <CalendarIcon className="h-4 w-4" />
-                                          {format(field.value, "PPP")}
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-center gap-2">
-                                          <CalendarIcon className="h-4 w-4" />
-                                          <span>Pick end date</span>
-                                        </div>
-                                      )}
-                                    </Button>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "h-11 w-full justify-start pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {field.value ? format(field.value, "PPP") : "Pick end date"}
+                            </Button>
                                   </FormControl>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
+                                <PopoverContent className="w-auto p-0" align="start" side="bottom" sideOffset={6}>
                                   <Calendar
                                     mode="single"
                                     selected={field.value}
@@ -429,12 +399,12 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                 name="isCurrent"
                 render={({ field }) => (
                   <FormItem>
-                    <div className="flex items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <div className="flex items-start space-x-3 space-y-0 rounded-md border p-3">
                       <FormControl>
                         <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                       </FormControl>
                       <div className="space-y-2 leading-none">
-                        <FormLabel className="text-base font-semibold flex items-center gap-2">
+                        <FormLabel className="flex items-center gap-2 font-semibold">
                           <CheckCircle className="h-4 w-4" />
                           Set as Current Term
                         </FormLabel>
@@ -455,7 +425,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
               />
 
               {/* Info Alert */}
-              <Alert>
+              <Alert className="py-3">
                 <Info className="h-4 w-4" />
                 <AlertDescription>
                   After creating the term, you can assign classes, subjects, and students to this term, as well as set
@@ -464,7 +434,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
               </Alert>
             </CardContent>
 
-            <CardFooter className="flex justify-between bg-muted/50 rounded-b-lg px-6 py-4">
+            <CardFooter className="flex justify-between rounded-b-lg bg-muted/50 px-4 py-3">
               <Button
                 type="button"
                 variant="outline"

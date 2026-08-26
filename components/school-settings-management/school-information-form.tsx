@@ -39,8 +39,8 @@ interface SchoolInformationData {
     address: string
     phone: string
     email: string
-    website?: string
-    logoUrl?: string
+    website?: string | null
+    logoUrl?: string | null
     isActive: boolean
     createdAt: Date
   }

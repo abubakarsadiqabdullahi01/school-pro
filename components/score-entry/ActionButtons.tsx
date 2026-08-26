@@ -65,7 +65,7 @@ export const ActionButtons = memo(function ActionButtons({
             </Button>
           )}
 
-          <Button onClick={onReset} disabled={isSaving || !hasChanges} variant="outline" className="border-gray-300">
+          <Button onClick={onReset} disabled={isSaving || !hasChanges} variant="outline" className="border-border">
             <RotateCcw className="mr-2 h-4 w-4" />
             Reset Changes
           </Button>

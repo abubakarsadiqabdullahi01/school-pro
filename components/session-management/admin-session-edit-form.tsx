@@ -12,7 +12,7 @@ import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -40,6 +40,14 @@ const sessionFormSchema = z
 
 type SessionFormValues = z.infer<typeof sessionFormSchema>
 
+const sessionNameOptions = (() => {
+  const currentYear = new Date().getFullYear()
+  return Array.from({ length: 8 }, (_, index) => {
+    const startYear = currentYear - 1 + index
+    return `${startYear}/${startYear + 1}`
+  })
+})()
+
 interface AdminSessionEditFormProps {
   sessionData: {
     id: string
@@ -56,6 +64,9 @@ interface AdminSessionEditFormProps {
 export function AdminSessionEditForm({ sessionData }: AdminSessionEditFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const availableSessionNames = sessionData.name && !sessionNameOptions.includes(sessionData.name)
+    ? [sessionData.name, ...sessionNameOptions]
+    : sessionNameOptions
 
   const form = useForm<SessionFormValues>({
     resolver: zodResolver(sessionFormSchema),
@@ -71,15 +82,21 @@ export function AdminSessionEditForm({ sessionData }: AdminSessionEditFormProps)
     setIsLoading(true)
 
     try {
-      await updateSession({
+      const result = await updateSession({
         id: sessionData.id,
+        schoolId: sessionData.schoolId,
         name: data.name,
         startDate: data.startDate,
         endDate: data.endDate,
         isCurrent: data.isCurrent,
       })
 
-      toast.success("Session updated successfully")
+      if (!result.success) {
+        toast.error(result.error || "Failed to update session")
+        return
+      }
+
+      toast.success(result.message || "Session updated successfully")
       router.push("/dashboard/admin/school-sessions")
       router.refresh()
     } catch (error: any) {
@@ -114,10 +131,21 @@ export function AdminSessionEditForm({ sessionData }: AdminSessionEditFormProps)
                   <FormLabel>
                     Session Name <span className="text-destructive">*</span>
                   </FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., 2023-2024 Academic Year" {...field} />
-                  </FormControl>
-                  <FormDescription>Enter a descriptive name for the academic session</FormDescription>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select academic session" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {availableSessionNames.map((sessionName) => (
+                        <SelectItem key={sessionName} value={sessionName}>
+                          {sessionName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>Select the academic year for this session</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

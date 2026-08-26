@@ -19,6 +19,7 @@ import {
 import { toggleUserStatus } from "@/app/actions/user-management"
 import { toast } from "sonner"
 import Image from "next/image"
+import { formatDate } from "@/lib/format"
 
 interface User {
   id: string
@@ -153,7 +154,7 @@ export function UserManagementTable({ users, userType, columns }: UserManagement
                         ) : column.key === "status" ? (
                           <Badge variant={user.status === "Active" ? "default" : "secondary"}>{user.status}</Badge>
                         ) : column.key === "createdAt" ? (
-                          new Date(user.createdAt).toLocaleDateString()
+                          formatDate(user.createdAt)
                         ) : (
                           user[column.key] || "N/A"
                         )}

@@ -21,7 +21,9 @@ interface ClassInfo {
   className: string | undefined
   termName: string | undefined
   sessionName: string | undefined
-  teacherName: string | undefined
+  teacherName: string | null | undefined
+  subjectName?: string
+  subjectCode?: string
 }
 
 // Server-side image conversion using API

@@ -585,10 +585,15 @@ export async function assignSubjectsToTeacher(data: {
 
     // Verify all subjects belong to the school
     if (session.user.role === "ADMIN") {
+      const adminSchoolId = schoolId;
+      if (!adminSchoolId) {
+        return { success: false, error: "Admin not associated with a school" };
+      }
+
       const subjects = await prisma.subject.findMany({
         where: {
           id: { in: data.subjectIds },
-          schoolId,
+          schoolId: adminSchoolId,
         },
       });
 

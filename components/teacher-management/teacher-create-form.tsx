@@ -105,6 +105,7 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
 
       const result = await createTeacher({
         ...data,
+        schoolId,
         credentials: credentials.length > 0 ? credentials : undefined,
       })
 

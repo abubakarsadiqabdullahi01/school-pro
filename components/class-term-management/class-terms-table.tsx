@@ -196,7 +196,7 @@ export function ClassTermsTable({ classes, currentTerm }: ClassTermsTableProps) 
                     </TableCell>
                     <TableCell>
                       {cls.isAssignedToCurrentTerm ? (
-                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                        <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100">
                           <Check className="mr-1 h-3 w-3" />
                           Assigned
                         </Badge>

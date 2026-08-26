@@ -81,3 +81,24 @@ export interface AssessmentStatistics {
   studentsWithoutData: number
   completionPercentage: number
 }
+
+export interface AssessmentDataItem {
+  id: string | null
+  studentId: string
+  studentClassTermId: string
+  studentName: string
+  admissionNo: string
+  ca1: number | null
+  ca2: number | null
+  ca3: number | null
+  exam: number | null
+  totalScore?: number | null
+  grade?: string | null
+  remark?: string | null
+  isAbsent: boolean
+  isExempt: boolean
+  isPublished?: boolean
+  completionStatus?: string
+  hasData?: boolean
+  lastUpdated: Date | null | undefined
+}

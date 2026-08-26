@@ -96,7 +96,7 @@ export const studentClassAssignmentSchema = z.object({
 export const studentParentAssignmentSchema = z.object({
   studentId: z.string().min(1, "Student ID is required"),
   parentId: z.string().min(1, "Parent ID is required"),
-  relationship: z.enum(["FATHER", "MOTHER", "GUARDIAN", "OTHER"]).default("PARENT"),
+  relationship: z.enum(["FATHER", "MOTHER", "GUARDIAN", "OTHER"]).default("OTHER"),
 })
 
 // Schema for student transition (promotion, transfer, etc.)

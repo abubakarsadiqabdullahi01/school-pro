@@ -93,7 +93,7 @@ export function SubjectClassesTable({ classes, subjectId }: SubjectClassesTableP
                     <TableCell>{cls.termName}</TableCell>
                     <TableCell>
                       {cls.isCurrent ? (
-                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Current</Badge>
+                        <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100">Current</Badge>
                       ) : (
                         <Badge variant="outline">Inactive</Badge>
                       )}

@@ -98,7 +98,7 @@ export const StudentTransitionTable = memo(function StudentTransitionTable({
 
       if (result.success) {
         toast.success("Transition Successful", {
-          description: result.data.message,
+          description: result.data?.message ?? "Students transitioned successfully.",
         })
         setSelectedStudents([]) // Clear selection after successful transition
         onTransitionComplete() // Refresh data
@@ -177,7 +177,7 @@ export const StudentTransitionTable = memo(function StudentTransitionTable({
   }
 
   const getGradeBadgeVariant = (grade: string) => {
-    if (!grade) return "bg-gray-500"
+    if (!grade) return "bg-muted-foreground"
     const firstChar = grade.charAt(0).toUpperCase()
     switch (firstChar) {
       case "A":
@@ -192,7 +192,7 @@ export const StudentTransitionTable = memo(function StudentTransitionTable({
       case "F":
         return "bg-red-500"
       default:
-        return "bg-gray-500"
+        return "bg-muted-foreground"
     }
   }
 

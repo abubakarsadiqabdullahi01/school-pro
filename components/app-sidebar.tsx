@@ -1009,8 +1009,9 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                   <SidebarMenu>
                     {/* One entry, because there is one page. This group previously listed
                         My Children, Academic Progress, Attendance and Fees, all resolving
-                        here. Fees especially: there is no finance UI yet, and pointing a
-                        Fees link at a dashboard is the worst way to promise one. */}
+                        here. Fees especially: finance exists now, but nothing in it is
+                        parent-facing, and pointing a Fees link at a dashboard is the worst
+                        way to promise one. */}
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/parent"

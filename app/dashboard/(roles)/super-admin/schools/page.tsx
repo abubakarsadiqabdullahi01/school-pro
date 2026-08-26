@@ -2,6 +2,8 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { SchoolsTable } from "@/components/school-management/schools-table"
+import { getActiveSchool } from "@/lib/school-context.server"
+import { schoolLabel } from "@/lib/school-context"
 
 export default async function SchoolsPage() {
   const session = await auth()
@@ -11,8 +13,11 @@ export default async function SchoolsPage() {
     redirect("/dashboard")
   }
 
-  // Fetch all schools
+  const activeSchool = await getActiveSchool()
+
+  // Fetch schools in the current super-admin context.
   const schools = await prisma.school.findMany({
+    where: activeSchool ? { id: activeSchool.id } : undefined,
     include: {
       _count: {
         select: {
@@ -43,11 +48,12 @@ export default async function SchoolsPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Schools</h2>
-        <p className="text-muted-foreground">Manage schools in the system</p>
+        <p className="text-muted-foreground">
+          {activeSchool ? `Managing ${schoolLabel(activeSchool)}` : "Manage schools in the system"}
+        </p>
       </div>
 
       <SchoolsTable schools={formattedSchools} />
     </div>
   )
 }
-

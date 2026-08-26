@@ -113,11 +113,46 @@ const OCCUPATIONS = [
 const FEE_TYPES = ["Tuition", "Development", "PTA", "Sports", "ICT", "Laboratory"];
 const PAYMENT_METHODS = ["Cash", "Bank Transfer", "POS", "Online"];
 
+/**
+ * This seed wipes every table before reseeding. NODE_ENV is not a safe guard —
+ * it is undefined when run through tsx, and it says nothing about which database
+ * the connection string points at. Assert the target host instead.
+ */
+function assertLocalDatabase() {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error("DATABASE_URL is not set — refusing to seed.");
+  }
+
+  const allowedHosts = ["localhost", "127.0.0.1", "::1", "mysql", "db"];
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    throw new Error("DATABASE_URL is not a parseable URL — refusing to seed.");
+  }
+
+  if (!allowedHosts.includes(hostname)) {
+    throw new Error(
+      `Refusing to seed "${hostname}". This script deletes every school, user, ` +
+        `student and assessment first. Allowed hosts: ${allowedHosts.join(", ")}. ` +
+        `Set SEED_ALLOW_REMOTE=i-understand to override.`,
+    );
+  }
+}
+
 async function main() {
   console.log("🌱 Starting seed data creation...");
 
-  // Clean existing data (be careful in production!)
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.SEED_ALLOW_REMOTE !== "i-understand") {
+    assertLocalDatabase();
+  } else {
+    console.warn("⚠️  SEED_ALLOW_REMOTE set — destructive seed against a remote host.");
+  }
+
+  // Clean existing data. This is unconditional: the guard above decides whether
+  // we are allowed to run at all.
+  {
     console.log("🧹 Cleaning existing data...");
     
     // Use individual delete operations instead of TRUNCATE CASCADE
@@ -191,7 +226,7 @@ async function main() {
       phone: "+2348030000000",
       email: "info@excelcollegeabj.edu.ng",
       website: "https://excelcollegeabj.edu.ng",
-      logoUrl: "",
+      logoUrl: null,
       admissionPrefix: "EXC",
       admissionSequenceStart: 1001,
     },
@@ -216,7 +251,7 @@ async function main() {
     data: {
       userId: schoolAdmin.id,
       schoolId: school.id,
-      permissions: "ALL"
+      permissions: JSON.stringify(["ALL"])
     }
   });
 
@@ -321,59 +356,89 @@ async function main() {
   );
 
   // Step 7: Create Subjects
+  // One row per (name, level): 15 of the 32 names appear at more than one level,
+  // and collapsing them by name alone is what previously left SSS with no
+  // Mathematics and no English. The level is carried forward in memory so class
+  // subjects can be resolved without guessing from the name.
   console.log("📚 Creating Subjects...");
-  const subjectData = [];
-  
+  const LEVEL_TAG: Record<string, string> = { PRIMARY: "P", JSS: "J", SSS: "S" };
+  const usedCodes = new Set<string>();
+  const subjectData: { name: string; code: string; schoolId: string; level: ClassLevel }[] = [];
+
   for (const [level, subjects] of Object.entries(SUBJECTS_BY_LEVEL)) {
     for (const subjectName of subjects) {
+      // Initials collide across the catalogue ("Basic Science" and "Business
+      // Studies" both reduce to BS), so qualify with the level, then a counter.
+      const base = generateSubjectCode(subjectName);
+      let code = base;
+      let attempt = 1;
+      while (usedCodes.has(code)) {
+        code = attempt === 1 ? `${base}-${LEVEL_TAG[level]}` : `${base}-${LEVEL_TAG[level]}${attempt}`;
+        attempt++;
+      }
+      usedCodes.add(code);
+
       subjectData.push({
         name: subjectName,
-        code: generateSubjectCode(subjectName),
-        schoolId: school.id
+        code,
+        schoolId: school.id,
+        level: level as ClassLevel
       });
     }
   }
 
   // Batch create subjects
-  const allSubjects = [];
+  const allSubjects: { id: string; name: string; code: string; level: ClassLevel }[] = [];
   for (let i = 0; i < subjectData.length; i += CONFIG.BATCH_SIZE) {
     const batch = subjectData.slice(i, i + CONFIG.BATCH_SIZE);
     const createdSubjects = await Promise.all(
-      batch.map(data => prisma.subject.create({ data }))
+      batch.map(async ({ level, ...data }) => {
+        const row = await prisma.subject.create({ data });
+        return { id: row.id, name: row.name, code: row.code, level };
+      })
     );
     allSubjects.push(...createdSubjects);
   }
 
   // Step 8: Create Class Terms and assign subjects
+  // Every class is attached to all three terms, otherwise promotion and transfer
+  // have no destination to move students into.
   console.log("🔗 Creating Class Terms and Subjects...");
-  const classTerms = [];
+  const classTerms: { id: string; classId: string; termId: string }[] = [];
   const classSubjectData = [];
-  
+
+  // Core subjects are placed first so the per-class cap never truncates them away.
+  const CORE_SUBJECTS = ["Mathematics", "English Language", "English Studies"];
+
   for (const classRecord of classes) {
-    const classTerm = await prisma.classTerm.create({
-      data: {
-        classId: classRecord.id,
-        termId: currentTerm!.id
-      }
-    });
-    classTerms.push(classTerm);
+    const levelSubjects = allSubjects.filter(subject => subject.level === classRecord.level);
+    const ordered = [
+      ...levelSubjects.filter(subject => CORE_SUBJECTS.includes(subject.name)),
+      ...levelSubjects.filter(subject => !CORE_SUBJECTS.includes(subject.name))
+    ];
+    const selectedSubjects = ordered.slice(0, CONFIG.SUBJECTS_PER_CLASS);
 
-    // Assign subjects to this class based on level
-    const levelSubjects = allSubjects.filter(subject => {
-      const subjectLevel = getSubjectLevel(subject.name);
-      return subjectLevel === classRecord.level;
-    });
-
-    // Take up to CONFIG.SUBJECTS_PER_CLASS subjects per class
-    const selectedSubjects = levelSubjects.slice(0, CONFIG.SUBJECTS_PER_CLASS);
-    for (const subject of selectedSubjects) {
-      classSubjectData.push({
-        classId: classRecord.id,
-        subjectId: subject.id,
-        classTermId: classTerm.id
+    for (const term of session.terms) {
+      const classTerm = await prisma.classTerm.create({
+        data: {
+          classId: classRecord.id,
+          termId: term.id
+        }
       });
+      classTerms.push(classTerm);
+
+      for (const subject of selectedSubjects) {
+        classSubjectData.push({
+          classId: classRecord.id,
+          subjectId: subject.id,
+          classTermId: classTerm.id
+        });
+      }
     }
   }
+
+  // Teachers and students are only enrolled into the current term's instances.
+  const currentClassTerms = classTerms.filter(ct => ct.termId === currentTerm!.id);
 
   // Batch create class subjects
   for (let i = 0; i < classSubjectData.length; i += CONFIG.BATCH_SIZE) {
@@ -417,34 +482,37 @@ async function main() {
     });
     teachers.push(teacher);
 
-    // Assign 2-3 subjects to each teacher
-    const subjectCount = 2 + Math.floor(Math.random() * (CONFIG.MAX_SUBJECTS_PER_TEACHER - 1));
-    const teacherSubjects = allSubjects
-      .sort(() => 0.5 - Math.random())
-      .slice(0, subjectCount);
-    
-    for (const subject of teacherSubjects) {
-      teacherSubjectData.push({
+    // Assign the teacher to classes first, then draw their subjects from those
+    // classes' own curriculum. Drawing from the full catalogue instead left most
+    // teachers holding subjects none of their classes study, so they had nothing
+    // to mark and the score-entry screens came up empty.
+    const classCount = randomInt(1, CONFIG.MAX_CLASSES_PER_TEACHER);
+    const assignedClasses = shuffle(classes).slice(0, classCount);
+
+    const teachableSubjectIds = new Set<string>();
+    for (const classRecord of assignedClasses) {
+      const classTerm = currentClassTerms.find(ct => ct.classId === classRecord.id);
+      if (!classTerm) continue;
+
+      teacherClassTermData.push({
         teacherId: teacher.id,
-        subjectId: subject.id,
-        termId: currentTerm!.id
+        classTermId: classTerm.id
       });
+
+      for (const cs of classSubjectData.filter(cs => cs.classTermId === classTerm.id)) {
+        teachableSubjectIds.add(cs.subjectId);
+      }
     }
 
-    // Assign teacher to 1-2 classes
-    const classCount = 1 + Math.floor(Math.random() * (CONFIG.MAX_CLASSES_PER_TEACHER - 1));
-    const assignedClasses = classes
-      .sort(() => 0.5 - Math.random())
-      .slice(0, classCount);
-    
-    for (const classRecord of assignedClasses) {
-      const classTerm = classTerms.find(ct => ct.classId === classRecord.id);
-      if (classTerm) {
-        teacherClassTermData.push({
-          teacherId: teacher.id,
-          classTermId: classTerm.id
-        });
-      }
+    const subjectCount = randomInt(2, CONFIG.MAX_SUBJECTS_PER_TEACHER);
+    const teacherSubjects = shuffle([...teachableSubjectIds]).slice(0, subjectCount);
+
+    for (const subjectId of teacherSubjects) {
+      teacherSubjectData.push({
+        teacherId: teacher.id,
+        subjectId,
+        termId: currentTerm!.id
+      });
     }
   }
 
@@ -452,12 +520,8 @@ async function main() {
   console.log("📝 Assigning teacher subjects and classes...");
   for (let i = 0; i < teacherSubjectData.length; i += CONFIG.BATCH_SIZE) {
     const batch = teacherSubjectData.slice(i, i + CONFIG.BATCH_SIZE);
-     const batchWithTermId = batch.map(data => ({
-      ...data,
-      termId: currentTerm!.id  // Add current term ID
-    }));
     await Promise.all(
-      batchWithTermId.map(data => prisma.teacherSubject.create({ data }))
+      batch.map(data => prisma.teacherSubject.create({ data }))
     );
   }
 
@@ -509,8 +573,12 @@ async function main() {
       },
     });
 
-    const admissionNo = `EXC-${currentYear}-${seq.lastSequence}`;
-
+    // Render through the school's own format template rather than hardcoding it,
+    // so seeded numbers are byte-identical to what createStudent() produces.
+    const admissionNo = school.admissionFormat
+      .replace("{PREFIX}", school.admissionPrefix)
+      .replace("{YEAR}", currentYear.toString())
+      .replace("{NUMBER}", seq.lastSequence.toString().padStart(4, "0"));
 
     const student = await prisma.student.create({
       data: {
@@ -522,10 +590,23 @@ async function main() {
     });
     students.push(student);
 
+    // The app issues students a REGISTRATION_NUMBER credential keyed to their
+    // admission number, so seed that too — otherwise the real student login path
+    // is never exercised.
+    await prisma.credential.create({
+      data: {
+        userId: studentUser.id,
+        type: CredentialType.REGISTRATION_NUMBER,
+        value: admissionNo,
+        passwordHash: await bcrypt.hash(`${studentUser.firstName.toLowerCase()}${currentYear}`, 10),
+        isPrimary: false
+      }
+    });
+
     // Assign student to a random class
     const randomClass = classes[Math.floor(Math.random() * classes.length)];
-    const classTerm = classTerms.find(ct => ct.classId === randomClass.id);
-    
+    const classTerm = currentClassTerms.find(ct => ct.classId === randomClass.id);
+
     if (classTerm) {
       // FIXED: Added termId and status fields
       studentClassTermData.push({
@@ -557,21 +638,55 @@ async function main() {
     });
 
     for (const classSubject of classSubjects) {
-      // FIXED: Added required fields createdBy and editedBy
+      // Deliberately mix in absent, exempt and part-entered rows. When every
+      // assessment is complete the publish gate can only ever succeed, so the
+      // "results incomplete" path and the report card's absent/exempt rendering
+      // get no coverage at all.
+      const roll = Math.random();
+      const shape =
+        roll < 0.05 ? "absent" :
+        roll < 0.10 ? "exempt" :
+        roll < 0.20 ? "partial" : "complete";
+
+      const ca1 = shape === "absent" || shape === "exempt" ? null : randomInt(0, 10);
+      const ca2 = shape === "absent" || shape === "exempt" ? null : randomInt(0, 10);
+      const ca3 = shape === "absent" || shape === "exempt" || shape === "partial" ? null : randomInt(0, 10);
+      const exam = shape === "absent" || shape === "exempt" || shape === "partial" ? null : randomInt(0, 70);
+
+      const total =
+        ca1 !== null && ca2 !== null && ca3 !== null && exam !== null
+          ? ca1 + ca2 + ca3 + exam
+          : null;
+      const band = total !== null ? gradingLevels.find(l => total >= l.minScore && total <= l.maxScore) : undefined;
+
+      const isReleased = shape === "complete" && Math.random() > 0.3;
+
       assessmentData.push({
         studentId: studentClassTerm.studentId,
         subjectId: classSubject.subjectId,
         termId: currentTerm!.id,
         studentClassTermId: studentClassTerm.id,
         teacherId: teachers[Math.floor(Math.random() * teachers.length)].id,
-        ca1: Math.floor(Math.random() * 10) + 1, // 1–10
-        ca2: Math.floor(Math.random() * 10) + 1, // 1–10
-        ca3: Math.floor(Math.random() * 10) + 1, // 1–10
-        exam: Math.floor(Math.random() * 70) + 1, // 1–70
-        isPublished: Math.random() > 0.3,
-        createdBy: schoolAdmin.id, // FIXED: Added required field
-        editedBy: schoolAdmin.id,  // FIXED: Added required field
-        isDraft: false
+        ca1,
+        ca2,
+        ca3,
+        exam,
+        // Derived fields the app reads but never wrote here before.
+        grade: band?.grade ?? null,
+        remark: band?.remark ?? null,
+        isAbsent: shape === "absent",
+        isExempt: shape === "exempt",
+        createdBy: schoolAdmin.id,
+        editedBy: schoolAdmin.id,
+        // A released result carries who released it and when, so demo data matches what
+        // the app now produces. `isDraft` is gone — revision history lives in AuditLog.
+        ...(isReleased
+          ? {
+              isPublished: true,
+              publishedAt: faker.date.recent({ days: 14 }),
+              publishedBy: schoolAdmin.id,
+            }
+          : { isPublished: false }),
       });
     }
   }
@@ -616,10 +731,8 @@ async function main() {
     parents.push(parent);
 
     // Assign 1-3 students to each parent
-    const studentCount = 1 + Math.floor(Math.random() * (CONFIG.MAX_STUDENTS_PER_PARENT - 1));
-    const parentStudents = students
-      .sort(() => 0.5 - Math.random())
-      .slice(0, studentCount);
+    const studentCount = randomInt(1, CONFIG.MAX_STUDENTS_PER_PARENT);
+    const parentStudents = shuffle(students).slice(0, studentCount);
     
     for (const student of parentStudents) {
       studentParentData.push({
@@ -644,13 +757,18 @@ async function main() {
   const feeStructureData = [];
   
   for (const classRecord of classes) {
+    // Fees are keyed on the class term, so a class with no class term for the current
+    // term simply has no fees — which is the correct outcome, not an error.
+    const classTerm = currentClassTerms.find(ct => ct.classId === classRecord.id);
+    if (!classTerm) continue;
+
     for (const feeType of FEE_TYPES) {
       feeStructureData.push({
         name: `${classRecord.name} ${feeType} Fee`,
         description: `${feeType} fee for ${classRecord.name}`,
         amount: 5000 + Math.floor(Math.random() * 20000),
-        classId: classRecord.id,
-        termId: currentTerm!.id,
+        schoolId: classRecord.schoolId,
+        classTermId: classTerm.id,
         isActive: true
       });
     }
@@ -673,9 +791,15 @@ async function main() {
     const student = students[Math.floor(Math.random() * students.length)];
     const feeStructure = feeStructures[Math.floor(Math.random() * feeStructures.length)];
     
+    const feeClassTerm = currentClassTerms.find(ct => ct.id === feeStructure.classTermId);
+
     paymentData.push({
+      // A payment now carries its own school and term, so income can be reported per
+      // term without joining out through the fee structure.
+      schoolId: feeStructure.schoolId,
       studentId: student.id,
       feeStructureId: feeStructure.id,
+      termId: feeClassTerm!.termId,
       amount: feeStructure.amount,
       paymentDate: faker.date.recent({ days: 60 }),
       receiptNo: `REC-${Date.now()}-${i}`,
@@ -715,6 +839,26 @@ async function main() {
 }
 
 // Helper functions
+
+/** Inclusive integer in [min, max]. */
+function randomInt(min: number, max: number): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+/**
+ * Fisher-Yates on a copy. `sort(() => 0.5 - Math.random())` is not a shuffle —
+ * an inconsistent comparator is undefined behaviour and biases the result — and
+ * it mutates the array every later step still reads from.
+ */
+function shuffle<T>(items: readonly T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 async function createUserWithCredential(data: {
   firstName: string;
   lastName: string;
@@ -775,11 +919,7 @@ function generateSubjectCode(subjectName: string): string {
     .substring(0, 4);
 }
 
-function getSubjectLevel(subjectName: string): ClassLevel {
-  if (SUBJECTS_BY_LEVEL.PRIMARY.includes(subjectName)) return ClassLevel.PRIMARY;
-  if (SUBJECTS_BY_LEVEL.JSS.includes(subjectName)) return ClassLevel.JSS;
-  return ClassLevel.SSS;
-}
+
 
 main()
   .catch((e) => {

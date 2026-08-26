@@ -2,29 +2,16 @@
 
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { requireAdminScope } from "@/lib/authz";
 import { calculateGrade } from "@/lib/grading";
 import type { GradingSystem } from "@/lib/grading";
 
 // Enhanced authorization function
+// Delegates to the shared boundary in lib/authz.ts. `undefined` still means "super
+// admin, no school filter", which is what every caller in this file expects.
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
-  const session = await auth();
-  if (
-    !session?.user ||
-    (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-  ) {
-    throw new Error("Unauthorized");
-  }
-  if (session.user.role === "ADMIN") {
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-      select: { schoolId: true },
-    });
-    if (!admin?.schoolId) {
-      throw new Error("Admin not assigned to a school");
-    }
-    return admin.schoolId;
-  }
-  return undefined;
+  const actor = await requireAdminScope();
+  return actor.schoolId ?? undefined;
 }
 
 // Get available sessions and terms for transition
@@ -351,7 +338,11 @@ export async function getStudentsForTransition(classTermId: string) {
             (assessment.exam || 0);
 
           const gradeResult = calculateGrade(subjectTotal, gradingSystem);
-          subjectGrades.push(gradeResult.grade);
+          // A score no band covers has no grade. Skipping it keeps the grade list honest;
+          // pushing a placeholder would let it be counted as an achieved grade downstream.
+          if (gradeResult.grade !== null) {
+            subjectGrades.push(gradeResult.grade);
+          }
 
           if (subjectTotal >= gradingSystem.passMark) {
             passedSubjects++;

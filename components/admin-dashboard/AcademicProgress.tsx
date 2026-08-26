@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { TrendingUp, Users, BookOpen, School } from "lucide-react"
 import { ClassLevel } from "@prisma/client"
+import { RecentActivities } from "./RecentActivities"
 
 interface AcademicProgressProps {
   gradeDistribution: Record<string, number>
@@ -27,6 +28,18 @@ interface AcademicProgressProps {
       remark: string
     }>
   } | null
+  recentActivities?: Array<{
+    id: string
+    type: string
+    user: {
+      name: string
+      role: string
+    }
+    action: string
+    target: string
+    date: Date
+    score?: number
+  }>
 }
 
 export function AcademicProgress({
@@ -34,6 +47,7 @@ export function AcademicProgress({
   classStats,
   levelDistribution,
   gradingSystem,
+  recentActivities,
 }: AcademicProgressProps) {
   const totalGrades = Object.values(gradeDistribution).reduce((sum, count) => sum + count, 0)
 
@@ -47,11 +61,11 @@ export function AcademicProgress({
   }
 
   const defaultGradeBgColors: Record<string, string> = {
-    A: "bg-green-100 text-green-800",
-    B: "bg-blue-100 text-blue-800",
-    C: "bg-yellow-100 text-yellow-800",
-    D: "bg-orange-100 text-orange-800",
-    F: "bg-red-100 text-red-800",
+    A: "bg-green-500/10 text-green-700 dark:text-green-400",
+    B: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    C: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+    D: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+    F: "bg-red-500/10 text-red-700 dark:text-red-400",
   }
 
   // Generate colors for all grades in the grading system
@@ -63,18 +77,18 @@ export function AcademicProgress({
       const index = gradingSystem.levels.findIndex((level) => level.grade === grade)
       const total = gradingSystem.levels.length
 
-      if (index === 0) return "bg-green-100 text-green-800" // Top grade
-      if (index === total - 1) return "bg-red-100 text-red-800" // Bottom grade
+      if (index === 0) return "bg-green-500/10 text-green-700 dark:text-green-400" // Top grade
+      if (index === total - 1) return "bg-red-500/10 text-red-700 dark:text-red-400" // Bottom grade
 
       // Generate colors in between
       const position = index / (total - 1)
-      if (position < 0.25) return "bg-green-100 text-green-800"
-      if (position < 0.5) return "bg-blue-100 text-blue-800"
-      if (position < 0.75) return "bg-yellow-100 text-yellow-800"
-      return "bg-orange-100 text-orange-800"
+      if (position < 0.25) return "bg-green-500/10 text-green-700 dark:text-green-400"
+      if (position < 0.5) return "bg-blue-500/10 text-blue-700 dark:text-blue-400"
+      if (position < 0.75) return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
+      return "bg-orange-500/10 text-orange-700 dark:text-orange-400"
     }
 
-    return "bg-gray-100 text-gray-800" // Default
+    return "bg-muted text-foreground" // Default
   }
 
   // Get class level display name
@@ -92,12 +106,12 @@ export function AcademicProgress({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="grid gap-5 xl:grid-cols-2">
       {/* Grade Distribution */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50">
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-indigo-600" />
+      <Card className="border shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 p-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <TrendingUp className="h-4 w-4 text-indigo-600" />
             Grade Distribution
           </CardTitle>
           <CardDescription>
@@ -106,9 +120,9 @@ export function AcademicProgress({
               : "Recent assessment performance across all subjects"}
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-4">
           {totalGrades > 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {Object.entries(gradeDistribution)
                 .sort((a, b) => {
                   // Sort by grade position in grading system if available
@@ -132,9 +146,9 @@ export function AcademicProgress({
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.5 }}
-                      className="flex items-center gap-4"
+                      className="flex items-center gap-3"
                     >
-                      <div className="w-12 text-center">
+                      <div className="w-10 text-center">
                         <Badge className={getGradeBgColor(grade)}>{grade}</Badge>
                       </div>
                       <div className="flex-1">
@@ -151,8 +165,8 @@ export function AcademicProgress({
                 })}
             </div>
           ) : (
-            <div className="text-center py-8 text-gray-500">
-              <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <div className="text-center py-6 text-muted-foreground">
+              <BookOpen className="h-10 w-10 mx-auto mb-3 opacity-50" />
               <p>No assessment data available yet</p>
             </div>
           )}
@@ -161,37 +175,37 @@ export function AcademicProgress({
 
       {/* Class Level Distribution */}
       {levelDistribution && (
-        <Card className="border-0 shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50">
-            <CardTitle className="flex items-center gap-2">
-              <School className="h-5 w-5 text-blue-600" />
+        <Card className="border shadow-sm">
+          <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50 p-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <School className="h-4 w-4 text-blue-600" />
               Class Section Distribution
             </CardTitle>
             <CardDescription>Distribution of classes by educational section</CardDescription>
           </CardHeader>
-          <CardContent className="p-6">
-            <div className="space-y-4">
+          <CardContent className="p-4">
+            <div className="space-y-3">
               {Object.entries(levelDistribution).map(([level, count]) => {
                 if (count === 0) return null
 
                 const totalClasses = Object.values(levelDistribution).reduce((sum, c) => sum + c, 0)
                 const percentage = (count / totalClasses) * 100
 
-                let color = "bg-gray-500"
-                let bgColor = "bg-gray-100 text-gray-800"
+                let color = "bg-muted-foreground"
+                let bgColor = "bg-muted text-foreground"
 
                 switch (level) {
                   case ClassLevel.PRIMARY:
                     color = "bg-green-500"
-                    bgColor = "bg-green-100 text-green-800"
+                    bgColor = "bg-green-500/10 text-green-700 dark:text-green-400"
                     break
                   case ClassLevel.JSS:
                     color = "bg-blue-500"
-                    bgColor = "bg-blue-100 text-blue-800"
+                    bgColor = "bg-blue-500/10 text-blue-700 dark:text-blue-400"
                     break
                   case ClassLevel.SSS:
                     color = "bg-purple-500"
-                    bgColor = "bg-purple-100 text-purple-800"
+                    bgColor = "bg-purple-500/10 text-purple-700 dark:text-purple-400"
                     break
                 }
 
@@ -201,7 +215,7 @@ export function AcademicProgress({
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.5 }}
-                    className="flex items-center gap-4"
+                    className="flex items-center gap-3"
                   >
                     <div className="w-24 text-center">
                       <Badge className={bgColor}>{getLevelName(level)}</Badge>
@@ -224,17 +238,17 @@ export function AcademicProgress({
       )}
 
       {/* Class Statistics */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="bg-gradient-to-r from-green-50 to-teal-50">
-          <CardTitle className="flex items-center gap-2">
-        <Users className="h-5 w-5 text-green-600" />
+      <Card className="border shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-green-50 to-teal-50 p-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+        <Users className="h-4 w-4 text-green-600" />
         Class Enrollment
           </CardTitle>
           <CardDescription>Current student enrollment by class</CardDescription>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-4">
           {classStats.length > 0 ? (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* Show only top N classes, with a details expander for the rest */}
           {classStats.slice(0, 5).map((cls, index) => {
             const enrollmentPercentage = (cls.studentCount / cls.totalCapacity) * 100
@@ -250,11 +264,11 @@ export function AcademicProgress({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: index * 0.08 }}
-            className="flex items-center gap-4 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-3 rounded-md bg-muted/50 p-3 transition-colors hover:bg-muted"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between mb-2">
-            <h4 className="font-medium text-gray-900">{cls.name}</h4>
+            <h4 className="font-medium text-foreground">{cls.name}</h4>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs">
                 {getLevelName(cls.level)}
@@ -290,11 +304,11 @@ export function AcademicProgress({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: idx * 0.06 }}
-              className="flex items-center gap-4 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="flex items-center gap-3 rounded-md bg-muted/50 p-3 transition-colors hover:bg-muted"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium text-gray-900">{cls.name}</h4>
+              <h4 className="font-medium text-foreground">{cls.name}</h4>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">
                   {getLevelName(cls.level)}
@@ -314,13 +328,17 @@ export function AcademicProgress({
           )}
         </div>
           ) : (
-        <div className="text-center py-8 text-gray-500">
-          <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+        <div className="text-center py-6 text-muted-foreground">
+          <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
           <p>No class data available</p>
         </div>
           )}
         </CardContent>
       </Card>
+
+      {recentActivities && (
+        <RecentActivities activities={recentActivities} />
+      )}
     </div>
   )
 }

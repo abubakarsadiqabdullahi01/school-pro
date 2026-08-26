@@ -58,7 +58,7 @@ export function CalendarOverview({ initialData }: CalendarOverviewProps) {
   const currentStatus = getCurrentStatus()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -75,49 +75,49 @@ export function CalendarOverview({ initialData }: CalendarOverviewProps) {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Current Session</CardTitle>
             <GraduationCap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{selectedSession?.name || "None"}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{selectedSession?.name || "None"}</div>
             <p className="text-xs text-muted-foreground">
               {selectedSession ? `${selectedSession.progressPercentage}% Complete` : "No active session"}
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Academic Weeks</CardTitle>
             <BookOpen className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{selectedSession?.academicWeeks || 0}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{selectedSession?.academicWeeks || 0}</div>
             <p className="text-xs text-muted-foreground">{selectedSession?.completedWeeks || 0} weeks completed</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Break Weeks</CardTitle>
             <Coffee className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{selectedSession?.totalBreakWeeks || 0}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{selectedSession?.totalBreakWeeks || 0}</div>
             <p className="text-xs text-muted-foreground">Across {selectedSession?.breaks?.length || 0} break periods</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Total Terms</CardTitle>
             <CalendarDays className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{selectedSession?.terms?.length || 0}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{selectedSession?.terms?.length || 0}</div>
             <p className="text-xs text-muted-foreground">
               {selectedSession?.terms?.filter((t: any) => t.status === "completed").length || 0} completed
             </p>
@@ -135,16 +135,16 @@ export function CalendarOverview({ initialData }: CalendarOverviewProps) {
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <TabsContent value="overview" className="space-y-5">
+          <div className="grid items-stretch gap-5 xl:grid-cols-2">
             {/* Session Progress */}
-            <div className="lg:col-span-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Session Progress</CardTitle>
+            <div className="h-full">
+              <Card className="h-full shadow-sm">
+                <CardHeader className="p-4">
+                  <CardTitle className="text-base">Session Progress</CardTitle>
                   <CardDescription>Track the progress of your current academic session</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
+                <CardContent className="space-y-4 p-4 pt-0">
                   {selectedSession && (
                     <>
                       <div className="space-y-2">
@@ -159,7 +159,7 @@ export function CalendarOverview({ initialData }: CalendarOverviewProps) {
                         </div>
                       </div>
 
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         <h4 className="font-medium">Terms Progress</h4>
                         {selectedSession.terms.map((term: any) => (
                           <div key={term.id} className="space-y-2">
@@ -197,19 +197,19 @@ export function CalendarOverview({ initialData }: CalendarOverviewProps) {
             </div>
 
             {/* Upcoming Events */}
-            <div>
+            <div className="h-full">
               <UpcomingEvents events={calendarData.upcomingEvents} />
             </div>
           </div>
 
           {/* Break Periods */}
           {selectedSession?.breaks && selectedSession.breaks.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Break Periods</CardTitle>
+            <Card className="shadow-sm">
+              <CardHeader className="p-4">
+                <CardTitle className="text-base">Break Periods</CardTitle>
                 <CardDescription>Scheduled breaks and holidays in {selectedSession.name}</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 pt-0">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {selectedSession.breaks.map((breakPeriod: any, index: number) => (
                     <div key={index} className="p-4 border rounded-lg space-y-2">

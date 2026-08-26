@@ -7,36 +7,15 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ScoreInputCell } from "./ScoreInputCell"
-import type { Student, ScoreEntry } from "./types"
+import type { AssessmentDataItem, Student, ScoreEntry } from "./types"
 import { format } from "date-fns"
-
-interface AssessmentInfo {
-  id: string | null
-  studentId: string
-  studentClassTermId: string
-  studentName: string
-  admissionNo: string
-  ca1: number | null
-  ca2: number | null
-  ca3: number | null
-  exam: number | null
-  totalScore: number | null
-  grade: string | null
-  remark: string | null
-  isAbsent: boolean
-  isExempt: boolean
-  isPublished: boolean
-  completionStatus: string
-  hasData: boolean
-  lastUpdated: Date | null
-}
 
 interface StudentScoreRowProps {
   student: Student
   score: ScoreEntry | undefined
   index: number
   onScoreChange: (studentId: string, field: keyof ScoreEntry, value: any) => void
-  assessmentInfo?: AssessmentInfo // NEW: Enhanced assessment information
+  assessmentInfo?: AssessmentDataItem
 }
 
 export const StudentScoreRow = memo(function StudentScoreRow({
@@ -47,28 +26,28 @@ export const StudentScoreRow = memo(function StudentScoreRow({
   assessmentInfo,
 }: StudentScoreRowProps) {
   const getGradeBadgeColor = (grade: string | null) => {
-    if (!grade) return "bg-gray-100 text-gray-800"
+    if (!grade) return "bg-muted text-foreground"
 
     switch (grade) {
       case "A":
       case "A1":
       case "A2":
-        return "bg-green-100 text-green-800"
+        return "bg-green-500/10 text-green-700 dark:text-green-400"
       case "B":
       case "B1":
       case "B2":
-        return "bg-blue-100 text-blue-800"
+        return "bg-blue-500/10 text-blue-700 dark:text-blue-400"
       case "C":
       case "C1":
       case "C2":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
       case "D":
       case "E":
-        return "bg-orange-100 text-orange-800"
+        return "bg-orange-500/10 text-orange-700 dark:text-orange-400"
       case "F":
-        return "bg-red-100 text-red-800"
+        return "bg-red-500/10 text-red-700 dark:text-red-400"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -82,7 +61,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300">
+                <Badge variant="outline" className="bg-red-500/10 text-red-700 dark:text-red-400 border-red-300">
                   <UserX className="h-3 w-3 mr-1" />
                   Absent
                 </Badge>
@@ -103,7 +82,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-300">
+                <Badge variant="outline" className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300">
                   <Shield className="h-3 w-3 mr-1" />
                   Exempt
                 </Badge>
@@ -126,7 +105,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                  <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-300">
                     <Check className="h-3 w-3 mr-1" />
                     Complete
                   </Badge>
@@ -145,7 +124,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300">
+                  <Badge variant="outline" className="bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-300">
                     <Clock className="h-3 w-3 mr-1" />
                     Partial
                   </Badge>
@@ -162,7 +141,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
         case "not_started":
         default:
           return (
-            <Badge variant="outline" className="bg-gray-100 text-gray-800 border-gray-300">
+            <Badge variant="outline" className="bg-muted text-foreground border-border">
               <AlertCircle className="h-3 w-3 mr-1" />
               Not Started
             </Badge>
@@ -173,7 +152,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
     // Fallback to score-based status if no assessment info
     if (score?.isAbsent) {
       return (
-        <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300">
+        <Badge variant="outline" className="bg-red-500/10 text-red-700 dark:text-red-400 border-red-300">
           <UserX className="h-3 w-3 mr-1" />
           Absent
         </Badge>
@@ -182,7 +161,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
 
     if (score?.isExempt) {
       return (
-        <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-300">
+        <Badge variant="outline" className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-300">
           <Shield className="h-3 w-3 mr-1" />
           Exempt
         </Badge>
@@ -191,7 +170,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
 
     if (score?.isDirty) {
       return (
-        <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300">
+        <Badge variant="outline" className="bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-300">
           Modified
         </Badge>
       )
@@ -199,7 +178,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
 
     if (score?.id) {
       return (
-        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+        <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-300">
           <Check className="h-3 w-3 mr-1" />
           Saved
         </Badge>
@@ -207,7 +186,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
     }
 
     return (
-      <Badge variant="outline" className="bg-gray-100 text-gray-800 border-gray-300">
+      <Badge variant="outline" className="bg-muted text-foreground border-border">
         New
       </Badge>
     )
@@ -221,7 +200,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
     ? "bg-yellow-50 border-l-4 border-l-yellow-400"
     : hasExistingData
       ? "bg-blue-50 hover:bg-blue-100"
-      : "hover:bg-gray-50"
+      : "hover:bg-muted/50"
 
   return (
     <TableRow className={rowClassName}>
@@ -328,7 +307,7 @@ export const StudentScoreRow = memo(function StudentScoreRow({
 
       <TableCell className="text-center font-bold">
         {isScoresDisabled ? (
-          <span className="text-gray-400">-</span>
+          <span className="text-muted-foreground">-</span>
         ) : (
           <span>
             {score?.totalScore !== null && score?.totalScore !== undefined
@@ -342,13 +321,13 @@ export const StudentScoreRow = memo(function StudentScoreRow({
 
       <TableCell className="text-center">
         {isScoresDisabled ? (
-          <span className="text-gray-400">-</span>
+          <span className="text-muted-foreground">-</span>
         ) : score?.grade || assessmentInfo?.grade ? (
           <Badge className={getGradeBadgeColor((score?.grade ?? assessmentInfo?.grade) ?? null)}>
             {score?.grade || assessmentInfo?.grade}
           </Badge>
         ) : (
-          <Badge className="bg-gray-100 text-gray-800">F</Badge>
+          <Badge className="bg-muted text-foreground">F</Badge>
         )}
       </TableCell>
 

@@ -73,7 +73,7 @@ export const TeacherSelectionControls = memo(function TeacherSelectionControls({
                     {term.session.name} - {term.name}
                   </span>
                   {term.isCurrent && (
-                    <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                    <span className="ml-2 text-xs bg-green-500/10 text-green-700 dark:text-green-400 px-2 py-1 rounded">
                       Current
                     </span>
                   )}
@@ -116,7 +116,7 @@ export const TeacherSelectionControls = memo(function TeacherSelectionControls({
               <SelectItem key={classTerm.id} value={classTerm.id}>
                 <div className="flex items-center justify-between w-full">
                   <span>{classTerm.className}</span>
-                  <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                  <span className="ml-2 text-xs bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2 py-1 rounded">
                     {classTerm.classLevel}
                   </span>
                 </div>
@@ -154,7 +154,7 @@ export const TeacherSelectionControls = memo(function TeacherSelectionControls({
               <SelectItem key={subject.id} value={subject.id}>
                 <div className="flex items-center justify-between w-full">
                   <span>{subject.name}</span>
-                  <span className="ml-2 text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                  <span className="ml-2 text-xs bg-muted text-foreground px-2 py-1 rounded">
                     {subject.code}
                   </span>
                 </div>

@@ -4,6 +4,27 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 
+async function getWritableSessionSchoolId(userId: string, role: string, requestedSchoolId: string) {
+  if (role === "SUPER_ADMIN") {
+    return requestedSchoolId
+  }
+
+  if (role !== "ADMIN") {
+    return null
+  }
+
+  const admin = await prisma.admin.findUnique({
+    where: { userId },
+    select: { schoolId: true },
+  })
+
+  if (!admin?.schoolId || admin.schoolId !== requestedSchoolId) {
+    return null
+  }
+
+  return admin.schoolId
+}
+
 // Create a new session
 export async function createSession(data: {
   name: string
@@ -14,15 +35,21 @@ export async function createSession(data: {
 }) {
   try {
     const session = await auth()
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" }
+    }
+
+    const schoolId = await getWritableSessionSchoolId(session.user.id, session.user.role, data.schoolId)
+
+    if (!schoolId) {
+      return { success: false, error: "Unauthorized for this school" }
     }
 
     // Check if session name already exists for this school
     const existingSession = await prisma.session.findFirst({
       where: {
         name: data.name,
-        schoolId: data.schoolId,
+        schoolId,
       },
     })
 
@@ -34,7 +61,7 @@ export async function createSession(data: {
     if (data.isCurrent) {
       await prisma.session.updateMany({
         where: {
-          schoolId: data.schoolId,
+          schoolId,
           isCurrent: true,
         },
         data: { isCurrent: false },
@@ -44,7 +71,7 @@ export async function createSession(data: {
     const newSession = await prisma.session.create({
       data: {
         name: data.name,
-        schoolId: data.schoolId,
+        schoolId,
         startDate: data.startDate,
         endDate: data.endDate,
         isCurrent: data.isCurrent,
@@ -52,6 +79,7 @@ export async function createSession(data: {
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
+    revalidatePath("/dashboard/admin/school-sessions")
     return { success: true, data: newSession, message: "Session created successfully" }
   } catch (error) {
     console.error("Error creating session:", error)
@@ -70,15 +98,33 @@ export async function updateSession(data: {
 }) {
   try {
     const session = await auth()
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" }
+    }
+
+    const schoolId = await getWritableSessionSchoolId(session.user.id, session.user.role, data.schoolId)
+
+    if (!schoolId) {
+      return { success: false, error: "Unauthorized for this school" }
+    }
+
+    const targetSession = await prisma.session.findFirst({
+      where: {
+        id: data.id,
+        schoolId,
+      },
+      select: { id: true },
+    })
+
+    if (!targetSession) {
+      return { success: false, error: "Session not found for this school" }
     }
 
     // Check if session name already exists for another session in this school
     const existingSession = await prisma.session.findFirst({
       where: {
         name: data.name,
-        schoolId: data.schoolId,
+        schoolId,
         id: { not: data.id },
       },
     })
@@ -91,7 +137,7 @@ export async function updateSession(data: {
     if (data.isCurrent) {
       await prisma.session.updateMany({
         where: {
-          schoolId: data.schoolId,
+          schoolId,
           isCurrent: true,
           id: { not: data.id },
         },
@@ -110,6 +156,8 @@ export async function updateSession(data: {
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
+    revalidatePath("/dashboard/admin/school-sessions")
+    revalidatePath(`/dashboard/admin/school-sessions/${data.id}`)
     return { success: true, data: updatedSession, message: "Session updated successfully" }
   } catch (error) {
     console.error("Error updating session:", error)
@@ -121,13 +169,29 @@ export async function updateSession(data: {
 export async function deleteSession(id: string) {
   try {
     const session = await auth()
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" }
     }
 
-    // Check if session has terms
-    const sessionWithTerms = await prisma.session.findUnique({
-      where: { id },
+    const adminSchoolId =
+      session.user.role === "ADMIN"
+        ? (
+            await prisma.admin.findUnique({
+              where: { userId: session.user.id },
+              select: { schoolId: true },
+            })
+          )?.schoolId
+        : undefined
+
+    if (session.user.role === "ADMIN" && !adminSchoolId) {
+      return { success: false, error: "Admin not associated with a school" }
+    }
+
+    const sessionWithTerms = await prisma.session.findFirst({
+      where: {
+        id,
+        ...(adminSchoolId ? { schoolId: adminSchoolId } : {}),
+      },
       include: {
         _count: {
           select: { terms: true },
@@ -152,6 +216,7 @@ export async function deleteSession(id: string) {
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
+    revalidatePath("/dashboard/admin/school-sessions")
     return { success: true, message: "Session deleted successfully" }
   } catch (error) {
     console.error("Error deleting session:", error)
@@ -163,15 +228,46 @@ export async function deleteSession(id: string) {
 export async function setCurrentSession(sessionId: string, schoolId: string) {
   try {
     const session = await auth()
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" }
+    }
+
+    let authorizedSchoolId = schoolId
+
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      })
+
+      if (!admin?.schoolId) {
+        return { success: false, error: "Admin not associated with a school" }
+      }
+
+      if (admin.schoolId !== schoolId) {
+        return { success: false, error: "Unauthorized for this school" }
+      }
+
+      authorizedSchoolId = admin.schoolId
+    }
+
+    const targetSession = await prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        schoolId: authorizedSchoolId,
+      },
+      select: { id: true },
+    })
+
+    if (!targetSession) {
+      return { success: false, error: "Session not found for this school" }
     }
 
     await prisma.$transaction(async (tx) => {
       // Deactivate all current sessions for this school
       await tx.session.updateMany({
         where: {
-          schoolId: schoolId,
+          schoolId: authorizedSchoolId,
           isCurrent: true,
         },
         data: { isCurrent: false },
@@ -185,6 +281,7 @@ export async function setCurrentSession(sessionId: string, schoolId: string) {
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
+    revalidatePath("/dashboard/admin/school-sessions")
     return { success: true, message: "Current session updated successfully" }
   } catch (error) {
     console.error("Error setting current session:", error)
@@ -196,12 +293,29 @@ export async function setCurrentSession(sessionId: string, schoolId: string) {
 export async function getSession(id: string) {
   try {
     const session = await auth()
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" }
     }
 
-    const sessionData = await prisma.session.findUnique({
-      where: { id },
+    const adminSchoolId =
+      session.user.role === "ADMIN"
+        ? (
+            await prisma.admin.findUnique({
+              where: { userId: session.user.id },
+              select: { schoolId: true },
+            })
+          )?.schoolId
+        : undefined
+
+    if (session.user.role === "ADMIN" && !adminSchoolId) {
+      return { success: false, error: "Admin not associated with a school" }
+    }
+
+    const sessionData = await prisma.session.findFirst({
+      where: {
+        id,
+        ...(adminSchoolId ? { schoolId: adminSchoolId } : {}),
+      },
       include: {
         school: {
           select: {

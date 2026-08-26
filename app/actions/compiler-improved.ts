@@ -2,8 +2,14 @@
 
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { assertSchoolAccess, requireRole } from "@/lib/authz";
+import { recordAudit } from "@/lib/audit";
 import { unstable_cache } from "next/cache";
 import { revalidateTag } from "next/cache";
+import { log } from "@/lib/logger";
+import { assertScoresWithinScheme } from "@/lib/assessment-scheme";
+import { loadAssessmentScheme } from "@/lib/assessment-scheme.server";
+import { gradeScoreForSchool } from "@/lib/grading.server";
 
 // Enhanced types
 interface AssessmentData {
@@ -26,41 +32,19 @@ interface AssessmentWithCalculations extends AssessmentData {
   remark?: string | null;
 }
 
-// Enhanced authorization with better error handling
+// Delegates to the shared boundary in lib/authz.ts. The returned shape is unchanged —
+// callers only ever read `user.id` — with `actor` added so a caller that needs to check
+// school access does not have to resolve the session a second time.
 async function authorizeAndGetUser() {
-  const session = await auth();
-  if (!session?.user) {
-    throw new Error("Authentication required");
-  }
+  const actor = await requireRole("SUPER_ADMIN", "ADMIN", "TEACHER");
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: {
-      admin: { select: { schoolId: true } },
-      teacher: { select: { id: true, schoolId: true } },
-      superAdmin: true,
-    },
-  });
-
-  if (!user) {
-    throw new Error("User profile not found");
-  }
-
-  let schoolId: string | undefined;
-  let teacherId: string | undefined;
-
-  if (user.admin?.schoolId) {
-    schoolId = user.admin.schoolId;
-  } else if (user.teacher) {
-    schoolId = user.teacher.schoolId;
-    teacherId = user.teacher.id;
-  } else if (user.superAdmin) {
-    schoolId = undefined;
-  } else {
-    throw new Error("User does not have permission to access this resource");
-  }
-
-  return { user, schoolId, teacherId, role: user.role };
+  return {
+    actor,
+    user: { id: actor.userId },
+    schoolId: actor.schoolId ?? undefined,
+    teacherId: actor.teacherId ?? undefined,
+    role: actor.role,
+  };
 }
 
 // Function to find teacher assigned to a subject for a specific class term
@@ -74,7 +58,7 @@ async function findAssignedTeacher(
   message: string;
 }> {
   try {
-    console.log(
+    log.debug(
       `Looking for teacher assigned to subject ${subjectId} in class term ${classTermId}`,
     );
 
@@ -124,7 +108,7 @@ async function findAssignedTeacher(
 
     if (teacherSubject && teacherSubject.teacher.teacherClassTerms.length > 0) {
       const teacherName = `${teacherSubject.teacher.user.firstName} ${teacherSubject.teacher.user.lastName}`;
-      console.log(
+      log.debug(
         `Found teacher ${teacherSubject.teacher.id} (${teacherName}) assigned to subject ${subjectId}`,
       );
       return {
@@ -156,7 +140,7 @@ async function findAssignedTeacher(
 
     if (teacherClassTerm) {
       const teacherName = `${teacherClassTerm.teacher.user.firstName} ${teacherClassTerm.teacher.user.lastName}`;
-      console.log(
+      log.debug(
         `Found class teacher ${teacherClassTerm.teacher.id} (${teacherName}) for class term ${classTermId}`,
       );
       return {
@@ -167,7 +151,7 @@ async function findAssignedTeacher(
       };
     }
 
-    console.log(
+    log.debug(
       `No teacher assigned to subject ${subjectId} or class term ${classTermId}`,
     );
     return {
@@ -188,30 +172,6 @@ async function findAssignedTeacher(
 }
 
 // Enhanced grading system with fallback
-const getGradingSystem = unstable_cache(
-  async (schoolId: string) => {
-    try {
-      const gradingSystem = await prisma.gradingSystem.findFirst({
-        where: {
-          schoolId,
-          isDefault: true,
-        },
-        include: {
-          levels: {
-            orderBy: { minScore: "desc" },
-          },
-        },
-      });
-
-      return gradingSystem;
-    } catch (error) {
-      console.error("Error fetching grading system:", error);
-      return null;
-    }
-  },
-  ["grading-system"],
-  { revalidate: 3600, tags: ["grading"] },
-);
 
 // Safe calculation functions
 function calculateTotalScore(
@@ -230,37 +190,22 @@ function calculateTotalScore(
 }
 
 // Enhanced grade calculation
+// Delegates to the single grading implementation in lib/grading.ts. This used to be a
+// local copy of the bands and the fallback, one of three that agreed with each other but
+// not with the class-term aggregation.
 export async function calculateGradeFromScore(
   totalScore: number | null,
   schoolId: string,
 ): Promise<{ grade: string; remark: string } | null> {
   if (totalScore === null || totalScore === undefined) return null;
 
-  try {
-    const gradingSystem = await getGradingSystem(schoolId);
+  const result = await gradeScoreForSchool(totalScore, schoolId);
 
-    if (!gradingSystem?.levels || gradingSystem.levels.length === 0) {
-      // Enhanced default grading system
-      if (totalScore >= 80) return { grade: "A1", remark: "Excellent" };
-      if (totalScore >= 70) return { grade: "A2", remark: "Very Good" };
-      if (totalScore >= 60) return { grade: "B1", remark: "Good" };
-      if (totalScore >= 50) return { grade: "B2", remark: "Fair" };
-      if (totalScore >= 45) return { grade: "C1", remark: "Pass" };
-      if (totalScore >= 40) return { grade: "C2", remark: "Weak Pass" };
-      return { grade: "F", remark: "Fail" };
-    }
-
-    const level = gradingSystem.levels.find(
-      (l) => totalScore >= l.minScore && totalScore <= l.maxScore,
-    );
-
-    return level
-      ? { grade: level.grade, remark: level.remark }
-      : { grade: "F", remark: "Fail" };
-  } catch (error) {
-    console.error("Error calculating grade:", error);
-    return { grade: "F", remark: "Error" };
-  }
+  // Callers render this straight into a report card, so an unmatched score has to say so
+  // rather than borrow a letter it did not earn.
+  return result.grade === null
+    ? { grade: "\u2014", remark: result.remark }
+    : { grade: result.grade, remark: result.remark };
 }
 
 // NEW: Enhanced function to get assessments with completion status for a class term and subject
@@ -492,12 +437,11 @@ export async function saveAssessments(
   assessments: AssessmentData[],
   termId: string,
   subjectId: string,
-  schoolId: string,
 ) {
   try {
-    console.log("\n=== SAVE ASSESSMENTS START ===");
+    log.debug("\n=== SAVE ASSESSMENTS START ===");
 
-    const { user, teacherId: userTeacherId } = await authorizeAndGetUser();
+    const { actor, user, teacherId: userTeacherId } = await authorizeAndGetUser();
 
     if (!user) {
       throw new Error("Authentication required");
@@ -512,72 +456,142 @@ export async function saveAssessments(
       throw new Error("Term ID and Subject ID are required");
     }
 
-    console.log("Input Parameters:");
-    console.log("- termId:", termId);
-    console.log("- subjectId:", subjectId);
-    console.log("- schoolId:", schoolId);
-    console.log("- assessments count:", assessments.length);
-    console.log("- user teacherId:", userTeacherId);
+    // The school is derived from the term being written, never from the caller. This used
+    // to be `authorizedSchoolId ?? schoolId` — which for a SUPER_ADMIN, whose authorized
+    // value is undefined, meant trusting a schoolId straight out of the request body.
+    const term = await prisma.term.findUnique({
+      where: { id: termId },
+      select: { id: true, session: { select: { schoolId: true } } },
+    });
+
+    if (!term) {
+      throw new Error("Term not found");
+    }
+
+    const effectiveSchoolId = term.session.schoolId;
+    assertSchoolAccess(actor, effectiveSchoolId);
+
+    // Loaded once for the whole batch rather than per student.
+    const assessmentScheme = await loadAssessmentScheme(effectiveSchoolId);
+
+    log.debug("Input Parameters:");
+    log.debug("- termId:", termId);
+    log.debug("- subjectId:", subjectId);
+    log.debug("- assessments count:", assessments.length);
+    log.debug("- user teacherId:", userTeacherId);
 
     // Validate that all required entities exist
     const [termExists, subjectExists] = await Promise.all([
-      prisma.term.findUnique({ where: { id: termId }, select: { id: true } }),
+      prisma.term.findFirst({
+        where: {
+          id: termId,
+          session: { schoolId: effectiveSchoolId },
+        },
+        select: { id: true },
+      }),
       prisma.subject.findUnique({
         where: { id: subjectId },
-        select: { id: true },
+        select: { id: true, schoolId: true, name: true },
       }),
     ]);
 
     if (!termExists) {
-      throw new Error(`Term with ID ${termId} not found`);
+      throw new Error("Term not found for this school");
     }
 
-    if (!subjectExists) {
-      throw new Error(`Subject with ID ${subjectId} not found`);
+    if (!subjectExists || subjectExists.schoolId !== effectiveSchoolId) {
+      throw new Error("Subject not found for this school");
     }
 
     // Validate all students exist
-    const studentIds = assessments.map((a) => a.studentId);
+    const studentIds = [...new Set(assessments.map((a) => a.studentId))];
     const existingStudents = await prisma.student.findMany({
-      where: { id: { in: studentIds } },
+      where: {
+        id: { in: studentIds },
+        schoolId: effectiveSchoolId,
+      },
       select: { id: true },
     });
+    const existingStudentIds = new Set(existingStudents.map((student) => student.id));
 
     if (existingStudents.length !== studentIds.length) {
       const missingStudents = studentIds.filter(
-        (id) => !existingStudents.find((s) => s.id === id),
+        (id) => !existingStudentIds.has(id),
       );
-      throw new Error(`Students not found: ${missingStudents.join(", ")}`);
+      throw new Error(
+        `Students not found for this school: ${missingStudents.join(", ")}`,
+      );
     }
 
     // Validate all studentClassTerms exist
-    const studentClassTermIds = assessments.map((a) => a.studentClassTermId);
+    const studentClassTermIds = [
+      ...new Set(assessments.map((a) => a.studentClassTermId)),
+    ];
     const existingStudentClassTerms = await prisma.studentClassTerm.findMany({
-      where: { id: { in: studentClassTermIds } },
-      select: { id: true, classTermId: true },
+      where: {
+        id: { in: studentClassTermIds },
+        termId,
+        status: "ACTIVE",
+        student: {
+          schoolId: effectiveSchoolId,
+        },
+        classTerm: {
+          termId,
+          class: {
+            schoolId: effectiveSchoolId,
+          },
+        },
+      },
+      select: { id: true, studentId: true, classTermId: true },
     });
+    const existingStudentClassTermIds = new Set(
+      existingStudentClassTerms.map((studentClassTerm) => studentClassTerm.id),
+    );
 
     if (existingStudentClassTerms.length !== studentClassTermIds.length) {
       const missingIds = studentClassTermIds.filter(
-        (id) => !existingStudentClassTerms.find((sct) => sct.id === id),
+        (id) => !existingStudentClassTermIds.has(id),
       );
       throw new Error(
-        `Student class terms not found: ${missingIds.join(", ")}`,
+        `Active student class terms not found for this school and term: ${missingIds.join(", ")}`,
       );
+    }
+
+    const enrollmentById = new Map(
+      existingStudentClassTerms.map((studentClassTerm) => [
+        studentClassTerm.id,
+        studentClassTerm,
+      ]),
+    );
+
+    for (const assessment of assessments) {
+      const enrollment = enrollmentById.get(assessment.studentClassTermId);
+      if (!enrollment || enrollment.studentId !== assessment.studentId) {
+        throw new Error(
+          `Student ${assessment.studentId} is not linked to enrollment ${assessment.studentClassTermId}`,
+        );
+      }
     }
 
     // Find the class term ID from the first assessment (they should all be the same)
     const firstStudentClassTerm = existingStudentClassTerms[0];
     const classTermId = firstStudentClassTerm.classTermId;
 
+    const classTermIds = new Set(
+      existingStudentClassTerms.map((studentClassTerm) => studentClassTerm.classTermId),
+    );
+    if (classTermIds.size !== 1) {
+      throw new Error("Assessments must belong to one class term at a time");
+    }
+
     // Find assigned teacher for this subject and class
     const teacherAssignment = await findAssignedTeacher(subjectId, classTermId);
 
-    console.log("Teacher assignment result:");
-    console.log("- teacherId:", teacherAssignment.teacherId);
-    console.log("- teacherName:", teacherAssignment.teacherName);
-    console.log("- isAssigned:", teacherAssignment.isAssigned);
-    console.log("- message:", teacherAssignment.message);
+    log.debug("Teacher assignment result:");
+    log.debug("- teacherId:", teacherAssignment.teacherId);
+    log.debug("- teacherName:", teacherAssignment.teacherName);
+    log.debug("- isAssigned:", teacherAssignment.isAssigned);
+    log.debug("- message:", teacherAssignment.message);
 
     // Check for existing assessments to avoid unique constraint violations
     const existingAssessments = await prisma.assessment.findMany({
@@ -592,7 +606,7 @@ export async function saveAssessments(
       },
     });
 
-    console.log(`Found ${existingAssessments.length} existing assessments`);
+    log.debug(`Found ${existingAssessments.length} existing assessments`);
 
     // Process assessments in batches for better performance
     const BATCH_SIZE = 5;
@@ -600,7 +614,7 @@ export async function saveAssessments(
 
     for (let i = 0; i < assessments.length; i += BATCH_SIZE) {
       const batch = assessments.slice(i, i + BATCH_SIZE);
-      console.log(
+      log.debug(
         `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}, items ${i + 1} to ${Math.min(i + BATCH_SIZE, assessments.length)}`,
       );
 
@@ -608,30 +622,15 @@ export async function saveAssessments(
         const batchResults = await prisma.$transaction(
           batch.map((assessment, batchIndex) => {
             const globalIndex = i + batchIndex;
-            console.log(
+            log.debug(
               `Processing assessment ${globalIndex + 1} for student ${assessment.studentId}`,
             );
 
             // Validate score ranges
-            const validateScore = (
-              score: number | null | undefined,
-              field: string,
-              max: number,
-            ) => {
-              if (score !== null && score !== undefined) {
-                if (score < 0 || score > max) {
-                  throw new Error(
-                    `${field} score must be between 0 and ${max}, got ${score}`,
-                  );
-                }
-              }
-            };
-
-            validateScore(assessment.ca1, "CA1", 10);
-            validateScore(assessment.ca2, "CA2", 10);
-            validateScore(assessment.ca3, "CA3", 10);
-            validateScore(assessment.exam, "Exam", 70);
-
+            // Bounds come from the school's own scheme, loaded once for this save, not
+            // from literals. This used to be a local validator hardcoded to CA 10/10/10
+            // plus a 70-mark exam, repeated in three files.
+            assertScoresWithinScheme(assessment, assessmentScheme);
             // Prepare data according to schema
             const data = {
               studentId: assessment.studentId,
@@ -650,74 +649,99 @@ export async function saveAssessments(
               createdBy: user.id,
             };
 
-            console.log(
-              `Assessment data for student ${assessment.studentId}:`,
-              JSON.stringify(data, null, 2),
-            );
 
-            // Check if this is an update or create operation
-            const existingAssessment = existingAssessments.find(
-              (ea) => ea.studentId === assessment.studentId,
-            );
-
-            if (assessment.id || existingAssessment) {
-              const assessmentId = assessment.id || existingAssessment?.id;
-              console.log(`Updating existing assessment ${assessmentId}`);
-              return prisma.assessment.update({
-                where: { id: assessmentId },
-                data: {
-                  ...data,
-                  updatedBy: user.id,
+            // Same single upsert the teacher path uses, on the same key, so the two paths
+            // can no longer disagree about which row belongs to a student and subject.
+            return prisma.assessment.upsert({
+              where: {
+                studentId_subjectId_termId: {
+                  studentId: assessment.studentId,
+                  subjectId,
+                  termId,
                 },
-              });
-            } else {
-              console.log(
-                `Creating new assessment for student ${assessment.studentId}`,
-              );
-              // Use simple create instead of upsert to avoid relationship issues
-              return prisma.assessment.create({
-                data: {
-                  ...data,
-                },
-              });
-            }
+              },
+              update: {
+                ...data,
+                updatedBy: user.id,
+              },
+              create: {
+                ...data,
+              },
+            });
           }),
         );
 
         savedAssessments.push(...batchResults);
-        console.log(
+        log.debug(
           `Batch ${Math.floor(i / BATCH_SIZE) + 1} completed successfully`,
         );
       } catch (batchError) {
+        const prismaError = batchError as {
+          code?: string;
+          meta?: unknown;
+          message?: string;
+        };
         console.error(
           `Error in batch ${Math.floor(i / BATCH_SIZE) + 1}:`,
           batchError,
         );
 
         // Log the specific Prisma error details
-        if (batchError.code) {
-          console.error("Prisma error code:", batchError.code);
+        if (prismaError.code) {
+          console.error("Prisma error code:", prismaError.code);
         }
-        if (batchError.meta) {
-          console.error("Prisma error meta:", batchError.meta);
+        if (prismaError.meta) {
+          console.error("Prisma error meta:", prismaError.meta);
         }
-        if (batchError.message) {
-          console.error("Prisma error message:", batchError.message);
+        if (prismaError.message) {
+          console.error("Prisma error message:", prismaError.message);
         }
 
         throw new Error(
-          `Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batchError.message}`,
+          `Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${
+            prismaError.message ?? "Unknown error"
+          }`,
         );
       }
     }
 
-    // Revalidate relevant caches
-    revalidateTag(`assessments-${termId}-${subjectId}`);
-    revalidateTag("assessments");
+    // Names for the audit summary. Ids are useless to whoever reads the log later.
+    const auditClassTerm = await prisma.classTerm.findFirst({
+      where: { students: { some: { id: { in: studentClassTermIds } } } },
+      select: {
+        class: { select: { name: true } },
+        term: { select: { name: true } },
+      },
+    });
+    const classTermLabel = auditClassTerm
+      ? `${auditClassTerm.class.name}, ${auditClassTerm.term.name}`
+      : "an unidentified class term";
 
-    console.log(`Successfully saved ${savedAssessments.length} assessments`);
-    console.log("Teacher assignment info:", teacherAssignment.message);
-    console.log("=== SAVE ASSESSMENTS COMPLETE ===\n");
+    // Revalidate relevant caches
+    revalidateTag(`assessments-${termId}-${subjectId}`, "max");
+    revalidateTag("assessments", "max");
+
+    log.debug(`Successfully saved ${savedAssessments.length} assessments`);
+    log.debug("Teacher assignment info:", teacherAssignment.message);
+    log.debug("=== SAVE ASSESSMENTS COMPLETE ===\n");
+
+    // Recorded after the writes have succeeded, so the log never claims a save that was
+    // rolled back. An audit failure is logged and swallowed — see lib/audit.ts.
+    await recordAudit({
+      actor,
+      action: "assessment.save",
+      entityType: "Assessment",
+      schoolId: effectiveSchoolId,
+      summary:
+        `Saved ${savedAssessments.length} score${savedAssessments.length === 1 ? "" : "s"} ` +
+        `for ${subjectExists.name} in ${classTermLabel}`,
+      after: {
+        termId,
+        subjectId,
+        studentCount: savedAssessments.length,
+        recordedTeacherId: teacherAssignment.teacherId,
+      },
+    });
 
     return {
       success: true,
@@ -907,7 +931,7 @@ export async function bulkUpdateAssessments(
     );
 
     // Revalidate cache
-    revalidateTag(`assessments-${termId}-${subjectId}`);
+    revalidateTag(`assessments-${termId}-${subjectId}`, "max");
 
     return { success: true, data: results };
   } catch (error) {

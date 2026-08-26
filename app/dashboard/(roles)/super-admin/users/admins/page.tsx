@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { UserPlus } from "lucide-react"
 import { TableActions } from "@/components/user-management/table-actions"
+import { formatDate } from "@/lib/format"
+import { getActiveSchool } from "@/lib/school-context.server"
+import { schoolLabel } from "@/lib/school-context"
 
 export default async function AdminUsersPage() {
   const session = await auth()
@@ -30,14 +33,23 @@ export default async function AdminUsersPage() {
     )
   }
 
-  const adminUsers = result.data ?? []
+  // Scope to the school selected in the header switcher.
+  const activeSchool = await getActiveSchool()
+  const allAdmins = result.data ?? []
+  const adminUsers = activeSchool
+    ? allAdmins.filter((admin) => admin.schoolId === activeSchool.id)
+    : allAdmins
   const userType = "admin"
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Admin Users</h2>
-        <p className="text-muted-foreground">Manage administrator accounts in the system</p>
+        <p className="text-muted-foreground">
+          {activeSchool
+            ? `Administrators at ${schoolLabel(activeSchool)}`
+            : "Manage administrator accounts in the system"}
+        </p>
       </div>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -85,7 +97,7 @@ export default async function AdminUsersPage() {
                       <TableCell>
                         <Badge variant={user.status === "Active" ? "default" : "secondary"}>{user.status}</Badge>
                       </TableCell>
-                      <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDate(user.createdAt)}</TableCell>
                       <TableCell className="text-right">
                         <TableActions userId={user.id} userType={userType} status={user.status} />
                       </TableCell>

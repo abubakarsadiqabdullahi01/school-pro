@@ -103,7 +103,7 @@ export function AdmissionSettingsForm({ data }: AdmissionSettingsFormProps) {
       })
 
       if (result.success) {
-        setPreviewNumber(result.admissionNumber)
+        setPreviewNumber(result.admissionNumber || "")
       }
     } catch (error) {
       console.error("Failed to generate preview:", error)

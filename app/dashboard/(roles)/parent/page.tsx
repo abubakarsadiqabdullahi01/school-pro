@@ -1,252 +1,186 @@
-"use client"
+import { auth } from "@/auth"
+import { prisma } from "@/lib/db"
+import { redirect } from "next/navigation"
+import { Calendar, CheckCircle, DollarSign, Users } from "lucide-react"
 
-import { useState, useEffect } from "react"
-import { Calendar, CheckCircle, DollarSign, FileText, Users } from "lucide-react"
-
-import { StatsCard } from "@/components/dashboard/stats-card"
-import { RecentActivity } from "@/components/dashboard/recent-activity"
-import { LoadingSpinner } from "@/components/dashboard/loading-spinner"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { StatsCard } from "@/components/dashboard/stats-card"
+import { formatDate } from "@/lib/format"
+import { formatNaira, sumAmounts } from "@/lib/money"
 
-// Mock data for recent activities
-const recentActivities = [
-  {
-    id: "1",
-    user: {
-      name: "Ms. Johnson",
-      role: "Teacher",
-    },
-    action: "posted grades for",
-    target: "Emma in Mathematics",
-    date: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-  },
-  {
-    id: "2",
-    user: {
-      name: "Principal Davis",
-      role: "Admin",
-    },
-    action: "announced school event",
-    target: "Annual Sports Day",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 3), // 3 hours ago
-  },
-  {
-    id: "3",
-    user: {
-      name: "Emma",
-      role: "Student",
-    },
-    action: "submitted assignment for",
-    target: "Science Class",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-  },
-  {
-    id: "4",
-    user: {
-      name: "You",
-      role: "Parent",
-    },
-    action: "paid fees for",
-    target: "Term 2",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 8), // 8 hours ago
-  },
-  {
-    id: "5",
-    user: {
-      name: "Mr. Wilson",
-      role: "Teacher",
-    },
-    action: "requested meeting about",
-    target: "Jack's behavior",
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-  },
-]
+export default async function ParentDashboardPage() {
+  const session = await auth()
 
-export default function ParentDashboardPage() {
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    // Simulate data loading
-    const timer = setTimeout(() => {
-      setIsLoading(false)
-    }, 1000)
-
-    return () => clearTimeout(timer)
-  }, [])
-
-  if (isLoading) {
-    return <LoadingSpinner message="Loading your children's data..." />
+  if (!session?.user || session.user.role !== "PARENT") {
+    redirect("/dashboard")
   }
+
+  const parent = await prisma.parent.findUnique({
+    where: { userId: session.user.id },
+    include: {
+      user: { select: { firstName: true, lastName: true } },
+      school: { select: { name: true, code: true } },
+      students: {
+        include: {
+          student: {
+            include: {
+              user: { select: { firstName: true, lastName: true, avatarUrl: true } },
+              classTerms: {
+                orderBy: { createdAt: "desc" },
+                include: {
+                  classTerm: {
+                    include: {
+                      class: { select: { name: true, level: true } },
+                      term: { include: { session: { select: { name: true } } } },
+                    },
+                  },
+                },
+              },
+              assessments: {
+                include: {
+                  term: { select: { isCurrent: true } },
+                  subject: { select: { name: true } },
+                },
+              },
+              attendances: { orderBy: { date: "desc" }, take: 5 },
+              payments: {
+                include: {
+                  feeStructure: { select: { name: true, amount: true } },
+                  // Payment carries its own term now, so "what is owed this term" no
+                  // longer has to be answered by joining out through the fee structure.
+                  term: { select: { name: true, isCurrent: true } },
+                },
+                orderBy: { paymentDate: "desc" },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  if (!parent) {
+    redirect("/dashboard/access-error")
+  }
+
+  const children = parent.students.map((link) => link.student)
+  const currentPayments = children.flatMap((child) =>
+    child.payments.filter((payment) => payment.term.isCurrent),
+  )
+  // Summed as Decimal, not with `+` — see lib/money.ts.
+  const paidAmount = sumAmounts(
+    currentPayments.filter((payment) => payment.status === "COMPLETED").map((p) => p.amount),
+  )
+  const pendingAmount = sumAmounts(
+    currentPayments.filter((payment) => payment.status === "PENDING").map((p) => p.amount),
+  )
+  const attendanceRecords = children.flatMap((child) => child.attendances)
+  const presentCount = attendanceRecords.filter((attendance) => attendance.status === "PRESENT").length
+  const attendanceRate =
+    attendanceRecords.length > 0 ? Math.round((presentCount / attendanceRecords.length) * 100) : 0
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Parent Dashboard</h2>
-          <p className="text-muted-foreground">Welcome back, Mr. Thompson</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button>Schedule Meeting</Button>
-        </div>
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">
+          Welcome, {parent.user.firstName} {parent.user.lastName}
+        </h2>
+        <p className="text-muted-foreground">
+          {parent.school.name} ({parent.school.code}) parent portal
+        </p>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="children">My Children</TabsTrigger>
-          <TabsTrigger value="academics">Academics</TabsTrigger>
-          <TabsTrigger value="finances">Finances</TabsTrigger>
-        </TabsList>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatsCard title="Children" value={String(children.length)} icon={Users} />
+        <StatsCard title="Attendance" value={attendanceRecords.length ? `${attendanceRate}%` : "No records"} icon={CheckCircle} />
+        <StatsCard title="Paid This Term" value={formatNaira(paidAmount, { kobo: false })} icon={DollarSign} />
+        <StatsCard title="Pending Fees" value={formatNaira(pendingAmount, { kobo: false })} icon={Calendar} />
+      </div>
 
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatsCard title="Children" value="2" icon={Users} delay={0} />
-            <StatsCard
-              title="Average Attendance"
-              value="97.5%"
-              icon={CheckCircle}
-              description="This semester"
-              delay={1}
-            />
-            <StatsCard title="Upcoming Events" value="3" icon={Calendar} description="Next 7 days" delay={2} />
-            <StatsCard title="Fee Status" value="Paid" icon={DollarSign} description="Current term" delay={3} />
-          </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {children.length > 0 ? (
+          children.map((child) => {
+            const enrollment =
+              child.classTerms.find((entry) => entry.classTerm.term.isCurrent) ?? child.classTerms[0]
+            const currentAssessments = child.assessments.filter((assessment) => assessment.term.isCurrent)
+            const scoreTotals = currentAssessments
+              .map((assessment) => (assessment.ca1 ?? 0) + (assessment.ca2 ?? 0) + (assessment.ca3 ?? 0) + (assessment.exam ?? 0))
+              .filter((score) => score > 0)
+            const averageScore =
+              scoreTotals.length > 0
+                ? Math.round(scoreTotals.reduce((sum, score) => sum + score, 0) / scoreTotals.length)
+                : null
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="lg:col-span-4">
-              <CardHeader>
-                <CardTitle>Academic Performance</CardTitle>
-                <CardDescription>Your children's grades by subject</CardDescription>
-              </CardHeader>
-              <CardContent className="h-[300px]">
-                <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                  Performance Chart Placeholder
-                </div>
-              </CardContent>
-            </Card>
-
-            <RecentActivity activities={recentActivities} className="lg:col-span-3" />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>My Children</CardTitle>
-                <CardDescription>Quick access to your children's profiles</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { name: "Emma Thompson", grade: "Grade 8", image: "/placeholder.svg?height=40&width=40" },
-                    { name: "Jack Thompson", grade: "Grade 5", image: "/placeholder.svg?height=40&width=40" },
-                  ].map((child, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <Avatar>
-                        <AvatarImage src={child.image} alt={child.name} />
-                        <AvatarFallback>{child.name.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-medium">{child.name}</div>
-                        <div className="text-sm text-muted-foreground">{child.grade}</div>
-                      </div>
+            return (
+              <Card key={child.id}>
+                <CardHeader>
+                  <CardTitle>
+                    {child.user.firstName} {child.user.lastName}
+                  </CardTitle>
+                  <CardDescription>
+                    {child.admissionNo} · {enrollment?.classTerm.class.name ?? "No class assigned"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-md border p-3">
+                      <div className="text-xs text-muted-foreground">Current Term</div>
+                      <div className="font-medium">{enrollment?.classTerm.term.name ?? "Not set"}</div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Upcoming Events</CardTitle>
-                <CardDescription>School events and meetings</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { name: "Parent-Teacher Meeting", date: "Tomorrow, 2:00 PM" },
-                    { name: "Annual Sports Day", date: "May 15, 9:00 AM" },
-                    { name: "School Trip Payment Due", date: "May 20" },
-                  ].map((event, i) => (
-                    <div key={i} className="flex justify-between">
-                      <div className="font-medium">{event.name}</div>
-                      <div className="text-muted-foreground">{event.date}</div>
+                    <div className="rounded-md border p-3">
+                      <div className="text-xs text-muted-foreground">Average</div>
+                      <div className="font-medium">{averageScore === null ? "Pending" : `${averageScore}%`}</div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                    <div className="rounded-md border p-3">
+                      <div className="text-xs text-muted-foreground">Fee Records</div>
+                      <div className="font-medium">{child.payments.length}</div>
+                    </div>
+                  </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-                <CardDescription>Common parent tasks</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-2">
-                  <Button className="w-full justify-start">
-                    <FileText className="mr-2 h-4 w-4" />
-                    View Report Cards
-                  </Button>
-                  <Button className="w-full justify-start">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    Request Leave
-                  </Button>
-                  <Button className="w-full justify-start">
-                    <DollarSign className="mr-2 h-4 w-4" />
-                    Pay Fees
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium">Latest Attendance</h3>
+                    <div className="space-y-2">
+                      {child.attendances.length > 0 ? (
+                        child.attendances.map((attendance) => (
+                          <div key={attendance.id} className="flex items-center justify-between text-sm">
+                            <span>{formatDate(attendance.date)}</span>
+                            <Badge variant={attendance.status === "PRESENT" ? "default" : "secondary"}>{attendance.status}</Badge>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No attendance records yet.</p>
+                      )}
+                    </div>
+                  </div>
 
-        <TabsContent value="children" className="space-y-4">
-          <Card>
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium">Recent Payments</h3>
+                    <div className="space-y-2">
+                      {child.payments.slice(0, 3).map((payment) => (
+                        <div key={payment.id} className="flex items-center justify-between text-sm">
+                          <span>{payment.feeStructure?.name ?? "Fee payment"}</span>
+                          <span>{formatNaira(payment.amount)} · {payment.status}</span>
+                        </div>
+                      ))}
+                      {child.payments.length === 0 && (
+                        <p className="text-sm text-muted-foreground">No payment records yet. The finance module will expand this area.</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })
+        ) : (
+          <Card className="xl:col-span-2">
             <CardHeader>
-              <CardTitle>My Children</CardTitle>
-              <CardDescription>Detailed information about your children</CardDescription>
+              <CardTitle>No linked children</CardTitle>
+              <CardDescription>This parent account is not linked to any student records yet.</CardDescription>
             </CardHeader>
-            <CardContent className="h-[400px]">
-              <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                Children Profiles Placeholder
-              </div>
-            </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="academics" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Academic Progress</CardTitle>
-              <CardDescription>Your children's academic performance</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[400px]">
-              <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                Academic Progress Table Placeholder
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="finances" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Financial Overview</CardTitle>
-              <CardDescription>Fee payments and financial records</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[400px]">
-              <div className="flex h-full items-center justify-center text-2xl font-bold text-muted-foreground">
-                Financial Records Table Placeholder
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        )}
+      </div>
     </div>
   )
 }
-

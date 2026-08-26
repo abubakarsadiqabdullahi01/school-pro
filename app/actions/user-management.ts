@@ -2,8 +2,10 @@
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
+import { revokeAllSessionsForUser } from "@/lib/sessions.server"
 import { revalidatePath } from "next/cache"
 import bcrypt from "bcryptjs"
+import { Gender } from "@prisma/client"
 
 // Get system statistics for super admin dashboard
 export async function getSystemStats() {
@@ -102,7 +104,7 @@ export async function getSchoolPerformance() {
       return { success: false, error: "Unauthorized" }
     }
 
-    // Get top performing schools based on student and teacher count
+    // Get most active schools based on student and teacher count
     const schools = await prisma.school.findMany({
       include: {
         _count: {
@@ -130,33 +132,38 @@ export async function getSchoolPerformance() {
       performanceScore: Math.min(100, Math.round((school._count.students * 0.7 + school._count.teachers * 0.3) / 10)),
     }))
 
-    // Generate system alerts (in real system, these would come from monitoring)
+    const monthStart = new Date()
+    monthStart.setDate(1)
+    monthStart.setHours(0, 0, 0, 0)
+
+    const [newSchoolsThisMonth, newStudentsThisMonth, newTeachersThisMonth] =
+      await Promise.all([
+        prisma.school.count({ where: { createdAt: { gte: monthStart } } }),
+        prisma.student.count({ where: { createdAt: { gte: monthStart } } }),
+        prisma.teacher.count({ where: { createdAt: { gte: monthStart } } }),
+      ])
+
+    const pendingSchools = await prisma.school.count({
+      where: { isActive: false },
+    })
+
     const systemAlerts = [
-      {
-        id: "1",
-        type: "info" as const,
-        message: "System backup completed successfully",
-        timestamp: new Date(Date.now() - 1000 * 60 * 30),
-      },
-      {
-        id: "2",
-        type: "warning" as const,
-        message: "High database usage detected",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-      },
-      {
-        id: "3",
-        type: "info" as const,
-        message: "New school registration pending approval",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 6),
-      },
+      ...(pendingSchools > 0
+        ? [
+            {
+              id: "inactive-schools",
+              type: "warning" as const,
+              message: `${pendingSchools} inactive school${pendingSchools === 1 ? "" : "s"} require review`,
+              timestamp: new Date(),
+            },
+          ]
+        : []),
     ]
 
-    // Calculate monthly growth (simplified)
     const monthlyGrowth = {
-      schools: Math.floor(Math.random() * 5), // In real system, calculate from actual data
-      students: Math.floor(Math.random() * 100),
-      teachers: Math.floor(Math.random() * 20),
+      schools: newSchoolsThisMonth,
+      students: newStudentsThisMonth,
+      teachers: newTeachersThisMonth,
     }
 
     return {
@@ -193,10 +200,19 @@ export async function toggleUserStatus(userId: string, userType: string) {
       return { success: false, error: "User not found" }
     }
 
+    const nowActive = !user.isActive
+
     await prisma.user.update({
       where: { id: userId },
-      data: { isActive: !user.isActive },
+      data: { isActive: nowActive },
     })
+
+    // Deactivating has to end their sign-ins too. Sessions are 30-day JWTs, so without
+    // this a dismissed staff member keeps working access until the token expires.
+    let revokedSessions = 0
+    if (!nowActive) {
+      revokedSessions = await revokeAllSessionsForUser(userId)
+    }
 
     // Revalidate relevant pages based on userType
     switch (userType) {
@@ -216,7 +232,11 @@ export async function toggleUserStatus(userId: string, userType: string) {
 
     return {
       success: true,
-      message: `User ${user.isActive ? "deactivated" : "activated"} successfully`,
+      message: nowActive
+        ? "User activated successfully"
+        : revokedSessions > 0
+          ? `User deactivated and signed out of ${revokedSessions} device${revokedSessions === 1 ? "" : "s"}`
+          : "User deactivated successfully",
     }
   } catch (error) {
     console.error("Error toggling user status:", error)
@@ -446,6 +466,10 @@ export async function updateAdmin(
 
     // Handle schoolId - convert "NO_SCHOOL" to null
     const finalSchoolId = data.schoolId === "NO_SCHOOL" ? null : data.schoolId
+    const gender =
+      data.gender && Object.values(Gender).includes(data.gender as Gender)
+        ? (data.gender as Gender)
+        : null
 
     // Check if school exists if schoolId is provided
     if (finalSchoolId) {
@@ -467,7 +491,7 @@ export async function updateAdmin(
           lastName: data.lastName,
           phone: data.phone,
           dateOfBirth: data.dateOfBirth,
-          gender: data.gender,
+          gender,
           state: data.state,
           lga: data.lga,
           address: data.address,
@@ -594,6 +618,8 @@ export async function getAdminUsers() {
       email: user.credentials[0]?.value || "No email",
       role: "Admin",
       school: user.admin?.school ? `${user.admin.school.name} (${user.admin.school.code})` : "Not assigned",
+      // Exposed so callers can scope the list to the super admin's active school.
+      schoolId: user.admin?.schoolId ?? null,
       status: user.isActive ? "Active" : "Inactive",
       createdAt: user.createdAt,
     }))

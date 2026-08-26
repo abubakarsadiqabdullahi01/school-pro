@@ -265,7 +265,7 @@ export function TeacherClassesView({
                                         <TableCell>
                                           <Badge
                                             variant="default"
-                                            className="bg-green-100 text-green-800"
+                                            className="bg-green-500/10 text-green-700 dark:text-green-400"
                                           >
                                             Active
                                           </Badge>

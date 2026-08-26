@@ -11,11 +11,11 @@ export default function MaintenancePage() {
   }
 
   const handleContactSupport = () => {
-    window.location.href = "mailto:support@schoolpro.com?subject=System Maintenance Assistance"
+    window.location.href = "mailto:support@digischool-pro.com?subject=System Maintenance Assistance"
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-blue-950 flex items-center justify-center p-4">
       <div className="max-w-2xl w-full space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
@@ -27,8 +27,8 @@ export default function MaintenancePage() {
               </div>
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">System Maintenance</h1>
-          <p className="text-gray-600">We are currently performing essential maintenance</p>
+          <h1 className="text-3xl font-bold text-foreground">System Maintenance</h1>
+          <p className="text-muted-foreground">We are currently performing essential maintenance</p>
         </div>
 
         {/* Main Card */}
@@ -63,7 +63,7 @@ export default function MaintenancePage() {
             </div>
 
             {/* Alert Message */}
-            <Alert variant="default" className="bg-slate-50 border-slate-200">
+            <Alert variant="default" className="bg-muted/50 border-border">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>What is Happening?</AlertTitle>
               <AlertDescription>
@@ -74,11 +74,11 @@ export default function MaintenancePage() {
 
             {/* Progress Indicator */}
             <div className="space-y-2">
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Maintenance Progress</span>
                 <span>65%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-muted rounded-full h-2">
                 <div 
                   className="bg-blue-600 h-2 rounded-full transition-all duration-1000 ease-in-out" 
                   style={{ width: '65%' }}
@@ -101,9 +101,9 @@ export default function MaintenancePage() {
         </Card>
 
         {/* Additional Information */}
-        <div className="text-center text-sm text-gray-500 space-y-1">
+        <div className="text-center text-sm text-muted-foreground space-y-1">
           <p>Need immediate assistance? Call our support line at +1 (555) 123-HELP</p>
-          <p>© {new Date().getFullYear()} SchoolPro. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} DigiSchool-Pro. All rights reserved.</p>
         </div>
       </div>
     </div>

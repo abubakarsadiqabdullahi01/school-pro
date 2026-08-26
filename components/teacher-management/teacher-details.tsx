@@ -309,7 +309,7 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
             {currentTerm && (
               <Badge
                 variant="secondary"
-                className="ml-2 bg-blue-100 text-blue-800"
+                className="ml-2 bg-blue-500/10 text-blue-700 dark:text-blue-400"
               >
                 Current Term: {currentTerm}
               </Badge>
@@ -419,7 +419,7 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
             </p>
             <div className="flex items-center justify-center gap-2 mt-2">
               {currentTermClasses.length > 0 && (
-                <Badge className="bg-green-100 text-green-800">
+                <Badge className="bg-green-500/10 text-green-700 dark:text-green-400">
                   {currentTermClasses.length} Current
                 </Badge>
               )}
@@ -436,7 +436,7 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
             </p>
             {currentTermSubjects.length > 0 && (
               <div className="flex items-center justify-center gap-2 mt-2">
-                <Badge className="bg-blue-100 text-blue-800">
+                <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-400">
                   {currentTermSubjects.length} Current
                 </Badge>
               </div>

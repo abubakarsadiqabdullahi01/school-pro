@@ -248,7 +248,7 @@ export function ProfileForm({ user }: { user: any }) {
               render={({ field }) => (
                 <FormItem className="hidden">
                   <FormControl>
-                    <Input {...field} />
+                    <Input {...field} value={field.value ?? ""} />
                   </FormControl>
                 </FormItem>
               )}

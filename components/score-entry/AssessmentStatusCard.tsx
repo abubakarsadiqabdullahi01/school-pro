@@ -41,11 +41,11 @@ export const AssessmentStatusCard = memo(function AssessmentStatusCard({
         </CardHeader>
         <CardContent>
           <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-            <div className="h-8 bg-gray-200 rounded"></div>
+            <div className="h-4 bg-muted rounded w-3/4"></div>
+            <div className="h-8 bg-muted rounded"></div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-16 bg-gray-200 rounded"></div>
+                <div key={i} className="h-16 bg-muted rounded"></div>
               ))}
             </div>
           </div>
@@ -138,14 +138,14 @@ export const AssessmentStatusCard = memo(function AssessmentStatusCard({
           </Badge>
 
           {statistics.studentsWithoutData > 0 && (
-            <Badge variant="outline" className="text-xs bg-gray-100 text-gray-700">
+            <Badge variant="outline" className="text-xs bg-muted text-foreground">
               <AlertTriangle className="h-3 w-3 mr-1" />
               {statistics.studentsWithoutData} Not Started
             </Badge>
           )}
 
           {statistics.studentsWithData > 0 && (
-            <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700">
+            <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-700 dark:text-blue-400">
               {statistics.studentsWithData} Have Data
             </Badge>
           )}

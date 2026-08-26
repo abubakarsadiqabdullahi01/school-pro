@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { format } from "date-fns"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CalendarRange, Edit, MoreHorizontal, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { deleteTerm, setCurrentTerm } from "@/app/actions/term-management"
+import { queryKeys } from "@/lib/query-keys"
 
 interface Term {
   id: string
@@ -49,6 +51,7 @@ export function TermsTable({ terms, sessionId }: TermsTableProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSettingCurrent, setIsSettingCurrent] = useState(false)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   // Format date for display
   const formatDate = (date: Date) => {
@@ -65,38 +68,57 @@ export function TermsTable({ terms, sessionId }: TermsTableProps) {
     router.push(`/dashboard/super-admin/terms/${termId}`)
   }
 
-  // Handle delete term
-  const handleDeleteTerm = async () => {
-    if (!termToDelete) return
-
-    try {
-      setIsDeleting(true)
-      await deleteTerm(termToDelete.id)
+  const deleteTermMutation = useMutation({
+    mutationFn: deleteTerm,
+    onMutate: () => setIsDeleting(true),
+    onSuccess: async (result) => {
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to delete term")
+        return
+      }
       toast.success("Term deleted successfully")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.superAdmin.terms })
       router.refresh()
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error("Failed to delete term:", error)
       toast.error("Failed to delete term")
-    } finally {
+    },
+    onSettled: () => {
       setIsDeleting(false)
       setDeleteDialogOpen(false)
       setTermToDelete(null)
-    }
+    },
+  })
+
+  const setCurrentTermMutation = useMutation({
+    mutationFn: (termId: string) => setCurrentTerm(termId, sessionId),
+    onMutate: () => setIsSettingCurrent(true),
+    onSuccess: async (result) => {
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to update current term")
+        return
+      }
+      toast.success("Current term updated successfully")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.superAdmin.terms })
+      router.refresh()
+    },
+    onError: (error) => {
+      console.error("Failed to update current term:", error)
+      toast.error("Failed to update current term")
+    },
+    onSettled: () => setIsSettingCurrent(false),
+  })
+
+  // Handle delete term
+  const handleDeleteTerm = () => {
+    if (!termToDelete) return
+    deleteTermMutation.mutate(termToDelete.id)
   }
 
   // Handle set as current term
-  const handleSetCurrentTerm = async (termId: string) => {
-    try {
-      setIsSettingCurrent(true)
-      await setCurrentTerm(termId, sessionId)
-      toast.success("Current term updated successfully")
-      router.refresh()
-    } catch (error) {
-      console.error("Failed to update current term:", error)
-      toast.error("Failed to update current term")
-    } finally {
-      setIsSettingCurrent(false)
-    }
+  const handleSetCurrentTerm = (termId: string) => {
+    setCurrentTermMutation.mutate(termId)
   }
 
   if (terms.length === 0) {
@@ -125,7 +147,7 @@ export function TermsTable({ terms, sessionId }: TermsTableProps) {
               <TableCell>{formatDate(term.endDate)}</TableCell>
               <TableCell>
                 {term.isCurrent ? (
-                  <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Current</Badge>
+                  <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100">Current</Badge>
                 ) : (
                   <Badge variant="outline">Inactive</Badge>
                 )}

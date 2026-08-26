@@ -3,6 +3,7 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
+import { schemeTotal } from "@/lib/assessment-scheme"
 import { revalidatePath } from "next/cache"
 
 export async function getSchoolSettingsData() {
@@ -20,9 +21,13 @@ export async function getSchoolSettingsData() {
       throw new Error("Admin not associated with a school")
     }
 
-    const [school, gradingSystem, stats, currentSession, currentTerm] = await Promise.all([
+    const [school, assessmentScheme, gradingSystem, stats, currentSession, currentTerm] = await Promise.all([
       prisma.school.findUnique({
         where: { id: admin.schoolId },
+      }),
+      prisma.assessmentScheme.findUnique({
+        where: { schoolId: admin.schoolId },
+        select: { name: true, ca1Max: true, ca2Max: true, ca3Max: true, examMax: true },
       }),
       prisma.gradingSystem.findFirst({
         where: { schoolId: admin.schoolId, isDefault: true },
@@ -56,6 +61,9 @@ export async function getSchoolSettingsData() {
       success: true,
       data: {
         school,
+        assessmentScheme: assessmentScheme
+          ? { ...assessmentScheme, total: schemeTotal(assessmentScheme) }
+          : null,
         gradingSystem: gradingSystem
           ? {
               id: gradingSystem.id,

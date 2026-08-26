@@ -3,6 +3,8 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { SessionForm } from "@/components/session-management/session-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { getActiveSchool } from "@/lib/school-context.server"
+import { schoolLabel } from "@/lib/school-context"
 
 export default async function CreateSessionPage() {
   const session = await auth()
@@ -11,6 +13,8 @@ export default async function CreateSessionPage() {
   if (!session?.user || session.user.role !== "SUPER_ADMIN") {
     redirect("/dashboard")
   }
+
+  const activeSchool = await getActiveSchool()
 
   // Fetch all schools for the dropdown
   const schools = await prisma.school.findMany({
@@ -28,9 +32,13 @@ export default async function CreateSessionPage() {
       <div className="space-y-6">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Create Academic Session</h2>
-          <p className="text-muted-foreground">Add a new academic session to a school</p>
+          <p className="text-muted-foreground">
+            {activeSchool
+              ? `Add a new academic session to ${schoolLabel(activeSchool)}`
+              : "Add a new academic session to a school"}
+          </p>
         </div>
-        <SessionForm schools={schools} />
+        <SessionForm schools={schools} defaultSchoolId={activeSchool?.id} />
       </div>
     </PageTransition>
   )

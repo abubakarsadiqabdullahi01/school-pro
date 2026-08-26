@@ -1,5 +1,3 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { format } from "date-fns"
 import { notFound } from "next/navigation"
@@ -9,31 +7,17 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ArrowBigLeft,  CalendarRange } from "lucide-react"
 import Link from "next/link"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
-export default async function AdminTermDetailsPage({ params }: { params: { id: string } }) {
-  const session = await auth()
+export default async function AdminTermDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { schoolId } = await requireAdminSchool()
+  const { id } = await params
 
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    select: { schoolId: true },
-  })
-
-  if (!admin) {
-    redirect("/dashboard/access-error")
-  }
-
-  // Ensure params is properly awaited
-  const id = (await params)?.id
-
-  // Fetch the term with related data, ensuring it belongs to the admin's school
-  const termData = await prisma.term.findUnique({
-    where: { id },
+  const termData = await prisma.term.findFirst({
+    where: {
+      id,
+      session: { schoolId },
+    },
     include: {
       session: {
         select: {
@@ -59,15 +43,15 @@ export default async function AdminTermDetailsPage({ params }: { params: { id: s
           id: true,
         },
       },
-      feeStructures: {
-        select: {
-          id: true,
-        },
-      },
     },
   })
 
-  if (!termData || termData.session.schoolId !== admin.schoolId) {
+  // Fees hang off ClassTerm rather than Term, so they are counted through it.
+  const feeStructureCount = termData
+    ? await prisma.feeStructure.count({ where: { classTerm: { termId: termData.id } } })
+    : 0
+
+  if (!termData) {
     notFound()
   }
 
@@ -169,7 +153,7 @@ export default async function AdminTermDetailsPage({ params }: { params: { id: s
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Fee Structures</h3>
-                <p>{termData.feeStructures.length} fee structure(s) defined for this term</p>
+                <p>{feeStructureCount} fee structure(s) defined for this term</p>
               </div>
               <div className="pt-4">
                 <Button variant="outline" asChild className="w-full">

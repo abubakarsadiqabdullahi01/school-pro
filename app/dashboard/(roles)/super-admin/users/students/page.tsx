@@ -1,5 +1,7 @@
 import { UserManagementTable } from "@/components/user-management/user-management-table"
 import { prisma } from "@/lib/db"
+import { getActiveSchool } from "@/lib/school-context.server"
+import { schoolLabel } from "@/lib/school-context"
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 
@@ -12,17 +14,29 @@ export default async function StudentUsersPage() {
   }
 
   // Fetch student users
+  // Scope to the school selected in the header switcher, or show every school.
+  const activeSchool = await getActiveSchool()
+
   const users = await prisma.user.findMany({
-    where: { role: "STUDENT" },
+    where: {
+      role: "STUDENT",
+      ...(activeSchool ? { student: { schoolId: activeSchool.id } } : {}),
+    },
     include: {
       student: {
         include: {
-          currentClassTerm: {
+          classTerms: {
+            orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+            take: 1,
             include: {
-              class: true
-            }
-          }
-        }
+              classTerm: {
+                include: {
+                  class: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
       },
       credentials: {
         where: { type: "EMAIL", isPrimary: true },
@@ -39,7 +53,7 @@ export default async function StudentUsersPage() {
     email: user.credentials[0]?.value || "No email",
     role: "Student",
     admissionNo: user.student?.admissionNo || "Not specified",
-    class: user.student?.currentClassTerm?.class?.name || "Not assigned",
+    class: user.student?.classTerms[0]?.classTerm.class.name || "Not assigned",
     status: user.isActive ? "Active" : "Inactive",
     createdAt: user.createdAt,
   }))
@@ -48,7 +62,9 @@ export default async function StudentUsersPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Student Users</h2>
-        <p className="text-muted-foreground">Manage student accounts in the system</p>
+        <p className="text-muted-foreground">
+          {activeSchool ? `Student accounts at ${schoolLabel(activeSchool)}` : "Manage student accounts in the system"}
+        </p>
       </div>
 
       <UserManagementTable
@@ -66,4 +82,3 @@ export default async function StudentUsersPage() {
     </div>
   )
 }
-

@@ -45,3 +45,7 @@ next-env.d.ts
 # they contain every student record in the system.
 /backups/
 *.sql.gz
+
+# JetBrains project files. workspace.xml carries per-developer window layout and
+# recent-file history, so this is local state rather than project configuration.
+.idea/

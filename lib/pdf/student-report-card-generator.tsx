@@ -6,7 +6,7 @@ interface StudentResult {
   studentId: string
   studentName: string
   admissionNo: string
-  gender: string
+  gender: string | null
   subjects: Record<
     string,
     {
@@ -26,7 +26,10 @@ interface StudentResult {
   >
   totalScore: number
   averageScore: number
-  grade: string
+  /** Null when no grade band covers the average. Printed as an em dash on the report card
+   *  rather than as a fail — a report card is the one place a fabricated grade does real
+   *  harm. */
+  grade: string | null
   remark: string
   position: number
   gradingSystem: GradingSystem
@@ -73,8 +76,8 @@ interface GradingLevel {
 }
 
 interface GradingSystem {
-  id: string
-  name: string
+  id?: string
+  name?: string
   passMark: number
   levels: GradingLevel[]
 }
@@ -325,7 +328,7 @@ class StudentReportCardGenerator {
     this.doc.text("Gender:", middleColumnX + 2, this.currentY)
     const genderWidth = this.doc.getTextWidth("Gender:")
     this.doc.setFont("helvetica", "normal")
-    this.doc.text(gender.toUpperCase(), middleColumnX + genderWidth + 4, this.currentY)
+    this.doc.text((gender ?? "N/A").toUpperCase(), middleColumnX + genderWidth + 4, this.currentY)
 
     this.doc.setFont("helvetica", "bold")
     this.doc.text("Class:", middleColumnX + 2, this.currentY + 6)
@@ -512,7 +515,7 @@ class StudentReportCardGenerator {
       [
         `Total Score: ${student.totalScore.toFixed(1)}`,
         `Average Score: ${student.averageScore.toFixed(1)}%`,
-        `Overall Grade: ${student.grade}`,
+        `Overall Grade: ${student.grade ?? "—"}`,
         `Position in Class: ${student.position > 0 ? `${student.position}${this.getOrdinalSuffix(student.position)}` : "-"}`,
       ],
       [

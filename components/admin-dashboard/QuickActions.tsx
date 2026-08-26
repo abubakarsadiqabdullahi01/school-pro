@@ -60,9 +60,9 @@ export function QuickActions() {
 
   return (
     <Card className="border-0 shadow-lg">
-      <CardHeader className="bg-gradient-to-r from-gray-50 to-slate-50">
+      <CardHeader className="bg-gradient-to-r from-muted to-muted/50">
         <CardTitle className="flex items-center gap-2">
-          <Settings className="h-5 w-5 text-gray-600" />
+          <Settings className="h-5 w-5 text-muted-foreground" />
           Quick Actions
         </CardTitle>
         <CardDescription>Frequently used administrative functions</CardDescription>
@@ -81,15 +81,15 @@ export function QuickActions() {
               <Link href={action.href}>
                 <Button
                   variant="ghost"
-                  className={`w-full h-auto p-4 ${action.bgColor} border border-gray-200 transition-all duration-300 hover:shadow-md`}
+                  className={`w-full h-auto p-4 ${action.bgColor} border border-border transition-all duration-300 hover:shadow-md`}
                 >
                   <div className="flex flex-col items-center text-center space-y-2">
                     <div className={`p-3 rounded-full bg-gradient-to-br ${action.color} text-white shadow-lg`}>
                       <action.icon className="h-6 w-6" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{action.title}</h3>
-                      <p className="text-xs text-gray-600 mt-1">{action.description}</p>
+                      <h3 className="font-semibold text-foreground">{action.title}</h3>
+                      <p className="text-xs text-muted-foreground mt-1">{action.description}</p>
                     </div>
                   </div>
                 </Button>

@@ -1,36 +1,17 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { AdminSessionEditForm } from "@/components/session-management/admin-session-edit-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { notFound } from "next/navigation"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
-export default async function AdminEditSessionPage({ params }: { params: { id: string } }) {
-  const session = await auth()
+export default async function AdminEditSessionPage({ params }: { params: Promise<{ id: string }> }) {
+  const { schoolId } = await requireAdminSchool()
+  const { id } = await params
 
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    select: { schoolId: true },
-  })
-
-  if (!admin) {
-    redirect("/dashboard/access-error")
-  }
-
-  // Ensure params is properly awaited
-  const id = (await params)?.id
-
-  // Fetch the session to edit, ensuring it belongs to the admin's school
-  const sessionData = await prisma.session.findUnique({
+  const sessionData = await prisma.session.findFirst({
     where: {
       id,
-      schoolId: admin.schoolId, // Ensure the session belongs to the admin's school
+      schoolId,
     },
     include: {
       school: {

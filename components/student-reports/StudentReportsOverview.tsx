@@ -274,7 +274,7 @@ export function StudentReportsOverview({
             nextTermStartDate: nextTermStartDate.toISOString(),
           },
           subjects,
-          classStatistics,
+          classStatistics: classStatistics ?? null,
           gradingSystem,
           action,
         })
@@ -372,7 +372,7 @@ export function StudentReportsOverview({
             nextTermStartDate: nextTermStartDate.toISOString(),
           },
           subjects,
-          classStatistics,
+          classStatistics: classStatistics ?? null,
           gradingSystem,
           action,
           allStudents: allStudentData,
@@ -423,7 +423,7 @@ export function StudentReportsOverview({
           <CardTitle className="text-2xl font-bold flex items-center gap-2">
             Student Report Cards
             {isLoadingGrading ? (
-              <span className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading grading system...
               </span>
@@ -441,7 +441,7 @@ export function StudentReportsOverview({
                 Academic Term
               </Label>
               <Select value={form.termId} onValueChange={handleTermChange}>
-                <SelectTrigger className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="term">
+                <SelectTrigger className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="term">
                   <SelectValue placeholder="Select a term" />
                 </SelectTrigger>
                 <SelectContent>
@@ -460,7 +460,7 @@ export function StudentReportsOverview({
                 Class Section
               </Label>
               <Select value={form.level} onValueChange={handleLevelChange}>
-                <SelectTrigger className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="level">
+                <SelectTrigger className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="level">
                   <SelectValue placeholder="Select a section" />
                 </SelectTrigger>
                 <SelectContent>
@@ -482,7 +482,7 @@ export function StudentReportsOverview({
                 onValueChange={handleClassChange}
                 disabled={!form.termId || !form.level || isLoadingClasses}
               >
-                <SelectTrigger className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="class">
+                <SelectTrigger className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" id="class">
                   {isLoadingClasses ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
@@ -619,23 +619,23 @@ export function StudentReportsOverview({
 
             {/* School information - centered in remaining space */}
             <div className="flex-1 text-center space-y-2">
-              <h1 className="text-3xl font-bold text-gray-800">{schoolName.toUpperCase()}</h1>
-              <p className="text-base text-gray-600">{schoolAddress}</p>
-              <p className="text-base text-gray-600">
+              <h1 className="text-3xl font-bold text-foreground">{schoolName.toUpperCase()}</h1>
+              <p className="text-base text-muted-foreground">{schoolAddress}</p>
+              <p className="text-base text-muted-foreground">
                 GSM: {schoolPhone} | Email: {schoolEmail}
               </p>
-              <h2 className="text-xl font-semibold text-gray-700">Students Termly Continuous Assessment Sheet</h2>
-              <hr className="border-t border-gray-400 my-2 w-3/4 mx-auto" />
+              <h2 className="text-xl font-semibold text-foreground">Students Termly Continuous Assessment Sheet</h2>
+              <hr className="border-t border-border my-2 w-3/4 mx-auto" />
             </div>
           </div>
 
                 <div className="space-y-2">
-                  <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                  <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                     <span>Class: {selectedClass?.name || "-"}</span>
                     <span>Term: {selectedTerm?.name || "-"}</span>
                     <span>Session: {selectedTerm?.session.name || "-"}</span>
                   </div>
-                  <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                  <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                     <span>Teacher: {selectedClass?.teacherName || "Not Assigned"}</span>
                     <span>Total Students: {students.length}</span>
                     <span>Available Reports: {results.filter((r) => r.averageScore > 0).length}</span>
@@ -650,7 +650,7 @@ export function StudentReportsOverview({
                     <span>Generating reports...</span>
                     <span>{generationProgress.toFixed(0)}%</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-muted rounded-full h-2">
                     <div
                       className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                       style={{ width: `${generationProgress}%` }}

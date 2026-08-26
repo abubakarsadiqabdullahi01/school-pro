@@ -73,7 +73,9 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
 
       if (result.success) {
         toast.success("Admin Created", {
-          description: `${data.firstName} ${data.lastName} has been created successfully. Default password: ${result.data.defaultPassword}`,
+          description: `${data.firstName} ${data.lastName} has been created successfully. Default password: ${
+            result.data?.defaultPassword ?? "generated"
+          }`,
         })
         router.push("/dashboard/super-admin/users/admins")
       } else {
@@ -87,8 +89,13 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-      <Card className="w-full max-w-4xl mx-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="w-full"
+    >
+      <Card className="w-full">
         <CardHeader>
           <CardTitle>Create Administrator Account</CardTitle>
           <CardDescription>Add a new administrator to manage a school</CardDescription>
@@ -189,7 +196,7 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
                       <FormLabel className="text-base">Permissions</FormLabel>
                       <FormDescription>Select the permissions this administrator should have</FormDescription>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                       {availablePermissions.map((permission) => (
                         <FormField
                           key={permission.id}

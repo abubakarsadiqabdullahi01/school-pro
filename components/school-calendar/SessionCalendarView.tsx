@@ -103,14 +103,14 @@ export function SessionCalendarView({ sessions, selectedSession, onSessionSelect
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Session Selector */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Calendar View</CardTitle>
+      <Card className="shadow-sm">
+        <CardHeader className="p-4">
+          <CardTitle className="text-base">Calendar View</CardTitle>
           <CardDescription>View your academic calendar with sessions, terms, and breaks</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 pt-0">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
             <div className="space-y-2">
               <label className="text-sm font-medium">Select Session</label>
@@ -158,11 +158,11 @@ export function SessionCalendarView({ sessions, selectedSession, onSessionSelect
       </Card>
 
       {/* Calendar */}
-      <Card>
-        <CardHeader>
+      <Card className="shadow-sm">
+        <CardHeader className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>{format(currentDate, "MMMM yyyy")}</CardTitle>
+              <CardTitle className="text-base">{format(currentDate, "MMMM yyyy")}</CardTitle>
               <CardDescription>
                 {selectedSession ? `${selectedSession.name} Calendar` : "Select a session to view calendar"}
               </CardDescription>
@@ -180,11 +180,11 @@ export function SessionCalendarView({ sessions, selectedSession, onSessionSelect
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 pt-0">
           {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-1 mb-4">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-              <div key={day} className="p-2 text-center text-sm font-medium text-muted-foreground">
+              <div key={day} className="p-1.5 text-center text-sm font-medium text-muted-foreground">
                 {day}
               </div>
             ))}
@@ -201,21 +201,21 @@ export function SessionCalendarView({ sessions, selectedSession, onSessionSelect
                 <div
                   key={day.toISOString()}
                   className={`
-                    min-h-[80px] p-1 border rounded-lg relative
+                    min-h-[54px] p-1 border rounded-md relative
                     ${!isCurrentMonth ? "opacity-50" : ""}
                     ${isCurrentDay ? "ring-2 ring-blue-500" : ""}
                     ${dayStatus === "term" ? "bg-green-50 border-green-200" : ""}
                     ${dayStatus === "break" ? "bg-orange-50 border-orange-200" : ""}
-                    ${dayStatus === "inactive" ? "bg-gray-50" : ""}
+                    ${dayStatus === "inactive" ? "bg-muted/50" : ""}
                   `}
                 >
-                  <div className="text-sm font-medium mb-1">{format(day, "d")}</div>
+                  <div className="mb-1 text-xs font-medium">{format(day, "d")}</div>
 
                   <div className="space-y-1">
                     {events.slice(0, 2).map((event, index) => (
                       <div
                         key={index}
-                        className={`text-xs px-1 py-0.5 rounded text-white truncate ${event.color}`}
+                        className={`truncate rounded px-1 py-0.5 text-[10px] text-white ${event.color}`}
                         title={event.title}
                       >
                         {event.title}
@@ -231,26 +231,26 @@ export function SessionCalendarView({ sessions, selectedSession, onSessionSelect
           </div>
 
           {/* Legend */}
-          <div className="flex flex-wrap gap-4 mt-6 pt-4 border-t">
+          <div className="mt-4 flex flex-wrap gap-3 border-t pt-3">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-green-200 rounded"></div>
-              <span className="text-sm">Term Period</span>
+              <span className="text-xs">Term Period</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-orange-200 rounded"></div>
-              <span className="text-sm">Break Period</span>
+              <span className="text-xs">Break Period</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-blue-500 rounded"></div>
-              <span className="text-sm">Session Events</span>
+              <span className="text-xs">Session Events</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-green-500 rounded"></div>
-              <span className="text-sm">Term Start</span>
+              <span className="text-xs">Term Start</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-red-500 rounded"></div>
-              <span className="text-sm">Term End</span>
+              <span className="text-xs">Term End</span>
             </div>
           </div>
         </CardContent>

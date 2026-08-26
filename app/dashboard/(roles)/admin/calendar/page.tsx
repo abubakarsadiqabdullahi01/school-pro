@@ -3,6 +3,8 @@ import { CalendarOverview } from "@/components/school-calendar/CalendarOverview"
 import { getSchoolCalendarData } from "@/app/actions/school-calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarDays } from "lucide-react";
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
 
 // Force dynamic rendering for this page
 export const dynamic = 'force-dynamic';
@@ -45,6 +47,16 @@ function CalendarLoading() {
 }
 
 export default async function AdminCalendarPage() {
+  const session = await auth();
+
+  if (!session?.user) {
+    redirect("/auth/login");
+  }
+
+  if (session.user.role !== "ADMIN") {
+    redirect("/dashboard");
+  }
+
   try {
     const calendarData = await getSchoolCalendarData();
 

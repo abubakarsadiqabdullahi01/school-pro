@@ -49,14 +49,15 @@ export default async function AdminClassesPage() {
               },
             },
           },
+          // Fees belong to a class term, so they are counted per term and summed.
+          feeStructures: {
+            select: {
+              id: true,
+            },
+          },
         },
       },
       subjects: {
-        select: {
-          id: true,
-        },
-      },
-      feeStructures: {
         select: {
           id: true,
         },
@@ -78,7 +79,10 @@ export default async function AdminClassesPage() {
     terms: cls.classTerms.length > 0 
       ? cls.classTerms.map(term => `${term.term.name} (${term.term.session.name})`).join(", ") 
       : "Not Assigned Term",
-    feeStructuresCount: cls.feeStructures.length,
+    feeStructuresCount: cls.classTerms.reduce(
+      (total, classTerm) => total + classTerm.feeStructures.length,
+      0,
+    ),
   }))
 
   return (

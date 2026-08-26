@@ -25,7 +25,7 @@ export default async function EditStudentPage({
   const session = await auth();
 
   if (!session?.user) {
-    redirect("/login");
+    redirect("/auth/login");
   }
 
   // Authorize role

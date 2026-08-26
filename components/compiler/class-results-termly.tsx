@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { motion } from "framer-motion"
 import { useQuery, useMutation } from "@tanstack/react-query"
-import { Download, FileText, Loader2, Search, BarChart4, ArrowUpDown, AlertTriangle, CheckCircle } from "lucide-react"
+import { Download, FileText, Loader2, Search, BarChart4, ArrowUpDown, AlertTriangle, CheckCircle, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,7 +22,8 @@ import {
   getClassTermSubjects,
   getClassTermResults,
   getGradingSystem,
-  autoPublishClassTermResults,
+  publishClassTermResults,
+  unpublishClassTermResults,
 } from "@/app/actions/compiler"
 import { exportClassResultsPDF } from "@/lib/pdf/class-results-termly"
 import { ClassResultsAnalysis } from "@/components/compiler/class-results-analysis"
@@ -124,9 +125,9 @@ export function ClassResultsTermlyComponent({
     enabled: !!selectedClassTermId,
   })
 
-  const autoPublishMutation = useMutation({
+  const publishMutation = useMutation({
     mutationFn: async () => {
-      const result = await autoPublishClassTermResults(selectedClassTermId)
+      const result = await publishClassTermResults(selectedClassTermId)
       if (!result.success) throw new Error(result.error || result.message)
       return result
     },
@@ -134,7 +135,23 @@ export function ClassResultsTermlyComponent({
       toast.success(result.message)
     },
     onError: (error) => {
-      toast.error("Failed to publish results", {
+      toast.error("Not released", {
+        description: error.message,
+      })
+    },
+  })
+
+  const withdrawMutation = useMutation({
+    mutationFn: async (reason: string) => {
+      const result = await unpublishClassTermResults(selectedClassTermId, reason)
+      if (!result.success) throw new Error(result.error || result.message)
+      return result
+    },
+    onSuccess: (result) => {
+      toast.success(result.message)
+    },
+    onError: (error) => {
+      toast.error("Not withdrawn", {
         description: error.message,
       })
     },
@@ -173,7 +190,9 @@ export function ClassResultsTermlyComponent({
           ? a.studentName.localeCompare(b.studentName)
           : b.studentName.localeCompare(a.studentName)
       } else if (sortConfig.key === "gender") {
-        return sortConfig.direction === "ascending" ? a.gender.localeCompare(b.gender) : b.gender.localeCompare(a.gender)
+        const genderA = a.gender ?? ""
+        const genderB = b.gender ?? ""
+        return sortConfig.direction === "ascending" ? genderA.localeCompare(genderB) : genderB.localeCompare(genderA)
       } else if (sortConfig.key.startsWith("subject_")) {
         const subjectId = sortConfig.key.replace("subject_", "")
         const scoreA = a.subjects[subjectId]?.score || 0
@@ -247,8 +266,26 @@ const handlePrint = async () => {
       toast.error("No class selected")
       return
     }
-    autoPublishMutation.mutate()
-  }, [selectedClassTermId, autoPublishMutation])
+    publishMutation.mutate()
+  }, [selectedClassTermId, publishMutation])
+
+  const handleWithdraw = useCallback(() => {
+    if (!selectedClassTermId) {
+      toast.error("No class selected")
+      return
+    }
+    // A reason is required by the action, because an unexplained withdrawal is exactly what
+    // a parent will ask about and nobody will be able to answer.
+    const reason = window.prompt(
+      "Why are these results being withdrawn from parents?\n\nThis is recorded in the audit log.",
+    )
+    if (reason === null) return
+    if (!reason.trim()) {
+      toast.error("A reason is required to withdraw results")
+      return
+    }
+    withdrawMutation.mutate(reason)
+  }, [selectedClassTermId, withdrawMutation])
 
   const requestSort = (key: string) => {
     setSortConfig((prev) => ({
@@ -260,12 +297,12 @@ const handlePrint = async () => {
   const getGradeColor = (grade: string) => {
     const firstChar = grade.charAt(0).toUpperCase()
     switch (firstChar) {
-      case "A": return "bg-green-100 text-green-800"
-      case "B": return "bg-blue-100 text-blue-800"
-      case "C": return "bg-yellow-100 text-yellow-800"
-      case "D": case "E": return "bg-orange-100 text-orange-800"
-      case "F": return "bg-red-100 text-red-800"
-      default: return "bg-gray-100 text-gray-800"
+      case "A": return "bg-green-500/10 text-green-700 dark:text-green-400"
+      case "B": return "bg-blue-500/10 text-blue-700 dark:text-blue-400"
+      case "C": return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
+      case "D": case "E": return "bg-orange-500/10 text-orange-700 dark:text-orange-400"
+      case "F": return "bg-red-500/10 text-red-700 dark:text-red-400"
+      default: return "bg-muted text-foreground"
     }
   }
 
@@ -281,7 +318,7 @@ const handlePrint = async () => {
           <CardTitle className="text-2xl font-bold flex items-center gap-2">
             Class Termly Results
             {isLoadingGrading ? (
-              <span className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading grading system...
               </span>
@@ -295,9 +332,9 @@ const handlePrint = async () => {
         <CardContent>
           <div className="grid gap-6 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="term" className="text-lg font-semibold text-gray-700">Academic Term</Label>
+              <Label htmlFor="term" className="text-lg font-semibold text-foreground">Academic Term</Label>
               <Select value={selectedTermId} onValueChange={setSelectedTermId}>
-                <SelectTrigger id="term" className="border-gray-300">
+                <SelectTrigger id="term" className="border-border">
                   <SelectValue placeholder="Select a term" />
                 </SelectTrigger>
                 <SelectContent>
@@ -311,9 +348,9 @@ const handlePrint = async () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="level" className="text-lg font-semibold text-gray-700">Class Section</Label>
+              <Label htmlFor="level" className="text-lg font-semibold text-foreground">Class Section</Label>
               <Select value={selectedLevel} onValueChange={setSelectedLevel}>
-                <SelectTrigger id="level" className="border-gray-300">
+                <SelectTrigger id="level" className="border-border">
                   <SelectValue placeholder="Select a section" />
                 </SelectTrigger>
                 <SelectContent>
@@ -324,15 +361,15 @@ const handlePrint = async () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="class" className="text-lg font-semibold text-gray-700">Class</Label>
+              <Label htmlFor="class" className="text-lg font-semibold text-foreground">Class</Label>
               <Select
                 value={selectedClassId}
                 onValueChange={setSelectedClassId}
                 disabled={!selectedTermId || !selectedLevel || isLoadingClasses}
               >
-                <SelectTrigger id="class" className="border-gray-300">
+                <SelectTrigger id="class" className="border-border">
                   {isLoadingClasses ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   ) : (
                     <SelectValue placeholder="Select a class" />
                   )}
@@ -357,8 +394,8 @@ const handlePrint = async () => {
       {isLoadingGrading ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-gray-600" />
-            <p className="mt-4 text-gray-500">Loading grading system...</p>
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+            <p className="mt-4 text-muted-foreground">Loading grading system...</p>
           </CardContent>
         </Card>
       ) : !gradingSystem ? (
@@ -413,17 +450,41 @@ const handlePrint = async () => {
                       variant="outline"
                       size="sm"
                       onClick={handleAutoPublish}
-                      disabled={isLoadingResults || autoPublishMutation.isPending || !sortedResults.length}
+                      disabled={isLoadingResults || publishMutation.isPending || !sortedResults.length}
                     >
-                      {autoPublishMutation.isPending ? (
+                      {publishMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
                         <CheckCircle className="mr-2 h-4 w-4" />
                       )}
-                      Publish
+                      Release to parents
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Publish results if all scores are entered</TooltipContent>
+                  <TooltipContent>
+                    Makes these results visible to students and parents. Every subject must be
+                    entered first — mark a student absent or exempt if they have no score.
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleWithdraw}
+                      disabled={isLoadingResults || withdrawMutation.isPending || !sortedResults.length}
+                    >
+                      {withdrawMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Undo2 className="mr-2 h-4 w-4" />
+                      )}
+                      Withdraw
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Hides these results from students and parents again. Asks for a reason,
+                    which is recorded in the audit log.
+                  </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
@@ -440,19 +501,19 @@ const handlePrint = async () => {
               <TabsContent value="results" className="mt-0">
                 <div className="mb-6 space-y-4">
                   <div className="text-center space-y-2">
-                    <h1 className="text-3xl font-bold text-gray-800">{schoolName.toUpperCase()}</h1>
-                    <p className="text-base text-gray-600">{schoolAddress}</p>
-                    <p className="text-base text-gray-600">GSM: {schoolPhone} | Email: {schoolEmail}</p>
-                    <h2 className="text-xl font-semibold text-gray-700">Termly Class Results</h2>
-                    <hr className="border-t border-gray-400 my-2 w-3/4 mx-auto" />
+                    <h1 className="text-3xl font-bold text-foreground">{schoolName.toUpperCase()}</h1>
+                    <p className="text-base text-muted-foreground">{schoolAddress}</p>
+                    <p className="text-base text-muted-foreground">GSM: {schoolPhone} | Email: {schoolEmail}</p>
+                    <h2 className="text-xl font-semibold text-foreground">Termly Class Results</h2>
+                    <hr className="border-t border-border my-2 w-3/4 mx-auto" />
                   </div>
                   <div className="space-y-2">
-                    <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                    <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                       <span>Class: {selectedClass?.name || "-"}</span>
                       <span>Term: {selectedTerm?.name || "-"}</span>
                       <span>Session: {selectedTerm?.session.name || "-"}</span>
                     </div>
-                    <div className="flex justify-between text-lg text-gray-700 font-medium px-4 py-2 bg-gray-100 rounded">
+                    <div className="flex justify-between text-lg text-foreground font-medium px-4 py-2 bg-muted rounded">
                       <span>Teacher: {selectedClass?.teacherName || "Not Assigned"}</span>
                       <span>Total Students: {students.length}</span>
                     </div>
@@ -477,20 +538,20 @@ const handlePrint = async () => {
                     </div>
                   ) : !subjects.length ? (
                     <div className="py-12 text-center">
-                      <p className="text-gray-500">No subjects found for this class.</p>
+                      <p className="text-muted-foreground">No subjects found for this class.</p>
                     </div>
                   ) : !sortedResults.length ? (
                     <div className="py-12 text-center">
-                      <p className="text-gray-500">
+                      <p className="text-muted-foreground">
                         No results found. Ensure subject scores have been entered.
                       </p>
                     </div>
                   ) : (
-                    <div className="rounded-md border border-gray-300 overflow-x-auto">
-                      <Table className="min-w-full bg-white">
+                    <div className="rounded-md border border-border overflow-x-auto">
+                      <Table className="min-w-full bg-card">
                         <TableHeader>
-                          <TableRow className="bg-gray-200">
-                            <TableHead className="w-[60px] text-center font-bold text-gray-800 sticky left-0 bg-gray-200 z-10">
+                          <TableRow className="bg-muted">
+                            <TableHead className="w-[60px] text-center font-bold text-foreground sticky left-0 bg-muted z-10">
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -506,7 +567,7 @@ const handlePrint = async () => {
                                 </Tooltip>
                               </TooltipProvider>
                             </TableHead>
-                            <TableHead className="w-[120px] text-center font-bold text-gray-800 sticky left-[60px] bg-gray-200 z-10">
+                            <TableHead className="w-[120px] text-center font-bold text-foreground sticky left-[60px] bg-muted z-10">
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -522,7 +583,7 @@ const handlePrint = async () => {
                                 </Tooltip>
                               </TooltipProvider>
                             </TableHead>
-                            <TableHead className="font-bold text-gray-800 sticky left-[180px] bg-gray-200 z-10 min-w-[200px]">
+                            <TableHead className="font-bold text-foreground sticky left-[180px] bg-muted z-10 min-w-[200px]">
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -538,7 +599,7 @@ const handlePrint = async () => {
                                 </Tooltip>
                               </TooltipProvider>
                             </TableHead>
-                            <TableHead className="w-[80px] text-center font-bold text-gray-800">
+                            <TableHead className="w-[80px] text-center font-bold text-foreground">
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -555,7 +616,7 @@ const handlePrint = async () => {
                               </TooltipProvider>
                             </TableHead>
                             {subjects.map((subject) => (
-                              <TableHead key={subject.id} className="w-[80px] text-center font-bold text-gray-800">
+                              <TableHead key={subject.id} className="w-[80px] text-center font-bold text-foreground">
                                 <TooltipProvider>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -572,7 +633,7 @@ const handlePrint = async () => {
                                 </TooltipProvider>
                               </TableHead>
                             ))}
-                            <TableHead className="w-[80px] text-center font-bold text-gray-800">
+                            <TableHead className="w-[80px] text-center font-bold text-foreground">
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -588,7 +649,7 @@ const handlePrint = async () => {
                                 </Tooltip>
                               </TooltipProvider>
                             </TableHead>
-                            <TableHead className="w-[80px] text-center font-bold text-gray-800">
+                            <TableHead className="w-[80px] text-center font-bold text-foreground">
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -604,40 +665,45 @@ const handlePrint = async () => {
                                 </Tooltip>
                               </TooltipProvider>
                             </TableHead>
-                            <TableHead className="w-[80px] text-center font-bold text-gray-800">Grade</TableHead>
+                            <TableHead className="w-[80px] text-center font-bold text-foreground">Grade</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {sortedResults.map((result) => (
-                            <TableRow key={result.studentId} className="hover:bg-gray-100">
-                              <TableCell className="text-center font-medium sticky left-0 bg-white z-10">
+                            <TableRow key={result.studentId} className="hover:bg-muted">
+                              <TableCell className="text-center font-medium sticky left-0 bg-card z-10">
                                 {result.position === 0 ? "-" : `${result.position}${getOrdinalSuffix(result.position)}`}
                               </TableCell>
-                              <TableCell className="text-center sticky left-[60px] bg-white z-10">
+                              <TableCell className="text-center sticky left-[60px] bg-card z-10">
                                 {result.admissionNo}
                               </TableCell>
-                              <TableCell className="sticky left-[180px] bg-white z-10 min-w-[200px]">
+                              <TableCell className="sticky left-[180px] bg-card z-10 min-w-[200px]">
                                 {result.studentName}
                               </TableCell>
                               <TableCell className="text-center">
                                 {result.gender === "MALE" ? "M" : result.gender === "FEMALE" ? "F" : "-"}
                               </TableCell>
-                              {subjects.map((subject) => (
-                                <TableCell key={subject.id} className="text-center">
-                                  {result.subjects[subject.id]?.score !== null ? (
-                                    <div className="flex flex-col items-center">
-                                      <span>{result.subjects[subject.id]?.score.toFixed(1)}</span>
-                                      {result.subjects[subject.id]?.grade && (
-                                        <Badge className={`text-xs mt-1 ${getGradeColor(result.subjects[subject.id]?.grade)}`}>
-                                          {result.subjects[subject.id]?.grade}
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    "-"
-                                  )}
-                                </TableCell>
-                              ))}
+                              {subjects.map((subject) => {
+                                const subjectResult = result.subjects[subject.id]
+                                const score = subjectResult?.score
+                                const grade = subjectResult?.grade ?? null
+                                return (
+                                  <TableCell key={subject.id} className="text-center">
+                                    {score !== null && score !== undefined ? (
+                                      <div className="flex flex-col items-center">
+                                        <span>{score.toFixed(1)}</span>
+                                        {grade && (
+                                          <Badge className={`text-xs mt-1 ${getGradeColor(grade)}`}>
+                                            {grade}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      "-"
+                                    )}
+                                  </TableCell>
+                                )
+                              })}
                               <TableCell className="text-center font-medium">{result.totalScore.toFixed(1)}</TableCell>
                               <TableCell className="text-center font-medium">{result.averageScore.toFixed(1)}</TableCell>
                               <TableCell className="text-center">

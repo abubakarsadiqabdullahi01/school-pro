@@ -55,13 +55,13 @@ export function SystemHealth({ data }: SystemHealthProps) {
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case "healthy":
-        return "bg-green-100 text-green-800"
+        return "bg-green-500/10 text-green-700 dark:text-green-400"
       case "warning":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
       case "error":
-        return "bg-red-100 text-red-800"
+        return "bg-red-500/10 text-red-700 dark:text-red-400"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -74,16 +74,16 @@ export function SystemHealth({ data }: SystemHealthProps) {
       case "error":
         return <AlertTriangle className="h-4 w-4 text-red-600" />
       default:
-        return <Activity className="h-4 w-4 text-gray-600" />
+        return <Activity className="h-4 w-4 text-muted-foreground" />
     }
   }
 
   return (
     <div className="space-y-6">
       <Card className="border-0 shadow-lg">
-        <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50">
+        <CardHeader className="bg-gradient-to-r from-muted to-muted/50">
           <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-slate-600" />
+            <Shield className="h-5 w-5 text-muted-foreground" />
             System Health
           </CardTitle>
           <CardDescription>Real-time system status and performance metrics</CardDescription>
@@ -110,11 +110,11 @@ export function SystemHealth({ data }: SystemHealthProps) {
 
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Response Time</span>
+                  <span className="text-muted-foreground">Response Time</span>
                   <span className="font-medium">{data.database.responseTime}ms</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Active Connections</span>
+                  <span className="text-muted-foreground">Active Connections</span>
                   <span className="font-medium">{data.database.connections}</span>
                 </div>
                 <Progress value={(data.database.connections / 50) * 100} className="h-2" />
@@ -135,23 +135,23 @@ export function SystemHealth({ data }: SystemHealthProps) {
 
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Total Users</span>
+                  <span className="text-muted-foreground">Total Users</span>
                   <span className="font-medium">{data.users.total.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Active Students</span>
+                  <span className="text-muted-foreground">Active Students</span>
                   <span className="font-medium">{data.users.active.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Teachers</span>
+                  <span className="text-muted-foreground">Teachers</span>
                   <span className="font-medium">{data.users.teachers.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Parents</span>
+                  <span className="text-muted-foreground">Parents</span>
                   <span className="font-medium">{data.users.parents.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Recent Logins (24h)</span>
+                  <span className="text-muted-foreground">Recent Logins (24h)</span>
                   <span className="font-medium">{data.users.recentLogins}</span>
                 </div>
               </div>
@@ -171,11 +171,11 @@ export function SystemHealth({ data }: SystemHealthProps) {
 
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Pending Review</span>
+                  <span className="text-muted-foreground">Pending Review</span>
                   <span className="font-medium">{data.assessments.pending}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Published</span>
+                  <span className="text-muted-foreground">Published</span>
                   <span className="font-medium">{data.assessments.published}</span>
                 </div>
                 <Progress
@@ -203,15 +203,15 @@ export function SystemHealth({ data }: SystemHealthProps) {
 
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Uptime</span>
+                  <span className="text-muted-foreground">Uptime</span>
                   <span className="font-medium">{data.system.uptime}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">System Errors</span>
+                  <span className="text-muted-foreground">System Errors</span>
                   <span className="font-medium">{data.system.errors}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Last Backup</span>
+                  <span className="text-muted-foreground">Last Backup</span>
                   <span className="font-medium">{new Date(data.system.lastBackup).toLocaleDateString()}</span>
                 </div>
               </div>
@@ -239,7 +239,7 @@ export function SystemHealth({ data }: SystemHealthProps) {
             >
               <School className="h-8 w-8 text-blue-600 mb-2" />
               <span className="text-2xl font-bold">{data.statistics.sessions}</span>
-              <span className="text-sm text-gray-600">Sessions</span>
+              <span className="text-sm text-muted-foreground">Sessions</span>
             </motion.div>
 
             <motion.div
@@ -250,7 +250,7 @@ export function SystemHealth({ data }: SystemHealthProps) {
             >
               <Clock className="h-8 w-8 text-green-600 mb-2" />
               <span className="text-2xl font-bold">{data.statistics.terms}</span>
-              <span className="text-sm text-gray-600">Terms</span>
+              <span className="text-sm text-muted-foreground">Terms</span>
             </motion.div>
 
             <motion.div
@@ -261,7 +261,7 @@ export function SystemHealth({ data }: SystemHealthProps) {
             >
               <GraduationCap className="h-8 w-8 text-purple-600 mb-2" />
               <span className="text-2xl font-bold">{data.statistics.classes}</span>
-              <span className="text-sm text-gray-600">Classes</span>
+              <span className="text-sm text-muted-foreground">Classes</span>
             </motion.div>
 
             <motion.div
@@ -272,7 +272,7 @@ export function SystemHealth({ data }: SystemHealthProps) {
             >
               <BookOpen className="h-8 w-8 text-orange-600 mb-2" />
               <span className="text-2xl font-bold">{data.statistics.subjects}</span>
-              <span className="text-sm text-gray-600">Subjects</span>
+              <span className="text-sm text-muted-foreground">Subjects</span>
             </motion.div>
 
             <motion.div
@@ -283,7 +283,7 @@ export function SystemHealth({ data }: SystemHealthProps) {
             >
               <ArrowRightLeft className="h-8 w-8 text-red-600 mb-2" />
               <span className="text-2xl font-bold">{data.statistics.recentTransitions}</span>
-              <span className="text-sm text-gray-600">Recent Transitions</span>
+              <span className="text-sm text-muted-foreground">Recent Transitions</span>
             </motion.div>
           </div>
         </CardContent>

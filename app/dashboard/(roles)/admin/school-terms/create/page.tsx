@@ -1,45 +1,21 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { TermForm } from "@/components/session-management/term-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminCreateTermPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined }
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const session = await auth()
+  const { school, schoolId } = await requireAdminSchool()
 
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
+  const params = await searchParams
+  const rawSessionId = params.sessionId
+  const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId
 
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  })
-
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error")
-  }
-
-  // Get the sessionId from the query params if it exists
-  const sessionId = (await searchParams)?.sessionId
-
-  // Fetch all sessions for the admin's school
   const sessions = await prisma.session.findMany({
-    where: { schoolId: admin.schoolId },
+    where: { schoolId },
     orderBy: [{ isCurrent: "desc" }, { startDate: "desc" }],
   })
 
@@ -54,10 +30,10 @@ export default async function AdminCreateTermPage({
   // If sessionId is provided, fetch the session details
   let selectedSession = null
   if (sessionId) {
-    const sessionDetails = await prisma.session.findUnique({
+    const sessionDetails = await prisma.session.findFirst({
       where: {
         id: sessionId,
-        schoolId: admin.schoolId, // Ensure the session belongs to the admin's school
+        schoolId,
       },
     })
 
@@ -65,8 +41,8 @@ export default async function AdminCreateTermPage({
       selectedSession = {
         id: sessionDetails.id,
         name: sessionDetails.name,
-        schoolName: admin.school.name,
-        schoolCode: admin.school.code,
+        schoolName: school.name,
+        schoolCode: school.code,
         startDate: sessionDetails.startDate,
         endDate: sessionDetails.endDate,
       }
@@ -81,7 +57,7 @@ export default async function AdminCreateTermPage({
           <p className="text-muted-foreground">
             {selectedSession
               ? `Add a new term to ${selectedSession.name}`
-              : `Add a new academic term for ${admin.school.name} (${admin.school.code})`}
+              : `Add a new academic term for ${school.name} (${school.code})`}
           </p>
         </div>
 

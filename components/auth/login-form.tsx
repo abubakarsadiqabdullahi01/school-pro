@@ -24,7 +24,7 @@ const fadeIn = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 }
 
-export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
+export function LoginForm({ className }: { className?: string }) {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -60,7 +60,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 
       if (result.success) {
         toast.success("Login successful", {
-          description: "Welcome back to SchoolPro!",
+          description: "Welcome back to DigiSchool-Pro!",
         })
 
         // Set a flag to indicate we're redirecting
@@ -91,7 +91,6 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
       animate="visible"
       variants={fadeIn}
       className={cn("flex flex-col gap-6", className)}
-      {...props}
     >
       <Card className="overflow-hidden">
         <CardContent className="grid p-0 md:grid-cols-2">
@@ -109,7 +108,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
                   </motion.div>
                 </Link>
                 <h1 className="text-2xl font-bold">Welcome back</h1>
-                <p className="text-balance text-muted-foreground">Login to your SchoolPro account</p>
+                <p className="text-balance text-muted-foreground">Login to your DigiSchool-Pro account</p>
               </div>
 
               {formError && (
@@ -201,7 +200,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
               <div className="space-y-2">
                 <School className="mx-auto h-12 w-12 text-primary" />
-                <h2 className="text-2xl font-bold">SchoolPro</h2>
+                <h2 className="text-2xl font-bold">DigiSchool-Pro</h2>
                 <p className="text-muted-foreground">The comprehensive platform for modern school management</p>
               </div>
               <div className="mt-8 grid gap-1">
@@ -289,4 +288,3 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
     </motion.div>
   )
 }
-

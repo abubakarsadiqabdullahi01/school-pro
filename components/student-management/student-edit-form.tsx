@@ -218,7 +218,7 @@ export default function StudentEditForm({ studentId }: StudentEditFormProps) {
             lga: student.lga || "",
             address: student.address || "",
             phone: student.phone || "",
-            year: student.year,
+            year: student.year ?? undefined,
             isActive: student.isActive,
             classId: student.currentClass?.id || "",
             termId:
@@ -375,7 +375,7 @@ export default function StudentEditForm({ studentId }: StudentEditFormProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="w-full max-w-6xl mx-auto border-0 shadow-xl">
+        <Card className="w-full border-0 shadow-xl">
           <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5 p-4">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-primary/20 rounded-lg">
@@ -572,7 +572,7 @@ export default function StudentEditForm({ studentId }: StudentEditFormProps) {
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <FormField
                           control={form.control}
                           name="address"
@@ -785,14 +785,14 @@ export default function StudentEditForm({ studentId }: StudentEditFormProps) {
                         </AlertDescription>
                       </Alert>
 
-                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-lg border border-green-100">
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 p-6 rounded-lg border border-green-100 dark:border-green-900">
                         <h3 className="font-semibold text-lg text-foreground mb-6 text-center">
                           📋 Student Update Summary
                         </h3>
 
                         <div className="space-y-6">
                           {/* Personal Information Section */}
-                          <div className="bg-white p-5 rounded-lg border border-green-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-green-100 dark:border-green-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-4">
                               <div className="bg-blue-100 p-2 rounded-lg">
                                 <User className="h-5 w-5 text-blue-600" />
@@ -858,7 +858,7 @@ export default function StudentEditForm({ studentId }: StudentEditFormProps) {
                           <Separator className="my-6" />
 
                           {/* Academic Information Section */}
-                          <div className="bg-white p-5 rounded-lg border border-green-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-green-100 dark:border-green-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-4">
                               <div className="bg-purple-100 p-2 rounded-lg">
                                 <School className="h-5 w-5 text-purple-600" />

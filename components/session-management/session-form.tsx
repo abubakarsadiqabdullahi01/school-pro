@@ -46,6 +46,14 @@ const sessionFormSchema = z
 
 type SessionFormValues = z.infer<typeof sessionFormSchema>
 
+const sessionNameOptions = (() => {
+  const currentYear = new Date().getFullYear()
+  return Array.from({ length: 8 }, (_, index) => {
+    const startYear = currentYear - 1 + index
+    return `${startYear}/${startYear + 1}`
+  })
+})()
+
 interface SessionFormProps {
   schools: {
     id: string
@@ -60,20 +68,25 @@ interface SessionFormProps {
     endDate: Date
     isCurrent: boolean
   }
+  /** Pre-selects the school in focus, so a scoped super admin need not pick it again. */
+  defaultSchoolId?: string
 }
 
-export function SessionForm({ schools, sessionData }: SessionFormProps) {
+export function SessionForm({ schools, sessionData, defaultSchoolId }: SessionFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const router = useRouter()
 
   const isEditMode = !!sessionData
+  const availableSessionNames = sessionData?.name && !sessionNameOptions.includes(sessionData.name)
+    ? [sessionData.name, ...sessionNameOptions]
+    : sessionNameOptions
 
   const form = useForm<SessionFormValues>({
     resolver: zodResolver(sessionFormSchema),
     defaultValues: {
       name: sessionData?.name || "",
-      schoolId: sessionData?.schoolId || "",
+      schoolId: sessionData?.schoolId || defaultSchoolId || "",
       startDate: sessionData?.startDate ? new Date(sessionData.startDate) : undefined,
       endDate: sessionData?.endDate ? new Date(sessionData.endDate) : undefined,
       isCurrent: sessionData?.isCurrent || false,
@@ -119,8 +132,13 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-      <Card className="max-w-4xl mx-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="w-full"
+    >
+      <Card className="w-full">
         <CardHeader className="space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/10 rounded-lg">
@@ -148,92 +166,103 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
-            <CardContent className="space-y-8">
-              {/* Session Name */}
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-base font-semibold">
-                      Session Name <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., 2023-2024 Academic Year" className="h-12 text-base" {...field} />
-                    </FormControl>
-                    <FormDescription>
-                      Enter a descriptive name for the academic session (e.g., "2023-2024 Academic Year")
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-            {/* School Selection */}
-            <FormField
-              control={form.control}
-              name="schoolId"
-              render={({ field }) => {
-                const selectedSchool = filteredSchools.find((s) => s.id === field.value)
-
-                return (
-                  <FormItem>
-                    <FormLabel className="text-base font-semibold">
-                      School <span className="text-destructive">*</span>
-                    </FormLabel>
-
-                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isEditMode}>
-                      <FormControl>
-                        <SelectTrigger className="w-full h-14 text-base">
-                          <span>
-                            {selectedSchool
-                              ? `${selectedSchool.name} (${selectedSchool.code})`
-                              : "Select a school"}
-                          </span>
-                        </SelectTrigger>
-                      </FormControl>
-
-                      <SelectContent>
-                        <div className="sticky top-0 p-2 bg-background z-10 border-b">
-                          <div className="relative">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input
-                              placeholder="Search schools..."
-                              className="pl-8"
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                          </div>
-                        </div>
-
-                        {filteredSchools.length === 0 ? (
-                          <div className="text-center py-4 text-sm text-muted-foreground">No schools found</div>
-                        ) : (
-                          filteredSchools.map((school) => (
-                            <SelectItem key={school.id} value={school.id} className="py-3">
-                              <div className="flex items-center gap-2">
-                                <School className="h-4 w-4 text-muted-foreground" />
-                                <div>
-                                  <div className="font-medium">{school.name}</div>
-                                  <div className="text-sm text-muted-foreground">Code: {school.code}</div>
-                                </div>
-                              </div>
+            <CardContent className="space-y-6">
+              {/* Session Name + School */}
+              <div className="grid gap-6 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel className="text-base font-semibold">
+                        Session Name <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="h-12 w-full text-base">
+                            <SelectValue placeholder="Select academic session" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {availableSessionNames.map((sessionName) => (
+                            <SelectItem key={sessionName} value={sessionName}>
+                              {sessionName}
                             </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Select the academic year for this session</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-                    <FormDescription>
-                      {isEditMode
-                        ? "School cannot be changed after session creation"
-                        : "Select the school this session belongs to"}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )
-              }}
-            />
+                {/* School Selection */}
+                <FormField
+                  control={form.control}
+                  name="schoolId"
+                  render={({ field }) => {
+                    const selectedSchool = filteredSchools.find((s) => s.id === field.value)
+
+                    return (
+                      <FormItem className="flex flex-col">
+                        <FormLabel className="text-base font-semibold">
+                          School <span className="text-destructive">*</span>
+                        </FormLabel>
+
+                        <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isEditMode}>
+                          <FormControl>
+                            <SelectTrigger className="w-full h-12 text-base">
+                              <span className="truncate">
+                                {selectedSchool
+                                  ? `${selectedSchool.name} (${selectedSchool.code})`
+                                  : "Select a school"}
+                              </span>
+                            </SelectTrigger>
+                          </FormControl>
+
+                          <SelectContent>
+                            <div className="sticky top-0 p-2 bg-background z-10 border-b">
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  placeholder="Search schools..."
+                                  className="pl-8"
+                                  value={searchQuery}
+                                  onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                              </div>
+                            </div>
+
+                            {filteredSchools.length === 0 ? (
+                              <div className="text-center py-4 text-sm text-muted-foreground">No schools found</div>
+                            ) : (
+                              filteredSchools.map((school) => (
+                                <SelectItem key={school.id} value={school.id} className="py-3">
+                                  <div className="flex items-center gap-2">
+                                    <School className="h-4 w-4 text-muted-foreground" />
+                                    <div>
+                                      <div className="font-medium">{school.name}</div>
+                                      <div className="text-sm text-muted-foreground">Code: {school.code}</div>
+                                    </div>
+                                  </div>
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+
+                        <FormDescription>
+                          {isEditMode
+                            ? "School cannot be changed after session creation"
+                            : "Select the school this session belongs to"}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )
+                  }}
+                />
+              </div>
 
               {/* Date Range */}
               <div className="grid gap-6 md:grid-cols-2">
@@ -251,7 +280,7 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
                             <Button
                               variant={"outline"}
                               className={cn(
-                                "h-12 text-base pl-3 text-left font-normal",
+                                "h-12 w-full justify-start text-base pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground",
                               )}
                             >
@@ -298,7 +327,7 @@ export function SessionForm({ schools, sessionData }: SessionFormProps) {
                             <Button
                               variant={"outline"}
                               className={cn(
-                                "h-12 text-base pl-3 text-left font-normal",
+                                "h-12 w-full justify-start text-base pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground",
                               )}
                             >

@@ -2,8 +2,8 @@ import type { Metadata } from "next"
 import { LoginForm } from "@/components/auth/login-form"
 
 export const metadata: Metadata = {
-  title: "Login - SchoolPro",
-  description: "Login to your SchoolPro account",
+  title: "Login - DigiSchool-Pro",
+  description: "Login to your DigiSchool-Pro account",
 }
 
 export default function LoginPage() {
@@ -15,4 +15,3 @@ export default function LoginPage() {
     </div>
   )
 }
-

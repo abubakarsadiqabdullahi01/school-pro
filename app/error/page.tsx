@@ -15,15 +15,15 @@ export default function ErrorPage() {
   }
 
   const handleContactSupport = () => {
-    window.location.href = "mailto:support@schoolpro.com?subject=System Error Assistance"
+    window.location.href = "mailto:support@digischool-pro.com?subject=System Error Assistance"
   }
 
   const handleViewStatus = () => {
-    window.open("https://status.schoolpro.com", "_blank")
+    window.open("https://status.digischool-pro.com", "_blank")
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-rose-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-rose-50 dark:from-slate-950 dark:to-rose-950 flex items-center justify-center p-4">
       <div className="max-w-2xl w-full space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
@@ -35,8 +35,8 @@ export default function ErrorPage() {
               </div>
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Something Went Wrong</h1>
-          <p className="text-gray-600">We encountered an unexpected error</p>
+          <h1 className="text-3xl font-bold text-foreground">Something Went Wrong</h1>
+          <p className="text-muted-foreground">We encountered an unexpected error</p>
         </div>
 
         {/* Main Card */}
@@ -63,7 +63,7 @@ export default function ErrorPage() {
 
             {/* Troubleshooting Steps */}
             <div className="space-y-3">
-              <h3 className="font-medium text-gray-900">Try these steps:</h3>
+              <h3 className="font-medium text-foreground">Try these steps:</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <p className="text-sm font-medium text-blue-900">Refresh the page</p>
@@ -112,7 +112,7 @@ export default function ErrorPage() {
             <CardTitle className="text-sm font-medium">Technical Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="bg-gray-100 p-3 rounded-lg font-mono text-xs overflow-x-auto">
+            <div className="bg-muted p-3 rounded-lg font-mono text-xs overflow-x-auto">
               <pre>
 {`Error: Environment configuration invalid
 Time: ${new Date().toISOString()}
@@ -124,9 +124,9 @@ Missing Variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY`}
         </Card>
 
         {/* Footer */}
-        <div className="text-center text-sm text-gray-500 space-y-1">
+        <div className="text-center text-sm text-muted-foreground space-y-1">
           <p>Error Reference: ERR-{Math.random().toString(36).substr(2, 9).toUpperCase()}</p>
-          <p>© {new Date().getFullYear()} SchoolPro. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} DigiSchool-Pro. All rights reserved.</p>
         </div>
       </div>
     </div>

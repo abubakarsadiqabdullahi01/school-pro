@@ -2,8 +2,13 @@
 
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { requireTeacher } from "@/lib/authz";
 import { unstable_cache } from "next/cache";
 import { revalidateTag } from "next/cache";
+import { log } from "@/lib/logger";
+import { assertScoresWithinScheme } from "@/lib/assessment-scheme";
+import { loadAssessmentScheme } from "@/lib/assessment-scheme.server";
+import { gradeScoreForSchool } from "@/lib/grading.server";
 
 // Enhanced types for teacher context
 interface TeacherAssessmentData {
@@ -21,34 +26,21 @@ interface TeacherAssessmentData {
 }
 
 // Enhanced authorization for teachers
+// Role, profile and school scope come from the shared boundary. Only `department`, which
+// nothing else needs, is still read here.
 async function authorizeTeacherAndGetData() {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "TEACHER") {
-    throw new Error("Unauthorized: Teacher access required");
-  }
+  const actor = await requireTeacher();
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: {
-      teacher: {
-        select: {
-          id: true,
-          schoolId: true,
-          department: true,
-        },
-      },
-    },
+  const teacher = await prisma.teacher.findUnique({
+    where: { id: actor.teacherId },
+    select: { department: true },
   });
 
-  if (!user?.teacher) {
-    throw new Error("Teacher profile not found");
-  }
-
   return {
-    userId: user.id,
-    teacherId: user.teacher.id,
-    schoolId: user.teacher.schoolId,
-    department: user.teacher.department,
+    userId: actor.userId,
+    teacherId: actor.teacherId,
+    schoolId: actor.schoolId!,
+    department: teacher?.department ?? null,
   };
 }
 
@@ -545,36 +537,22 @@ function calculateTotalScore(
 }
 
 // Calculate grade from score for teacher's school
+// Delegates to the single grading implementation in lib/grading.ts. This used to be a
+// local copy of the bands and the fallback, one of three that agreed with each other but
+// not with the class-term aggregation.
 export async function calculateGradeFromScore(
   totalScore: number | null,
   schoolId: string,
 ): Promise<{ grade: string; remark: string } | null> {
   if (totalScore === null || totalScore === undefined) return null;
 
-  try {
-    const gradingSystem = await getTeacherGradingSystem(schoolId);
+  const result = await gradeScoreForSchool(totalScore, schoolId);
 
-    if (!gradingSystem?.levels || gradingSystem.levels.length === 0) {
-      // Default grading system
-      if (totalScore >= 80) return { grade: "A1", remark: "Excellent" };
-      if (totalScore >= 70) return { grade: "A2", remark: "Very Good" };
-      if (totalScore >= 60) return { grade: "B1", remark: "Good" };
-      if (totalScore >= 50) return { grade: "B2", remark: "Fair" };
-      if (totalScore >= 45) return { grade: "C1", remark: "Pass" };
-      if (totalScore >= 40) return { grade: "C2", remark: "Weak Pass" };
-      return { grade: "F", remark: "Fail" };
-    }
-
-    const level = gradingSystem.levels.find(
-      (l) => totalScore >= l.minScore && totalScore <= l.maxScore,
-    );
-    return level
-      ? { grade: level.grade, remark: level.remark }
-      : { grade: "F", remark: "Fail" };
-  } catch (error) {
-    console.error("Error calculating grade:", error);
-    return { grade: "F", remark: "Error" };
-  }
+  // Callers render this straight into a report card, so an unmatched score has to say so
+  // rather than borrow a letter it did not earn.
+  return result.grade === null
+    ? { grade: "\u2014", remark: result.remark }
+    : { grade: result.grade, remark: result.remark };
 }
 
 // Save teacher assessments with enhanced validation and upsert logic
@@ -585,9 +563,12 @@ export async function saveTeacherAssessments(
   classTermId: string,
 ) {
   try {
-    console.log("\n=== SAVE TEACHER ASSESSMENTS START ===");
+    log.debug("\n=== SAVE TEACHER ASSESSMENTS START ===");
 
     const { userId, teacherId, schoolId } = await authorizeTeacherAndGetData();
+
+    // Loaded once for the whole batch rather than per student.
+    const assessmentScheme = await loadAssessmentScheme(schoolId);
 
     // Validate input data
     if (!assessments || assessments.length === 0) {
@@ -598,12 +579,12 @@ export async function saveTeacherAssessments(
       throw new Error("Term ID, Subject ID, and Class Term ID are required");
     }
 
-    console.log("Input Parameters:");
-    console.log("- termId:", termId);
-    console.log("- subjectId:", subjectId);
-    console.log("- classTermId:", classTermId);
-    console.log("- assessments count:", assessments.length);
-    console.log("- teacherId:", teacherId);
+    log.debug("Input Parameters:");
+    log.debug("- termId:", termId);
+    log.debug("- subjectId:", subjectId);
+    log.debug("- classTermId:", classTermId);
+    log.debug("- assessments count:", assessments.length);
+    log.debug("- teacherId:", teacherId);
 
     // Verify teacher has access to this class term and subject
     const [teacherClassTerm, teacherSubject] = await Promise.all([
@@ -678,7 +659,7 @@ export async function saveTeacherAssessments(
       },
     });
 
-    console.log(`Found ${existingAssessments.length} existing assessments`);
+    log.debug(`Found ${existingAssessments.length} existing assessments`);
 
     // Process assessments in batches using upsert for better error handling
     const BATCH_SIZE = 5;
@@ -686,7 +667,7 @@ export async function saveTeacherAssessments(
 
     for (let i = 0; i < assessments.length; i += BATCH_SIZE) {
       const batch = assessments.slice(i, i + BATCH_SIZE);
-      console.log(
+      log.debug(
         `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}, items ${i + 1} to ${Math.min(i + BATCH_SIZE, assessments.length)}`,
       );
 
@@ -694,30 +675,15 @@ export async function saveTeacherAssessments(
         const batchResults = await prisma.$transaction(
           batch.map((assessment, batchIndex) => {
             const globalIndex = i + batchIndex;
-            console.log(
+            log.debug(
               `Processing assessment ${globalIndex + 1} for student ${assessment.studentId}`,
             );
 
             // Validate score ranges
-            const validateScore = (
-              score: number | null | undefined,
-              field: string,
-              max: number,
-            ) => {
-              if (score !== null && score !== undefined) {
-                if (score < 0 || score > max) {
-                  throw new Error(
-                    `${field} score must be between 0 and ${max}, got ${score}`,
-                  );
-                }
-              }
-            };
-
-            validateScore(assessment.ca1, "CA1", 10);
-            validateScore(assessment.ca2, "CA2", 10);
-            validateScore(assessment.ca3, "CA3", 10);
-            validateScore(assessment.exam, "Exam", 70);
-
+            // Bounds come from the school's own scheme, loaded once for this save, not
+            // from literals. This used to be a local validator hardcoded to CA 10/10/10
+            // plus a 70-mark exam, repeated in three files.
+            assertScoresWithinScheme(assessment, assessmentScheme);
             // Prepare data for upsert
             const data = {
               studentId: assessment.studentId,
@@ -735,21 +701,19 @@ export async function saveTeacherAssessments(
               editedBy: userId,
             };
 
-            console.log(
-              `Assessment data for student ${assessment.studentId}:`,
-              JSON.stringify(data, null, 2),
-            );
 
             // Use upsert to handle both create and update scenarios
             // This eliminates the unique constraint violation issue
             return prisma.assessment.upsert({
               where: {
-                // Use the correct unique constraint fields including teacherId
-                studentId_subjectId_termId_teacherId: {
+                // Keyed without teacherId: there is exactly one score row per student,
+                // subject and term, whoever entered it. Including teacherId here is what
+                // let this path miss a row an admin had already saved and insert a
+                // duplicate alongside it.
+                studentId_subjectId_termId: {
                   studentId: assessment.studentId,
                   subjectId,
                   termId,
-                  teacherId: data.teacherId,
                 },
               },
               update: {
@@ -773,26 +737,28 @@ export async function saveTeacherAssessments(
         );
 
         savedAssessments.push(...batchResults);
-        console.log(
+        log.debug(
           `Batch ${Math.floor(i / BATCH_SIZE) + 1} completed successfully`,
         );
       } catch (batchError) {
+        const errorMessage =
+          batchError instanceof Error ? batchError.message : "Unknown error";
         console.error(
           `Error in batch ${Math.floor(i / BATCH_SIZE) + 1}:`,
           batchError,
         );
         throw new Error(
-          `Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batchError.message}`,
+          `Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${errorMessage}`,
         );
       }
     }
 
     // Revalidate relevant caches
-    revalidateTag(`teacher-assessments-${teacherId}-${termId}-${subjectId}`);
-    revalidateTag("teacher-assessments");
+    revalidateTag(`teacher-assessments-${teacherId}-${termId}-${subjectId}`, "max");
+    revalidateTag("teacher-assessments", "max");
 
-    console.log(`Successfully saved ${savedAssessments.length} assessments`);
-    console.log("=== SAVE TEACHER ASSESSMENTS COMPLETE ===\n");
+    log.debug(`Successfully saved ${savedAssessments.length} assessments`);
+    log.debug("=== SAVE TEACHER ASSESSMENTS COMPLETE ===\n");
 
     return {
       success: true,
@@ -923,7 +889,7 @@ export async function getTeacherCurrentTerm() {
 // Get teacher profile with school info
 export async function getTeacherProfile() {
   try {
-    const { userId, teacherId, schoolId } = await authorizeTeacherAndGetData();
+    const { teacherId } = await authorizeTeacherAndGetData();
 
     const teacher = await prisma.teacher.findUnique({
       where: { id: teacherId },
@@ -932,7 +898,11 @@ export async function getTeacherProfile() {
           select: {
             firstName: true,
             lastName: true,
-            email: true,
+            credentials: {
+              where: { type: "EMAIL" },
+              select: { value: true },
+              take: 1,
+            },
           },
         },
         school: {
@@ -958,7 +928,11 @@ export async function getTeacherProfile() {
           staffId: teacher.staffId,
           department: teacher.department,
           qualification: teacher.qualification,
-          user: teacher.user,
+          user: {
+            firstName: teacher.user.firstName,
+            lastName: teacher.user.lastName,
+            email: teacher.user.credentials[0]?.value ?? null,
+          },
         },
         school: teacher.school,
       },

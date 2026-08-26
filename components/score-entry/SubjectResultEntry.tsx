@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { motion } from "framer-motion"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,10 +14,11 @@ import { ScoreEntryTable } from "./ScoreEntryTable"
 import { ActionButtons } from "./ActionButtons"
 import { AssessmentStatusCard } from "./AssessmentStatusCard"
 import { useAssessmentState } from "../../hooks/use-assessment-state"
-import type { FormState, Student, Subject, Assessment } from "./types"
+import type { FormState, Student, Subject, ScoreEntry } from "./types"
 import { getClassesForTerm, getStudentsForClassTerm, getSubjectsForClassTerm } from "@/app/actions/compiler"
 import { getAssessmentsWithStatus, saveAssessments, checkTeacherAssignment } from "@/app/actions/compiler-improved"
 import type { ClassLevel } from "@prisma/client"
+import { queryKeys, queryTiming } from "@/lib/query-keys"
 
 interface SubjectResultEntryProps {
   schoolId: string
@@ -54,8 +55,8 @@ export function SubjectResultEntry({
     searchQuery: "",
   })
 
-  const [isSaving, setIsSaving] = useState(false)
   const [saveProgress, setSaveProgress] = useState(0)
+  const queryClient = useQueryClient()
 
   const {
     scores,
@@ -76,15 +77,15 @@ export function SubjectResultEntry({
     isError: isClassesError,
     error: classesError,
   } = useQuery({
-    queryKey: ["classes", form.termId, form.level],
+    queryKey: queryKeys.scoreEntry.classes(form.termId, form.level),
     queryFn: async () => {
       if (!form.termId || !form.level) return []
       const result = await getClassesForTerm(form.termId, form.level as ClassLevel)
       if (!result.success) throw new Error(result.error)
-      return result.data
+      return result.data ?? []
     },
     enabled: !!form.termId && !!form.level,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: queryTiming.stable,
   })
 
   // Get classTermId from selected class
@@ -101,15 +102,15 @@ export function SubjectResultEntry({
     isError: isStudentsError,
     error: studentsError,
   } = useQuery<Student[]>({
-    queryKey: ["students", classTermId],
+    queryKey: queryKeys.scoreEntry.students(classTermId),
     queryFn: async () => {
       if (!classTermId) return []
       const result = await getStudentsForClassTerm(classTermId)
       if (!result.success) throw new Error(result.error)
-      return result.data
+      return result.data ?? []
     },
     enabled: !!classTermId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // Fetch subjects
@@ -119,20 +120,20 @@ export function SubjectResultEntry({
     isError: isSubjectsError,
     error: subjectsError,
   } = useQuery<Subject[]>({
-    queryKey: ["subjects", classTermId],
+    queryKey: queryKeys.scoreEntry.subjects(classTermId),
     queryFn: async () => {
       if (!classTermId) return []
       const result = await getSubjectsForClassTerm(classTermId)
       if (!result.success) throw new Error(result.error)
-      return result.data
+      return result.data ?? []
     },
     enabled: !!classTermId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // Check teacher assignment when subject is selected
   const { data: teacherAssignment, isLoading: isLoadingTeacher } = useQuery({
-    queryKey: ["teacher-assignment", form.subjectId, classTermId],
+    queryKey: queryKeys.scoreEntry.teacherAssignment(form.subjectId, classTermId),
     queryFn: async () => {
       if (!form.subjectId || !classTermId) return null
       const result = await checkTeacherAssignment(form.subjectId, classTermId)
@@ -140,7 +141,7 @@ export function SubjectResultEntry({
       return result.data
     },
     enabled: !!form.subjectId && !!classTermId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // NEW: Fetch assessments with enhanced status information
@@ -149,9 +150,8 @@ export function SubjectResultEntry({
     isLoading: isLoadingAssessments,
     isError: isAssessmentsError,
     error: assessmentsError,
-    refetch: refetchAssessments,
   } = useQuery({
-    queryKey: ["assessments-with-status", classTermId, form.subjectId, form.termId],
+    queryKey: queryKeys.scoreEntry.assessments(classTermId, form.subjectId, form.termId),
     queryFn: async () => {
       if (!classTermId || !form.subjectId || !form.termId) return null
       const result = await getAssessmentsWithStatus(classTermId, form.subjectId, form.termId)
@@ -159,7 +159,7 @@ export function SubjectResultEntry({
       return result.data
     },
     enabled: !!classTermId && !!form.subjectId && !!form.termId,
-    staleTime: 2 * 60 * 1000, // 2 minutes for assessments
+    staleTime: queryTiming.interactive,
   })
 
   // Extract assessments and statistics from the enhanced data
@@ -170,6 +170,82 @@ export function SubjectResultEntry({
   const assessmentStats = useMemo(() => {
     return assessmentData?.statistics || null
   }, [assessmentData])
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!form.termId || !form.subjectId) {
+        throw new Error("Please select a term and subject")
+      }
+
+      const dirtyScores = Object.values(scores).filter((score) => score.isDirty)
+      if (dirtyScores.length === 0) {
+        return { dirtyScores, result: null }
+      }
+
+      const studentClassTermByStudentId = new Map(students.map((student) => [student.id, student.studentClassTermId]))
+      const assessmentsToSave = dirtyScores.map((score) => ({
+        id: score.id ?? undefined,
+        studentId: score.studentId,
+        subjectId: form.subjectId,
+        termId: form.termId,
+        studentClassTermId: studentClassTermByStudentId.get(score.studentId) || "",
+        ca1: score.ca1,
+        ca2: score.ca2,
+        ca3: score.ca3,
+        exam: score.exam,
+        isAbsent: score.isAbsent,
+        isExempt: score.isExempt,
+      }))
+
+      // No schoolId argument: the action derives the school from the term it is writing to,
+      // so the client can no longer influence which tenant the scores land in.
+      const result = await saveAssessments(assessmentsToSave, form.termId, form.subjectId)
+
+      if (!result.success) {
+        throw new Error(result.error || "Failed to save assessments")
+      }
+
+      return { dirtyScores, result }
+    },
+    onMutate: () => {
+      setSaveProgress(0)
+    },
+    onSuccess: async ({ dirtyScores, result }) => {
+      if (!result) {
+        toast.info("No changes to save")
+        return
+      }
+
+      const studentIds = dirtyScores.map((score) => score.studentId)
+      const assessmentIds: Record<string, string> = {}
+
+      result.data?.forEach((assessment, index) => {
+        const studentId = dirtyScores[index]?.studentId
+        if (studentId) {
+          assessmentIds[studentId] = assessment.id
+        }
+      })
+
+      markSaved(studentIds, assessmentIds)
+
+      toast.success("Assessments saved successfully", {
+        description: result.teacherInfo?.message,
+      })
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.scoreEntry.assessments(classTermId, form.subjectId, form.termId),
+      })
+    },
+    onError: (error) => {
+      console.error("Error saving assessments:", error)
+      toast.error("Failed to save assessments", {
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+      })
+    },
+    onSettled: () => {
+      setSaveProgress(0)
+    },
+  })
 
   // Initialize scores when students and assessments are loaded
   useEffect(() => {
@@ -251,7 +327,7 @@ export function SubjectResultEntry({
 
   // Handle score changes
   const handleScoreChange = useCallback(
-    (studentId: string, field: keyof Assessment, value: any) => {
+    (studentId: string, field: keyof ScoreEntry, value: any) => {
       updateScore(studentId, field, value)
     },
     [updateScore],
@@ -283,80 +359,8 @@ export function SubjectResultEntry({
 
   // Save assessments
   const handleSave = useCallback(async () => {
-    if (!form.termId || !form.subjectId) {
-      toast.error("Please select a term and subject")
-      return
-    }
-
-    const dirtyScores = Object.values(scores).filter((score) => score.isDirty)
-    if (dirtyScores.length === 0) {
-      toast.info("No changes to save")
-      return
-    }
-
-    setIsSaving(true)
-    setSaveProgress(0)
-
-    try {
-      const assessmentsToSave = dirtyScores.map((score) => ({
-        id: score.id,
-        studentId: score.studentId,
-        subjectId: form.subjectId,
-        termId: form.termId,
-        studentClassTermId: students.find((s) => s.id === score.studentId)?.studentClassTermId || "",
-        ca1: score.ca1,
-        ca2: score.ca2,
-        ca3: score.ca3,
-        exam: score.exam,
-        isAbsent: score.isAbsent,
-        isExempt: score.isExempt,
-      }))
-
-      const result = await saveAssessments(assessmentsToSave, form.termId, form.subjectId, schoolId)
-
-      if (!result.success) {
-        throw new Error(result.error || "Failed to save assessments")
-      }
-
-      // Mark as saved
-      const studentIds = dirtyScores.map((s) => s.studentId)
-      const assessmentIds: Record<string, string> = {}
-
-      if (result.data) {
-        result.data.forEach((assessment, index) => {
-          const studentId = dirtyScores[index].studentId
-          assessmentIds[studentId] = assessment.id
-        })
-      }
-
-      markSaved(studentIds, assessmentIds)
-
-      // Show teacher assignment info in success message
-      if (result.teacherInfo) {
-        if (result.teacherInfo.isAssigned) {
-          toast.success("Assessments saved successfully", {
-            description: result.teacherInfo.message,
-          })
-        } else {
-          toast.success("Assessments saved successfully", {
-            description: result.teacherInfo.message,
-          })
-        }
-      } else {
-        toast.success("Assessments saved successfully")
-      }
-
-      await refetchAssessments()
-    } catch (error) {
-      console.error("Error saving assessments:", error)
-      toast.error("Failed to save assessments", {
-        description: error instanceof Error ? error.message : "An unknown error occurred",
-      })
-    } finally {
-      setIsSaving(false)
-      setSaveProgress(0)
-    }
-  }, [form.termId, form.subjectId, scores, students, schoolId, markSaved, refetchAssessments])
+    saveMutation.mutate()
+  }, [saveMutation])
 
   // Handle query errors
   useEffect(() => {
@@ -479,11 +483,11 @@ export function SubjectResultEntry({
                     Checking...
                   </Badge>
                 ) : teacherAssignment?.teacherName ? (
-                  <Badge variant="outline" className="ml-1 bg-green-100 text-green-800">
+                  <Badge variant="outline" className="ml-1 bg-green-500/10 text-green-700 dark:text-green-400">
                     {teacherAssignment.teacherName}
                   </Badge>
                 ) : (
-                  <Badge variant="outline" className="ml-1 bg-yellow-100 text-yellow-800">
+                  <Badge variant="outline" className="ml-1 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400">
                     Not Assigned
                   </Badge>
                 )}
@@ -494,7 +498,7 @@ export function SubjectResultEntry({
             <ActionButtons
               hasChanges={hasChanges}
               errorCount={errorCount}
-              isSaving={isSaving}
+              isSaving={saveMutation.isPending}
               saveProgress={saveProgress}
               onSave={handleSave}
               onReset={handleReset}

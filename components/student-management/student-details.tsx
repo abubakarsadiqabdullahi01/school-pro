@@ -162,7 +162,7 @@ export default function StudentDetails({ studentId }: StudentDetailsProps) {
     setIsToggling(true);
     try {
       const result = await toggleStudentStatus(studentId);
-      if (result.success) {
+      if (result.success && result.data) {
         setStudent((prev) =>
           prev ? { ...prev, isActive: result.data.isActive } : null,
         );
@@ -190,7 +190,7 @@ export default function StudentDetails({ studentId }: StudentDetailsProps) {
 
   if (!student) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="w-full py-6">
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 gap-4">
             <p className="text-muted-foreground">Student not found</p>
@@ -218,7 +218,7 @@ export default function StudentDetails({ studentId }: StudentDetailsProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="container mx-auto py-6 space-y-6"
+      className="w-full py-6 space-y-6"
     >
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

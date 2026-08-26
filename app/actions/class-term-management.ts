@@ -87,7 +87,7 @@ export async function assignClassToTerm({
     return { success: true, classTermId: classTerm.id }
   } catch (error) {
     console.error("Failed to assign class to term:", error)
-    throw new Error(error.message || "Failed to assign class to term")
+    throw new Error(error instanceof Error ? error.message : "Failed to assign class to term")
   }
 }
 

@@ -11,7 +11,8 @@ export * from "./class"
 export * from "./session"
 
 // Common validation utilities
-export { z } from "zod"
+import { z } from "zod"
+export { z }
 
 // Common validation patterns
 export const phoneRegex = /^[+]?[1-9][\d]{0,15}$/

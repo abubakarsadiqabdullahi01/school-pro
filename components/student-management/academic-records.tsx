@@ -34,8 +34,8 @@ interface StudentData {
     className: string
     termName: string
     sessionName: string
-    startDate: Date
-    endDate: Date
+    startDate: Date | string
+    endDate: Date | string
   }>
   assessments: Array<{
     id: string
@@ -63,9 +63,9 @@ export default function AcademicRecords({ studentId }: AcademicRecordsProps) {
     const fetchStudent = async () => {
       setIsLoading(true)
       try {
-        const result = await getStudent(studentId)
+        const result = await getStudent({ studentId })
         if (result.success && result.data) {
-          setStudent(result.data as StudentData)
+          setStudent(normalizeStudentData(result.data))
         } else {
           toast.error("Error", {
             description: result.error || "Failed to fetch student academic records",
@@ -86,13 +86,28 @@ export default function AcademicRecords({ studentId }: AcademicRecordsProps) {
     fetchStudent()
   }, [studentId, router])
 
+  function normalizeStudentData(data: any): StudentData {
+    return {
+      ...data,
+      academicHistory: (data.enrollmentHistory ?? data.academicHistory ?? []).map((history: any) => ({
+        id: history.id,
+        className: history.className,
+        termName: history.termName,
+        sessionName: history.sessionName,
+        startDate: history.startDate ?? history.createdAt,
+        endDate: history.endDate ?? history.createdAt,
+      })),
+      assessments: data.assessments ?? [],
+    }
+  }
+
   if (isLoading) {
     return <FormSkeleton />
   }
 
   if (!student) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="w-full py-6">
         <Card>
           <CardContent className="flex items-center justify-center h-64">
             <p className="text-muted-foreground">Student not found</p>
@@ -128,7 +143,7 @@ export default function AcademicRecords({ studentId }: AcademicRecordsProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="container mx-auto py-6 space-y-6"
+      className="w-full py-6 space-y-6"
     >
       {/* Header */}
       <div className="flex items-center gap-4">

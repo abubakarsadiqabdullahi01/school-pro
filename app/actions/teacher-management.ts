@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
-import type { Gender } from "@prisma/client";
+import type { Gender, CredentialType } from "@prisma/client";
 
 // Search for teachers
 export async function searchTeachers(query = "") {
@@ -43,19 +43,19 @@ export async function searchTeachers(query = "") {
           ? {
               OR: [
                 {
-                  user: { firstName: { contains: query, mode: "insensitive" } },
+                  user: { firstName: { contains: query } },
                 },
                 {
-                  user: { lastName: { contains: query, mode: "insensitive" } },
+                  user: { lastName: { contains: query } },
                 },
                 {
                   user: {
                     credentials: {
-                      some: { value: { contains: query, mode: "insensitive" } },
+                      some: { value: { contains: query } },
                     },
                   },
                 },
-                { staffId: { contains: query, mode: "insensitive" } },
+                { staffId: { contains: query } },
               ],
             }
           : {}),
@@ -67,6 +67,7 @@ export async function searchTeachers(query = "") {
             firstName: true,
             lastName: true,
             phone: true,
+            avatarUrl: true,
             gender: true,
             state: true,
             lga: true,
@@ -128,6 +129,7 @@ export async function searchTeachers(query = "") {
 
 // Create a new teacher
 export async function createTeacher(data: {
+  schoolId?: string;
   firstName: string;
   lastName: string;
   email?: string;
@@ -141,7 +143,7 @@ export async function createTeacher(data: {
   address?: string;
   dateOfBirth?: string;
   credentials?: Array<{
-    type: "EMAIL" | "PHONE" | "STAFF_ID" | "PSN";
+    type: CredentialType;
     value: string;
     passwordHash: string;
     isPrimary: boolean;
@@ -173,14 +175,17 @@ export async function createTeacher(data: {
 
       schoolId = admin.schoolId;
     } else {
-      // For super admin, we need to determine the school ID
-      // For now, we'll use the first school in the system
-      const school = await prisma.school.findFirst({
+      if (!data.schoolId) {
+        return { success: false, error: "School is required to create a teacher" };
+      }
+
+      const school = await prisma.school.findUnique({
+        where: { id: data.schoolId },
         select: { id: true },
       });
 
       if (!school) {
-        return { success: false, error: "No school found in the system" };
+        return { success: false, error: "Selected school was not found" };
       }
 
       schoolId = school.id;
@@ -336,7 +341,7 @@ export async function getTeachers() {
         select: { schoolId: true },
       });
 
-      schoolId = admin?.schoolId;
+      schoolId = admin?.schoolId ?? undefined;
 
       if (!schoolId) {
         return { success: false, error: "Admin not associated with a school" };
@@ -353,6 +358,7 @@ export async function getTeachers() {
             firstName: true,
             lastName: true,
             phone: true,
+            avatarUrl: true,
             gender: true,
             dateOfBirth: true,
             createdAt: true,
@@ -435,7 +441,7 @@ export async function getTeachers() {
           ? teacher.user.credentials[0].value
           : "",
       phone: teacher.user.phone || "",
-      avatarUrl: "", // This could be added from user profile if available
+      avatarUrl: teacher.user.avatarUrl || "",
       staffId: teacher.staffId,
       department: teacher.department || "",
       qualification: teacher.qualification || "",
@@ -507,7 +513,7 @@ export async function getTeacher(id: string) {
         select: { schoolId: true },
       });
 
-      schoolId = admin?.schoolId;
+      schoolId = admin?.schoolId ?? undefined;
 
       if (!schoolId) {
         return { success: false, error: "Admin not associated with a school" };
@@ -524,6 +530,7 @@ export async function getTeacher(id: string) {
             firstName: true,
             lastName: true,
             phone: true,
+            avatarUrl: true,
             gender: true,
             dateOfBirth: true,
             state: true,
@@ -607,9 +614,12 @@ export async function getTeacher(id: string) {
         teacher.user.credentials.length > 0
           ? teacher.user.credentials[0].value
           : "",
+      emailCredentialId: teacher.user.credentials[0]?.id || "",
       phone: teacher.user.phone || "",
+      avatarUrl: teacher.user.avatarUrl || "",
       staffId: teacher.staffId,
       department: teacher.department || "",
+      position: teacher.department || "",
       qualification: teacher.qualification || "",
       gender: teacher.user.gender,
       dateOfBirth: teacher.user.dateOfBirth,
@@ -621,10 +631,14 @@ export async function getTeacher(id: string) {
         name: teacher.school.name,
         code: teacher.school.code,
       },
+      schoolId: teacher.school.id,
+      schoolName: teacher.school.name,
+      schoolCode: teacher.school.code,
       classes: teacher.teacherClassTerms.map((tct) => ({
         id: tct.id,
         classTermId: tct.classTermId,
         className: tct.classTerm.class.name,
+        classLevel: tct.classTerm.class.level,
         termName: tct.classTerm.term.name,
         sessionName: tct.classTerm.term.session.name,
         isCurrent: tct.classTerm.term.isCurrent,
@@ -639,6 +653,7 @@ export async function getTeacher(id: string) {
         sessionName: ts.term.session.name,
         isCurrent: ts.term.isCurrent,
       })),
+      assessmentsCount: teacher.assessments.length,
       createdAt: teacher.createdAt,
     };
 
@@ -687,7 +702,7 @@ export async function updateTeacher(data: {
         select: { schoolId: true },
       });
 
-      schoolId = admin?.schoolId;
+      schoolId = admin?.schoolId ?? undefined;
 
       if (!schoolId) {
         return { success: false, error: "Admin not associated with a school" };
@@ -846,7 +861,7 @@ export async function deleteTeacher(teacherId: string) {
         select: { schoolId: true },
       });
 
-      schoolId = admin?.schoolId;
+      schoolId = admin?.schoolId ?? undefined;
 
       if (!schoolId) {
         return { success: false, error: "Admin not associated with a school" };
@@ -857,8 +872,8 @@ export async function deleteTeacher(teacherId: string) {
     const teacher = await prisma.teacher.findUnique({
       where: { id: teacherId },
       include: {
-        classTerms: true,
-        subjects: true,
+        teacherClassTerms: true,
+        teacherSubjects: true,
       },
     });
 
@@ -873,14 +888,14 @@ export async function deleteTeacher(teacherId: string) {
     // Start a transaction
     await prisma.$transaction(async (tx) => {
       // Delete teacher class terms
-      if (teacher.classTerms.length > 0) {
+      if (teacher.teacherClassTerms.length > 0) {
         await tx.teacherClassTerm.deleteMany({
           where: { teacherId },
         });
       }
 
       // Delete teacher subjects
-      if (teacher.subjects.length > 0) {
+      if (teacher.teacherSubjects.length > 0) {
         await tx.teacherSubject.deleteMany({
           where: { teacherId },
         });
@@ -1113,12 +1128,11 @@ export async function getSubjectAssessments(
     }
 
     // Verify teacher teaches this subject
-    const teacherSubject = await prisma.teacherSubject.findUnique({
+    const teacherSubject = await prisma.teacherSubject.findFirst({
       where: {
-        teacherId_subjectId: {
-          teacherId: teacher.id,
-          subjectId,
-        },
+        teacherId: teacher.id,
+        subjectId,
+        termId,
       },
     });
 
@@ -1194,12 +1208,11 @@ export async function updateAssessment(data: {
     }
 
     // Verify teacher teaches this subject
-    const teacherSubject = await prisma.teacherSubject.findUnique({
+    const teacherSubject = await prisma.teacherSubject.findFirst({
       where: {
-        teacherId_subjectId: {
-          teacherId: teacher.id,
-          subjectId: data.subjectId,
-        },
+        teacherId: teacher.id,
+        subjectId: data.subjectId,
+        termId: data.termId,
       },
     });
 
@@ -1212,6 +1225,8 @@ export async function updateAssessment(data: {
 
     const assessment = await prisma.assessment.upsert({
       where: {
+        // One score row per student, subject and term. `teacherId` records who entered it
+        // and is set below, but it is not part of the identity of the row.
         studentId_subjectId_termId: {
           studentId: data.studentId,
           subjectId: data.subjectId,
@@ -1240,6 +1255,7 @@ export async function updateAssessment(data: {
         isAbsent: data.isAbsent || false,
         isExempt: data.isExempt || false,
         editedBy: session.user.id,
+        createdBy: session.user.id,
         teacherId: teacher.id,
       },
     });
@@ -1255,6 +1271,7 @@ export async function updateAssessment(data: {
 // Mark attendance
 export async function markAttendance(data: {
   studentId: string;
+  classTermId: string;
   date: string;
   status: "PRESENT" | "ABSENT" | "LATE";
 }) {
@@ -1265,29 +1282,87 @@ export async function markAttendance(data: {
       return { success: false, error: "Unauthorized" };
     }
 
-    // Find existing attendance for the student on the given date, then update or create accordingly
-    const existingAttendance = await prisma.attendance.findFirst({
-      where: {
-        studentId: data.studentId,
-        date: new Date(data.date),
-      },
+    const targetDate = new Date(data.date);
+    if (Number.isNaN(targetDate.getTime())) {
+      return { success: false, error: "Invalid attendance date" };
+    }
+
+    if (!["PRESENT", "ABSENT", "LATE"].includes(data.status)) {
+      return { success: false, error: "Invalid attendance status" };
+    }
+
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: session.user.id },
+      select: { id: true },
     });
 
-    let attendance;
-    if (existingAttendance) {
-      attendance = await prisma.attendance.update({
-        where: { id: existingAttendance.id },
-        data: { status: data.status },
+    if (!teacher) {
+      return { success: false, error: "Teacher not found" };
+    }
+
+    const authorizedEnrollment = await prisma.studentClassTerm.findFirst({
+      where: {
+        studentId: data.studentId,
+        classTermId: data.classTermId,
+        status: "ACTIVE",
+        classTerm: {
+          teachers: {
+            some: {
+              teacherId: teacher.id,
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!authorizedEnrollment) {
+      return {
+        success: false,
+        error: "You are not assigned to mark attendance for this student",
+      };
+    }
+
+    const dayStart = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+    );
+    const dayEnd = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate() + 1,
+    );
+
+    const attendance = await prisma.$transaction(async (tx) => {
+      const existingAttendance = await tx.attendance.findFirst({
+        where: {
+          studentId: data.studentId,
+          date: {
+            gte: dayStart,
+            lt: dayEnd,
+          },
+        },
       });
-    } else {
-      attendance = await prisma.attendance.create({
+
+      if (existingAttendance) {
+        return tx.attendance.update({
+          where: { id: existingAttendance.id },
+          data: {
+            date: dayStart,
+            status: data.status,
+          },
+        });
+      }
+
+      return tx.attendance.create({
         data: {
           studentId: data.studentId,
-          date: new Date(data.date),
+          date: dayStart,
           status: data.status,
         },
       });
-    }
+    });
 
     revalidatePath("/dashboard/teacher/attendance");
     return { success: true, data: attendance };
@@ -1333,6 +1408,7 @@ export async function getClassAttendance(classTermId: string, date?: string) {
     const students = await prisma.studentClassTerm.findMany({
       where: {
         classTermId,
+        status: "ACTIVE",
       },
       include: {
         student: {
@@ -1394,7 +1470,7 @@ export async function resetTeacherPassword(teacherId: string) {
         select: { schoolId: true },
       });
 
-      schoolId = admin?.schoolId;
+      schoolId = admin?.schoolId ?? undefined;
 
       if (!schoolId) {
         return { success: false, error: "Admin not associated with a school" };

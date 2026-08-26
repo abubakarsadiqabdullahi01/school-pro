@@ -55,19 +55,19 @@ export const SelectionControls = memo(function SelectionControls({
     <div className="grid gap-6 md:grid-cols-4">
       {/* Term Selector */}
   <div className="space-y-2 min-w-0">
-        <Label htmlFor="term" className="text-sm font-medium text-gray-700">
+        <Label htmlFor="term" className="text-sm font-medium text-foreground">
           Academic Term
         </Label>
         <Select value={form.termId} onValueChange={onTermChange}>
-    <SelectTrigger id="term" className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+    <SelectTrigger id="term" className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors">
             <SelectValue placeholder="Select a term" />
           </SelectTrigger>
-          <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+          <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
             {terms.map((term) => (
               <SelectItem 
                 key={term.id} 
                 value={term.id}
-                className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors"
+                className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors"
               >
                 <div className="flex flex-col">
                   <span className="font-medium truncate">
@@ -87,22 +87,22 @@ export const SelectionControls = memo(function SelectionControls({
 
       {/* Level Selector */}
   <div className="space-y-2 min-w-0">
-        <Label htmlFor="level" className="text-sm font-medium text-gray-700">
+        <Label htmlFor="level" className="text-sm font-medium text-foreground">
           Class Section
         </Label>
         <Select value={form.level} onValueChange={onLevelChange} disabled={!form.termId}>
           <SelectTrigger 
               id="level" 
-              className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-muted disabled:cursor-not-allowed"
             >
             <SelectValue placeholder="Select a section" />
           </SelectTrigger>
-          <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+          <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
             {classLevels.map((level) => (
               <SelectItem 
                 key={level} 
                 value={level}
-                className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors"
+                className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors"
               >
                 <span className="truncate">{level}</span>
               </SelectItem>
@@ -113,7 +113,7 @@ export const SelectionControls = memo(function SelectionControls({
 
       {/* Class Selector */}
   <div className="space-y-2 min-w-0">
-        <Label htmlFor="class" className="text-sm font-medium text-gray-700">
+        <Label htmlFor="class" className="text-sm font-medium text-foreground">
           Class
         </Label>
         <Select
@@ -123,27 +123,27 @@ export const SelectionControls = memo(function SelectionControls({
         >
           <SelectTrigger 
             id="class"
-            className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+            className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-muted disabled:cursor-not-allowed"
           >
             {isLoadingClasses ? (
               <div className="flex items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
             ) : (
               <SelectValue placeholder="Select a class" />
             )}
           </SelectTrigger>
-          <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+          <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
             {classes.map((cls) => (
               <SelectItem 
                 key={cls.id} 
                 value={cls.id}
-                className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors"
+                className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors"
               >
                 <div className="flex flex-col min-w-0">
                   <span className="font-medium truncate">{cls.name}</span>
                   {cls.teacherName && (
-                    <span className="text-xs text-gray-600 truncate mt-0.5">
+                    <span className="text-xs text-muted-foreground truncate mt-0.5">
                       {cls.teacherName}
                     </span>
                   )}
@@ -151,7 +151,7 @@ export const SelectionControls = memo(function SelectionControls({
               </SelectItem>
             ))}
             {classes.length === 0 && (
-              <SelectItem value="none" disabled className="px-3 py-2 text-gray-500 cursor-not-allowed">
+              <SelectItem value="none" disabled className="px-3 py-2 text-muted-foreground cursor-not-allowed">
                 No classes available
               </SelectItem>
             )}
@@ -161,39 +161,39 @@ export const SelectionControls = memo(function SelectionControls({
 
       {/* Subject Selector */}
   <div className="space-y-2 min-w-0">
-        <Label htmlFor="subject" className="text-sm font-medium text-gray-700">
+        <Label htmlFor="subject" className="text-sm font-medium text-foreground">
           Subject
         </Label>
         <Select value={form.subjectId} onValueChange={onSubjectChange} disabled={!form.classId || isLoadingSubjects}>
           <SelectTrigger 
               id="subject"
-              className="w-full min-h-10 bg-white border-gray-300 hover:border-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-muted disabled:cursor-not-allowed"
             >
             {isLoadingSubjects ? (
               <div className="flex items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
             ) : (
               <SelectValue placeholder="Select a subject" />
             )}
           </SelectTrigger>
-          <SelectContent className="max-h-60 overflow-y-auto bg-white border border-gray-200 shadow-lg rounded-md">
+          <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
             {subjects.map((subject) => (
               <SelectItem 
                 key={subject.id} 
                 value={subject.id}
-                className="px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 cursor-pointer transition-colors"
+                className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors"
               >
                 <div className="flex flex-col min-w-0">
                   <span className="font-medium truncate">{subject.name}</span>
-                  <span className="text-xs text-gray-600 truncate mt-0.5">
+                  <span className="text-xs text-muted-foreground truncate mt-0.5">
                     {subject.code}
                   </span>
                 </div>
               </SelectItem>
             ))}
             {subjects.length === 0 && (
-              <SelectItem value="none" disabled className="px-3 py-2 text-gray-500 cursor-not-allowed">
+              <SelectItem value="none" disabled className="px-3 py-2 text-muted-foreground cursor-not-allowed">
                 No subjects available
               </SelectItem>
             )}

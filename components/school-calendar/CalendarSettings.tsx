@@ -78,21 +78,21 @@ export function CalendarSettings({ sessions, onUpdate }: CalendarSettingsProps) 
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Calendar Settings</CardTitle>
+    <div className="space-y-4">
+      <Card className="shadow-sm">
+        <CardHeader className="p-4">
+          <CardTitle className="text-base">Calendar Settings</CardTitle>
           <CardDescription>Manage your academic calendar dates and schedules</CardDescription>
         </CardHeader>
       </Card>
 
       {/* Sessions */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         <h3 className="text-lg font-semibold">Academic Sessions</h3>
 
         {sessions.map((session) => (
-          <Card key={session.id}>
-            <CardHeader>
+          <Card key={session.id} className="shadow-sm">
+            <CardHeader className="p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">{session.name}</CardTitle>
@@ -114,7 +114,7 @@ export function CalendarSettings({ sessions, onUpdate }: CalendarSettingsProps) 
               </div>
             </CardHeader>
 
-            <CardContent>
+            <CardContent className="p-4 pt-0">
               {editingSession === session.id ? (
                 <form action={(formData) => handleUpdateSession(session.id, formData)} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -151,8 +151,8 @@ export function CalendarSettings({ sessions, onUpdate }: CalendarSettingsProps) 
                   </div>
                 </form>
               ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
                     <div>
                       <span className="text-muted-foreground">Start Date:</span>
                       <div className="font-medium">{format(new Date(session.startDate), "MMM dd, yyyy")}</div>
@@ -164,10 +164,10 @@ export function CalendarSettings({ sessions, onUpdate }: CalendarSettingsProps) 
                   </div>
 
                   {/* Terms */}
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     <h4 className="font-medium">Terms</h4>
                     {session.terms.map((term: any) => (
-                      <div key={term.id} className="border rounded-lg p-3">
+                      <div key={term.id} className="rounded-md border p-3">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-sm">{term.name}</span>

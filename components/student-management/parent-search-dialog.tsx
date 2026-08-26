@@ -15,9 +15,9 @@ interface Parent {
   id: string
   firstName: string
   lastName: string
-  email: string
-  phone: string
-  occupation: string
+  email?: string
+  phone?: string
+  occupation?: string | null
   gender?: string
   state?: string
   lga?: string
@@ -53,7 +53,13 @@ export function ParentSearchDialog({ open, onOpenChange, onSelect }: ParentSearc
     try {
       const result = await searchParents(searchQuery)
       if (result.success) {
-        setSearchResults(result.data || [])
+        setSearchResults(
+          (result.data || []).map((parent) => ({
+            ...parent,
+            email: parent.email ?? undefined,
+            phone: parent.phone ?? undefined,
+          })),
+        )
       } else {
         toast.error("Search Failed", {
           description: result.error || "Failed to search for parents"
@@ -91,7 +97,7 @@ export function ParentSearchDialog({ open, onOpenChange, onSelect }: ParentSearc
           id: result.data?.id || "",
           firstName: result.data?.firstName || newParent.firstName,
           lastName: result.data?.lastName || newParent.lastName,
-          email: result.data?.email || newParent.email || "",
+          email: newParent.email || undefined,
           phone: result.data?.phone || newParent.phone || "",
           occupation: result.data?.occupation || newParent.occupation || "",
           gender: result.data?.gender || newParent.gender || "",
@@ -163,7 +169,7 @@ export function ParentSearchDialog({ open, onOpenChange, onSelect }: ParentSearc
                           </p>
                           <p className="text-sm text-muted-foreground">
                             {parent.email && `${parent.email} • `}
-                            {parent.phone}
+                            {parent.phone || "No phone"}
                           </p>
                         </div>
                       </div>

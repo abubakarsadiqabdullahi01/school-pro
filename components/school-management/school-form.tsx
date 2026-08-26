@@ -101,7 +101,7 @@ export function SchoolForm({ schoolData }: SchoolFormProps) {
   }
 
   return (
-    <Card className="w-full max-w-4xl mx-auto">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>{isEditing ? "Edit School" : "Create New School"}</CardTitle>
         <CardDescription>
@@ -217,7 +217,7 @@ export function SchoolForm({ schoolData }: SchoolFormProps) {
 
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Admission Number Configuration</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 <FormField
                   control={form.control}
                   name="admissionPrefix"

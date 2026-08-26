@@ -11,7 +11,7 @@ interface ClassResultsAnalysisProps {
     studentId: string;
     studentName: string;
     admissionNo: string;
-    gender: string;
+    gender: string | null;
     subjects: Record<string, { score: number | null; grade: string | null }>;
     totalScore: number;
     averageScore: number;

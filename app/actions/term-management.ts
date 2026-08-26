@@ -2,7 +2,41 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { requireAdminScope } from "@/lib/authz";
+import { recordAudit } from "@/lib/audit";
+import { getActiveSchool } from "@/lib/school-context.server";
 import { revalidatePath } from "next/cache";
+
+async function getAdminSchoolId(userId: string) {
+  const admin = await prisma.admin.findUnique({
+    where: { userId },
+    select: { schoolId: true },
+  });
+
+  return admin?.schoolId ?? null;
+}
+
+async function canManageSession(userId: string, role: string, sessionId: string) {
+  const sessionData = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { schoolId: true, startDate: true, endDate: true },
+  });
+
+  if (!sessionData) {
+    return null;
+  }
+
+  if (role === "SUPER_ADMIN") {
+    return sessionData;
+  }
+
+  if (role !== "ADMIN") {
+    return null;
+  }
+
+  const schoolId = await getAdminSchoolId(userId);
+  return schoolId === sessionData.schoolId ? sessionData : null;
+}
 
 // Create a new term
 export async function createTerm(data: {
@@ -14,7 +48,7 @@ export async function createTerm(data: {
 }) {
   try {
     const session = await auth();
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -34,13 +68,10 @@ export async function createTerm(data: {
     }
 
     // Validate that term dates are within session dates
-    const sessionData = await prisma.session.findUnique({
-      where: { id: data.sessionId },
-      select: { startDate: true, endDate: true },
-    });
+    const sessionData = await canManageSession(session.user.id, session.user.role, data.sessionId);
 
     if (!sessionData) {
-      return { success: false, error: "Session not found" };
+      return { success: false, error: "Session not found for this school" };
     }
 
     if (
@@ -75,6 +106,8 @@ export async function createTerm(data: {
     });
 
     revalidatePath("/dashboard/super-admin/terms");
+    revalidatePath("/dashboard/admin/school-terms");
+    revalidatePath(`/dashboard/admin/school-sessions/${data.sessionId}`);
     return {
       success: true,
       data: newTerm,
@@ -97,8 +130,21 @@ export async function updateTerm(data: {
 }) {
   try {
     const session = await auth();
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    const targetTerm = await prisma.term.findUnique({
+      where: { id: data.id },
+      select: { sessionId: true },
+    });
+
+    if (!targetTerm) {
+      return { success: false, error: "Term not found" };
+    }
+
+    if (targetTerm.sessionId !== data.sessionId) {
+      return { success: false, error: "Term session cannot be changed from this form" };
     }
 
     // Check if term name already exists for another term in this session
@@ -118,13 +164,10 @@ export async function updateTerm(data: {
     }
 
     // Validate that term dates are within session dates
-    const sessionData = await prisma.session.findUnique({
-      where: { id: data.sessionId },
-      select: { startDate: true, endDate: true },
-    });
+    const sessionData = await canManageSession(session.user.id, session.user.role, data.sessionId);
 
     if (!sessionData) {
-      return { success: false, error: "Session not found" };
+      return { success: false, error: "Session not found for this school" };
     }
 
     if (
@@ -160,6 +203,9 @@ export async function updateTerm(data: {
     });
 
     revalidatePath("/dashboard/super-admin/terms");
+    revalidatePath("/dashboard/admin/school-terms");
+    revalidatePath(`/dashboard/admin/school-terms/${data.id}`);
+    revalidatePath(`/dashboard/admin/school-sessions/${data.sessionId}`);
     return {
       success: true,
       data: updatedTerm,
@@ -175,7 +221,7 @@ export async function updateTerm(data: {
 export async function deleteTerm(id: string) {
   try {
     const session = await auth();
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -183,11 +229,13 @@ export async function deleteTerm(id: string) {
     const termWithData = await prisma.term.findUnique({
       where: { id },
       include: {
+        session: {
+          select: { schoolId: true },
+        },
         _count: {
           select: {
             assessments: true,
             classTerms: true,
-            feeStructures: true,
           },
         },
       },
@@ -197,6 +245,20 @@ export async function deleteTerm(id: string) {
       return { success: false, error: "Term not found" };
     }
 
+    // Fees are keyed on ClassTerm now, so they are counted through it rather than
+    // directly off the term.
+    const feeStructureCount = await prisma.feeStructure.count({
+      where: { classTerm: { termId: id } },
+    });
+
+    if (session.user.role === "ADMIN") {
+      const schoolId = await getAdminSchoolId(session.user.id);
+
+      if (!schoolId || schoolId !== termWithData.session.schoolId) {
+        return { success: false, error: "Unauthorized for this school" };
+      }
+    }
+
     if (termWithData.isCurrent) {
       return { success: false, error: "Cannot delete current term" };
     }
@@ -204,7 +266,7 @@ export async function deleteTerm(id: string) {
     const totalRelatedData =
       termWithData._count.assessments +
       termWithData._count.classTerms +
-      termWithData._count.feeStructures;
+      feeStructureCount;
 
     if (totalRelatedData > 0) {
       return {
@@ -219,6 +281,8 @@ export async function deleteTerm(id: string) {
     });
 
     revalidatePath("/dashboard/super-admin/terms");
+    revalidatePath("/dashboard/admin/school-terms");
+    revalidatePath(`/dashboard/admin/school-sessions/${termWithData.sessionId}`);
     return { success: true, message: "Term deleted successfully" };
   } catch (error) {
     console.error("Error deleting term:", error);
@@ -230,8 +294,39 @@ export async function deleteTerm(id: string) {
 export async function setCurrentTerm(termId: string, sessionId: string) {
   try {
     const session = await auth();
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    const targetTerm = await prisma.term.findFirst({
+      where: {
+        id: termId,
+        sessionId,
+      },
+      include: {
+        session: {
+          select: { schoolId: true },
+        },
+      },
+    });
+
+    if (!targetTerm) {
+      return { success: false, error: "Term not found for this session" };
+    }
+
+    if (session.user.role === "ADMIN") {
+      const admin = await prisma.admin.findUnique({
+        where: { userId: session.user.id },
+        select: { schoolId: true },
+      });
+
+      if (!admin?.schoolId) {
+        return { success: false, error: "Admin not associated with a school" };
+      }
+
+      if (admin.schoolId !== targetTerm.session.schoolId) {
+        return { success: false, error: "Unauthorized for this school" };
+      }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -251,7 +346,19 @@ export async function setCurrentTerm(termId: string, sessionId: string) {
       });
     });
 
+    await recordAudit({
+      actor: await requireAdminScope(),
+      action: "term.set_current",
+      entityType: "Term",
+      entityId: termId,
+      schoolId: targetTerm.session.schoolId,
+      summary: `Made ${targetTerm.name} the current term`,
+      after: { termId, sessionId, isCurrent: true },
+    });
+
     revalidatePath("/dashboard/super-admin/terms");
+    revalidatePath("/dashboard/admin/school-terms");
+    revalidatePath("/dashboard/admin/school-sessions");
     return { success: true, message: "Current term updated successfully" };
   } catch (error) {
     console.error("Error setting current term:", error);
@@ -263,7 +370,7 @@ export async function setCurrentTerm(termId: string, sessionId: string) {
 export async function getTerm(id: string) {
   try {
     const session = await auth();
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
       return { success: false, error: "Unauthorized" };
     }
 
@@ -284,7 +391,6 @@ export async function getTerm(id: string) {
           select: {
             assessments: true,
             classTerms: true,
-            feeStructures: true,
           },
         },
       },
@@ -294,7 +400,23 @@ export async function getTerm(id: string) {
       return { success: false, error: "Term not found" };
     }
 
-    return { success: true, data: termData };
+    if (session.user.role === "ADMIN") {
+      const schoolId = await getAdminSchoolId(session.user.id);
+
+      if (!schoolId || schoolId !== termData.session.schoolId) {
+        return { success: false, error: "Unauthorized for this school" };
+      }
+    }
+
+    // Counted through ClassTerm — see deleteTerm above.
+    const feeStructures = await prisma.feeStructure.count({
+      where: { classTerm: { termId: id } },
+    });
+
+    return {
+      success: true,
+      data: { ...termData, _count: { ...termData._count, feeStructures } },
+    };
   } catch (error) {
     console.error("Error fetching term:", error);
     return { success: false, error: "Failed to fetch term details" };
@@ -309,7 +431,10 @@ export async function getTerms() {
       return { success: false, error: "Unauthorized" };
     }
 
+    const activeSchool = await getActiveSchool();
+
     const terms = await prisma.term.findMany({
+      where: activeSchool ? { session: { schoolId: activeSchool.id } } : undefined,
       include: {
         session: {
           include: {

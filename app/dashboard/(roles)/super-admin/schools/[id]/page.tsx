@@ -5,7 +5,7 @@ import { getSchool } from "@/app/actions/school-management"
 import { SchoolDetails } from "@/components/school-management/school-details"
 import { PageTransition } from "@/components/dashboard/page-transition"
 
-export default async function SchoolDetailsPage({ params }: { params: { id: string } }) {
+export default async function SchoolDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
 
   if (!session?.user || session.user.role !== "SUPER_ADMIN") {
@@ -15,7 +15,7 @@ export default async function SchoolDetailsPage({ params }: { params: { id: stri
   const id = (await params).id
   const result = await getSchool(id)
 
-  if (!result.success) {
+  if (!result.success || !result.data) {
     if (result.error === "School not found") {
       notFound()
     }

@@ -23,7 +23,7 @@ interface Term {
 }
 
 interface Admin {
-  school: School | null
+  school: School
   schoolId: string
 }
 
@@ -36,35 +36,32 @@ async function fetchPageData(
   terms: Term[]
 }> {
   try {
-    const [admin, currentTerm, terms] = await Promise.all([
-      prisma.admin.findUnique({
-        where: { userId },
-        include: {
-          school: {
-            select: {
-              id: true,
-              name: true,
-              code: true,
-              logoUrl: true,
-            },
+    const admin = await prisma.admin.findUnique({
+      where: { userId },
+      include: {
+        school: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            logoUrl: true,
           },
         },
-      }),
+      },
+    })
+
+    if (!admin?.school) {
+      return { admin: null, currentTerm: null, terms: [] }
+    }
+
+    const schoolId = role === "ADMIN" ? admin.school.id : undefined
+
+    const [currentTerm, terms] = await Promise.all([
       prisma.term.findFirst({
         where: {
           isCurrent: true,
           session: {
-            schoolId: {
-              equals:
-                role === "ADMIN"
-                  ? (
-                      await prisma.admin.findUnique({
-                        where: { userId },
-                        select: { schoolId: true },
-                      })
-                    )?.schoolId
-                  : undefined,
-            },
+            ...(schoolId ? { schoolId } : {}),
           },
         },
         include: {
@@ -79,17 +76,7 @@ async function fetchPageData(
       prisma.term.findMany({
         where: {
           session: {
-            schoolId: {
-              equals:
-                role === "ADMIN"
-                  ? (
-                      await prisma.admin.findUnique({
-                        where: { userId },
-                        select: { schoolId: true },
-                      })
-                    )?.schoolId
-                  : undefined,
-            },
+            ...(schoolId ? { schoolId } : {}),
           },
         },
         include: {
@@ -105,7 +92,14 @@ async function fetchPageData(
       }),
     ])
 
-    return { admin, currentTerm, terms }
+    return {
+      admin: {
+        school: admin.school,
+        schoolId: admin.school.id,
+      },
+      currentTerm,
+      terms,
+    }
   } catch (error) {
     console.error("Failed to fetch page data:", error)
     throw new Error("Unable to load page data")

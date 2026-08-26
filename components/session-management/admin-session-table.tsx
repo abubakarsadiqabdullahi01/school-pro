@@ -90,8 +90,12 @@ export function AdminSessionsTable({ sessions }: SessionsTableProps) {
 
     try {
       setIsDeleting(true)
-      await deleteSession(sessionToDelete.id)
-      toast.success("Session deleted successfully")
+      const result = await deleteSession(sessionToDelete.id)
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to delete session")
+        return
+      }
+      toast.success(result.message ?? "Session deleted successfully")
       router.refresh()
     } catch (error) {
       console.error("Failed to delete session:", error)
@@ -107,8 +111,12 @@ export function AdminSessionsTable({ sessions }: SessionsTableProps) {
   const handleSetCurrentSession = async (sessionId: string, schoolId: string) => {
     try {
       setIsSettingCurrent(true)
-      await setCurrentSession(sessionId, schoolId)
-      toast.success("Current session updated successfully")
+      const result = await setCurrentSession(sessionId, schoolId)
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to update current session")
+        return
+      }
+      toast.success(result.message ?? "Current session updated successfully")
       router.refresh()
     } catch (error) {
       console.error("Failed to update current session:", error)
@@ -181,7 +189,7 @@ export function AdminSessionsTable({ sessions }: SessionsTableProps) {
                     <TableCell>{session.termsCount}</TableCell>
                     <TableCell>
                       {session.isCurrent ? (
-                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Current</Badge>
+                        <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100">Current</Badge>
                       ) : (
                         <Badge variant="outline">Inactive</Badge>
                       )}
@@ -241,10 +249,10 @@ export function AdminSessionsTable({ sessions }: SessionsTableProps) {
             <AlertDialogDescription>
               This will permanently delete the session <span className="font-semibold">{sessionToDelete?.name}</span>{" "}
               from <span className="font-semibold">{sessionToDelete?.school}</span>.
-              {sessionToDelete?.termsCount > 0 && (
+              {(sessionToDelete?.termsCount ?? 0) > 0 && (
                 <span className="block mt-2 text-destructive">
-                  Warning: This session has {sessionToDelete.termsCount} terms associated with it. Deleting it will also
-                  delete all related terms and data.
+                  Warning: this session has {sessionToDelete?.termsCount ?? 0} terms associated with it, so deletion
+                  will be blocked until the terms are removed.
                 </span>
               )}
             </AlertDialogDescription>

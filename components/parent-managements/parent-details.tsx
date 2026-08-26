@@ -55,6 +55,10 @@ const linkStudentSchema = z.object({
 
 type LinkStudentFormValues = z.infer<typeof linkStudentSchema>;
 
+type ParentStudent = ParentDetailsProps["parent"]["students"][number];
+type ParentStudentAssessment = ParentStudent["assessments"][number];
+type ParentStudentPayment = ParentStudent["payments"][number];
+
 interface ParentDetailsProps {
   parent: {
     id: string;
@@ -434,7 +438,7 @@ export function ParentDetails({ parent: initialParent }: ParentDetailsProps) {
             </CardHeader>
             <CardContent>
               {parent.students.length > 0 ? (
-                parent.students.map((student) => (
+                parent.students.map((student: ParentStudent) => (
                   <Card key={student.studentId} className="mb-4">
                     <CardHeader>
                       <div className="flex justify-between items-center">
@@ -556,7 +560,7 @@ export function ParentDetails({ parent: initialParent }: ParentDetailsProps) {
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                  {student.assessments.map((assessment) => (
+                                  {student.assessments.map((assessment: ParentStudentAssessment) => (
                                     <TableRow key={assessment.id}>
                                       <TableCell>{assessment.subject}</TableCell>
                                       <TableCell>{assessment.totalScore}</TableCell>
@@ -583,7 +587,7 @@ export function ParentDetails({ parent: initialParent }: ParentDetailsProps) {
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                  {student.payments.map((payment) => (
+                                  {student.payments.map((payment: ParentStudentPayment) => (
                                     <TableRow key={payment.id}>
                                       <TableCell>{payment.amount}</TableCell>
                                       <TableCell>

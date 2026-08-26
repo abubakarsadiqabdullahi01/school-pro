@@ -1,32 +1,102 @@
 "use client"
 
 import { useState } from "react"
-import { Settings, Database, Shield, Mail, Bell, Palette, Server, Key, FileText } from "lucide-react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
+import { useRouter } from "next/navigation"
+import { Database, Loader2, Server, Settings } from "lucide-react"
 import { toast } from "sonner"
 import { motion } from "framer-motion"
 
-export function SystemSettings() {
-  const [isLoading, setIsLoading] = useState(false)
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { updateSystemSettings, type SystemConfig } from "@/app/actions/system-settings"
+import { PLATFORM_SETTINGS } from "@/lib/system-config"
 
-  const handleSaveSettings = async (section: string) => {
-    setIsLoading(true)
+/**
+ * Platform settings, health and backup status.
+ *
+ * What was here before: six tabs of switches and inputs — Email, Notifications, Appearance,
+ * Developer Options — every one of them `defaultChecked` with nothing behind it, and a save
+ * handler that passed the *section name* as `systemName`. None of it was wired to anything.
+ *
+ * This screen now offers exactly the settings that exist and are read somewhere. Tabs come
+ * back as the features behind them do.
+ */
+
+export interface SystemHealth {
+  database: { status: string; totalUsers: number; totalSchools: number; activeSessions: number }
+  process: {
+    uptimeSeconds: number
+    heapUsedMb: number
+    rssMb: number
+    totalMemoryMb: number
+    loadAverage: number | null
+    diskUsage: null
+    cpuUsage: null
+  }
+  activity: { successfulLogins24h: number; failedLogins24h: number }
+}
+
+export interface BackupStatus {
+  configured: boolean
+  lastBackupAt: string | null
+  sizeBytes?: number | null
+  file?: string | null
+  detail: string
+}
+
+interface SystemSettingsProps {
+  settings: SystemConfig
+  health: SystemHealth | null
+  backup: BackupStatus | null
+}
+
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
+
+export function SystemSettings({ settings, health, backup }: SystemSettingsProps) {
+  const [values, setValues] = useState<SystemConfig>(settings)
+  const [isSaving, setIsSaving] = useState(false)
+  const router = useRouter()
+
+  const isDirty = PLATFORM_SETTINGS.some((s) => values[s.key] !== settings[s.key])
+
+  async function handleSave() {
+    setIsSaving(true)
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      toast.success("Success", { description: `${section} settings saved successfully` })
-    } catch (error) {
-      toast.error("Error", { description: "Failed to save settings" })
+      // Only the settings that actually changed are sent, so the audit entry names the
+      // ones someone meant to touch.
+      const changed: Partial<SystemConfig> = {}
+      for (const definition of PLATFORM_SETTINGS) {
+        if (values[definition.key] !== settings[definition.key]) {
+          changed[definition.key] = values[definition.key]
+        }
+      }
+
+      const result = await updateSystemSettings(changed)
+
+      if (!result.success) {
+        toast.error("Not saved", { description: result.error })
+        return
+      }
+
+      toast.success(result.message)
+      router.refresh()
+    } catch {
+      toast.error("Not saved", { description: "Something went wrong. Try again." })
     } finally {
-      setIsLoading(false)
+      setIsSaving(false)
     }
   }
 
@@ -34,414 +104,200 @@ export function SystemSettings() {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
+      transition={{ duration: 0.4 }}
       className="space-y-6"
     >
-      {/* Header */}
       <div>
         <h2 className="text-3xl font-bold tracking-tight">System Settings</h2>
-        <p className="text-muted-foreground">Configure system-wide settings and preferences</p>
+        <p className="text-muted-foreground">Platform-wide configuration, health and backups</p>
       </div>
 
-      <Tabs defaultValue="general" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="email">Email</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="appearance">Appearance</TabsTrigger>
-          <TabsTrigger value="advanced">Advanced</TabsTrigger>
-        </TabsList>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Platform settings</CardTitle>
+          </div>
+          <CardDescription>
+            These are stored in the database and read by the application. Nothing here is
+            decorative.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {PLATFORM_SETTINGS.map((definition) => {
+            const value = values[definition.key]
 
-        {/* General Settings */}
-        <TabsContent value="general" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                General Settings
-              </CardTitle>
-              <CardDescription>Basic system configuration and information</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="system-name">System Name</Label>
-                  <Input id="system-name" defaultValue="School Management System" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="system-version">Version</Label>
-                  <Input id="system-version" defaultValue="1.0.0" disabled />
-                </div>
-              </div>
+            return (
+              <div key={definition.key} className="space-y-2">
+                <Label htmlFor={definition.key}>{definition.description}</Label>
 
-              <div className="space-y-2">
-                <Label htmlFor="system-description">System Description</Label>
-                <Textarea
-                  id="system-description"
-                  placeholder="Enter system description"
-                  defaultValue="Comprehensive school management system for educational institutions"
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Default Timezone</Label>
-                  <Select defaultValue="africa/lagos">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="africa/lagos">Africa/Lagos (WAT)</SelectItem>
-                      <SelectItem value="utc">UTC</SelectItem>
-                      <SelectItem value="america/new_york">America/New_York (EST)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Default Currency</Label>
-                  <Select defaultValue="ngn">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ngn">Nigerian Naira (₦)</SelectItem>
-                      <SelectItem value="usd">US Dollar ($)</SelectItem>
-                      <SelectItem value="eur">Euro (€)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Switch id="maintenance-mode" />
-                <Label htmlFor="maintenance-mode">Maintenance Mode</Label>
-              </div>
-
-              <Button onClick={() => handleSaveSettings("General")} disabled={isLoading}>
-                Save General Settings
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Security Settings */}
-        <TabsContent value="security" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Security Settings
-              </CardTitle>
-              <CardDescription>Configure security policies and authentication settings</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="session-timeout">Session Timeout (minutes)</Label>
-                  <Input id="session-timeout" type="number" defaultValue="30" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="max-login-attempts">Max Login Attempts</Label>
-                  <Input id="max-login-attempts" type="number" defaultValue="5" />
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2">
-                  <Switch id="two-factor" defaultChecked />
-                  <Label htmlFor="two-factor">Enable Two-Factor Authentication</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch id="password-complexity" defaultChecked />
-                  <Label htmlFor="password-complexity">Enforce Password Complexity</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch id="auto-logout" defaultChecked />
-                  <Label htmlFor="auto-logout">Auto Logout on Inactivity</Label>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">API Security</h4>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="api-rate-limit">API Rate Limit (requests/minute)</Label>
-                    <Input id="api-rate-limit" type="number" defaultValue="100" />
+                {definition.type === "BOOLEAN" ? (
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id={definition.key}
+                      checked={Boolean(value)}
+                      onCheckedChange={(checked) =>
+                        setValues((prev) => ({ ...prev, [definition.key]: checked }))
+                      }
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      {value ? "On" : "Off"}
+                    </span>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="api-key-expiry">API Key Expiry (days)</Label>
-                    <Input id="api-key-expiry" type="number" defaultValue="90" />
-                  </div>
-                </div>
+                ) : (
+                  <Input
+                    id={definition.key}
+                    type={definition.type === "NUMBER" ? "number" : "text"}
+                    value={String(value ?? "")}
+                    onChange={(event) =>
+                      setValues((prev) => ({
+                        ...prev,
+                        [definition.key]:
+                          definition.type === "NUMBER"
+                            ? Number(event.target.value)
+                            : event.target.value,
+                      }))
+                    }
+                  />
+                )}
+                <p className="text-xs font-mono text-muted-foreground">{definition.key}</p>
               </div>
+            )
+          })}
 
-              <Button onClick={() => handleSaveSettings("Security")} disabled={isLoading}>
-                Save Security Settings
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
+          <Button onClick={handleSave} disabled={isSaving || !isDirty}>
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving
+              </>
+            ) : (
+              "Save settings"
+            )}
+          </Button>
+        </CardContent>
+      </Card>
 
-        {/* Email Settings */}
-        <TabsContent value="email" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Email Configuration
-              </CardTitle>
-              <CardDescription>Configure SMTP settings for system emails</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="smtp-host">SMTP Host</Label>
-                  <Input id="smtp-host" placeholder="smtp.gmail.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="smtp-port">SMTP Port</Label>
-                  <Input id="smtp-port" type="number" defaultValue="587" />
-                </div>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Server className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Health</CardTitle>
+          </div>
+          <CardDescription>
+            Measured now. Uptime and memory describe the application process, not the server
+            — on shared hosting those are different things.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {health ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Metric
+                label="Database"
+                value={health.database.status === "healthy" ? "Healthy" : "Unreachable"}
+                tone={health.database.status === "healthy" ? "good" : "bad"}
+              />
+              <Metric label="Process uptime" value={formatUptime(health.process.uptimeSeconds)} />
+              <Metric
+                label="Memory in use"
+                value={`${health.process.rssMb} MB of ${health.process.totalMemoryMb} MB`}
+              />
+              <Metric
+                label="Load average"
+                value={
+                  health.process.loadAverage === null
+                    ? "Not available on this platform"
+                    : health.process.loadAverage.toFixed(2)
+                }
+              />
+              <Metric label="Schools" value={String(health.database.totalSchools)} />
+              <Metric label="Users" value={String(health.database.totalUsers)} />
+              <Metric label="Active sessions" value={String(health.database.activeSessions)} />
+              <Metric
+                label="Sign-ins today"
+                value={`${health.activity.successfulLogins24h} ok, ${health.activity.failedLogins24h} failed`}
+                tone={health.activity.failedLogins24h > 50 ? "warn" : undefined}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Health could not be read.</p>
+          )}
+          <p className="mt-4 text-xs text-muted-foreground">
+            Disk and CPU usage are not shown because Node cannot read them without native
+            modules. This screen previously displayed fixed numbers for both.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Database className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Backups</CardTitle>
+          </div>
+          <CardDescription>
+            Backups run on a schedule, not from this screen — a full dump takes longer than a
+            web request should.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {backup?.configured ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="default">Last backup</Badge>
+                <span className="text-sm">
+                  {backup.lastBackupAt
+                    ? new Date(backup.lastBackupAt).toLocaleString()
+                    : "date not recorded"}
+                </span>
+                {backup.sizeBytes ? (
+                  <span className="text-sm text-muted-foreground">
+                    · {(backup.sizeBytes / 1024 / 1024).toFixed(2)} MB
+                  </span>
+                ) : null}
               </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="smtp-username">SMTP Username</Label>
-                  <Input id="smtp-username" type="email" placeholder="your-email@gmail.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="smtp-password">SMTP Password</Label>
-                  <Input id="smtp-password" type="password" placeholder="••••••••" />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="from-email">From Email Address</Label>
-                <Input id="from-email" type="email" placeholder="noreply@yourschool.com" />
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Switch id="email-encryption" defaultChecked />
-                <Label htmlFor="email-encryption">Use TLS Encryption</Label>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">Email Templates</h4>
-                <div className="space-y-2">
-                  <Label htmlFor="welcome-template">Welcome Email Template</Label>
-                  <Textarea id="welcome-template" placeholder="Welcome email template content..." rows={4} />
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <Button onClick={() => handleSaveSettings("Email")} disabled={isLoading}>
-                  Save Email Settings
-                </Button>
-                <Button variant="outline">Test Email Configuration</Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Notifications Settings */}
-        <TabsContent value="notifications" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-5 w-5" />
-                Notification Settings
-              </CardTitle>
-              <CardDescription>Configure system notifications and alerts</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">Email Notifications</h4>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <Switch id="new-user-notification" defaultChecked />
-                    <Label htmlFor="new-user-notification">New User Registration</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Switch id="payment-notification" defaultChecked />
-                    <Label htmlFor="payment-notification">Payment Confirmations</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Switch id="assessment-notification" />
-                    <Label htmlFor="assessment-notification">Assessment Results</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Switch id="system-alerts" defaultChecked />
-                    <Label htmlFor="system-alerts">System Alerts</Label>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">SMS Notifications</h4>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="sms-provider">SMS Provider</Label>
-                    <Select defaultValue="twilio">
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="twilio">Twilio</SelectItem>
-                        <SelectItem value="nexmo">Nexmo</SelectItem>
-                        <SelectItem value="local">Local Provider</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="sms-sender">SMS Sender ID</Label>
-                    <Input id="sms-sender" placeholder="SCHOOL" />
-                  </div>
-                </div>
-              </div>
-
-              <Button onClick={() => handleSaveSettings("Notifications")} disabled={isLoading}>
-                Save Notification Settings
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Appearance Settings */}
-        <TabsContent value="appearance" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="h-5 w-5" />
-                Appearance Settings
-              </CardTitle>
-              <CardDescription>Customize the look and feel of the system</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="theme">Theme</Label>
-                <Select defaultValue="system">
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="light">Light</SelectItem>
-                    <SelectItem value="dark">Dark</SelectItem>
-                    <SelectItem value="system">System Default</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="logo-upload">System Logo</Label>
-                <Input id="logo-upload" type="file" />
-                <p className="text-sm text-muted-foreground">Upload a new logo for the system (PNG, JPG, SVG)</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="favicon-upload">Favicon</Label>
-                <Input id="favicon-upload" type="file" />
-                <p className="text-sm text-muted-foreground">Upload a favicon for the browser tab (ICO, PNG)</p>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">Custom CSS/JS</h4>
-                <div className="space-y-2">
-                  <Label htmlFor="custom-css">Custom CSS</Label>
-                  <Textarea id="custom-css" placeholder="/* Add your custom CSS here */" rows={6} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="custom-js">Custom JavaScript</Label>
-                  <Textarea id="custom-js" placeholder="// Add your custom JavaScript here" rows={6} />
-                </div>
-              </div>
-
-              <Button onClick={() => handleSaveSettings("Appearance")} disabled={isLoading}>
-                Save Appearance Settings
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Advanced Settings */}
-        <TabsContent value="advanced" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Server className="h-5 w-5" />
-                Advanced Settings
-              </CardTitle>
-              <CardDescription>Advanced configurations for system administrators</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="debug-mode">Debug Mode</Label>
-                <div className="flex items-center space-x-2">
-                  <Switch id="debug-mode" />
-                  <Label htmlFor="debug-mode">Enable detailed logging and error reporting</Label>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="api-logging">API Request Logging</Label>
-                <div className="flex items-center space-x-2">
-                  <Switch id="api-logging" defaultChecked />
-                  <Label htmlFor="api-logging">Log all incoming API requests</Label>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">Data Management</h4>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Button variant="outline" className="flex items-center gap-2 bg-transparent">
-                    <Database className="h-4 w-4" />
-                    Backup Database
-                  </Button>
-                  <Button variant="outline" className="flex items-center gap-2 bg-transparent">
-                    <FileText className="h-4 w-4" />
-                    Generate System Report
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="data-retention">Data Retention Policy (days)</Label>
-                  <Input id="data-retention" type="number" defaultValue="365" />
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">Developer Options</h4>
-                <div className="space-y-2">
-                  <Label htmlFor="webhook-url">Webhook URL</Label>
-                  <Input id="webhook-url" placeholder="https://your-webhook-endpoint.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="api-keys">Manage API Keys</Label>
-                  <Button variant="outline" className="w-full justify-start bg-transparent">
-                    <Key className="mr-2 h-4 w-4" />
-                    View & Manage API Keys
-                  </Button>
-                </div>
-              </div>
-
-              <Button onClick={() => handleSaveSettings("Advanced")} disabled={isLoading}>
-                Save Advanced Settings
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              {backup.file ? (
+                <p className="text-xs font-mono text-muted-foreground break-all">{backup.file}</p>
+              ) : null}
+              <p className="text-sm text-muted-foreground">{backup.detail}</p>
+            </>
+          ) : (
+            <Alert variant="destructive">
+              <AlertTitle>No backup has ever been recorded</AlertTitle>
+              <AlertDescription>
+                {backup?.detail ??
+                  "Schedule scripts/backup-database.ts as a cron job. See documentation/backup-and-restore.md."}
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
     </motion.div>
+  )
+}
+
+function Metric({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string
+  tone?: "good" | "warn" | "bad"
+}) {
+  const toneClass =
+    tone === "good"
+      ? "text-green-700 dark:text-green-400"
+      : tone === "warn"
+        ? "text-amber-700 dark:text-amber-400"
+        : tone === "bad"
+          ? "text-red-700 dark:text-red-400"
+          : "text-foreground"
+
+  return (
+    <div className="rounded-md border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`font-medium ${toneClass}`}>{value}</div>
+    </div>
   )
 }

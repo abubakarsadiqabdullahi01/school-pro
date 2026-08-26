@@ -1,7 +1,9 @@
 "use server";
 
 import { auth } from "@/auth";
+import type { Session } from "next-auth";
 import { prisma } from "@/lib/db";
+import { toNumber } from "@/lib/money";
 import bcrypt from "bcryptjs";
 import { Gender, CredentialType } from "@prisma/client";
 import { z } from "zod";
@@ -22,8 +24,12 @@ async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, salt);
 }
 
+type SessionUser = NonNullable<Session["user"]>;
+
 // Common authorization check
-async function checkAuthorization(allowedRoles: string[]) {
+async function checkAuthorization(
+  allowedRoles: string[]
+): Promise<{ success: true; user: SessionUser } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user || !allowedRoles.includes(session.user.role)) {
     return { success: false, error: "Unauthorized" };
@@ -32,7 +38,9 @@ async function checkAuthorization(allowedRoles: string[]) {
 }
 
 // Get school ID for admin or super admin
-async function getSchoolId(user: { id: string; role: string }) {
+async function getSchoolId(
+  user: { id: string; role: string }
+): Promise<{ success: true; schoolId: string } | { success: false; error: string }> {
   if (user.role === "ADMIN") {
     const admin = await prisma.admin.findUnique({
       where: { userId: user.id },
@@ -66,9 +74,9 @@ export async function searchParents(query: string = "") {
         ...(query
           ? {
               OR: [
-                { user: { firstName: { contains: normalizedQuery, mode: "insensitive" } } },
-                { user: { lastName: { contains: normalizedQuery, mode: "insensitive" } } },
-                { user: { credentials: { some: { value: { contains: normalizedQuery, mode: "insensitive" } } } } },
+                { user: { firstName: { contains: normalizedQuery } } },
+                { user: { lastName: { contains: normalizedQuery } } },
+                { user: { credentials: { some: { value: { contains: normalizedQuery } } } } },
               ],
             }
           : {}),
@@ -557,7 +565,9 @@ export async function getParentDetails(parentId: string) {
           })),
           payments: sp.student.payments.map((p) => ({
             id: p.id,
-            amount: p.amount,
+            // Plain number at the boundary into a client component. Display only —
+            // never summed downstream. See lib/money.ts.
+            amount: toNumber(p.amount),
             status: p.status,
             description: p.feeStructure?.name || "Fee Payment",
             date: p.paymentDate.toISOString(),
@@ -670,9 +680,9 @@ export async function getUnlinkedStudents(schoolId: string, search?: string) {
           ...(search
             ? {
                 OR: [
-                  { user: { firstName: { contains: search, mode: "insensitive" } } },
-                  { user: { lastName: { contains: search, mode: "insensitive" } } },
-                  { admissionNo: { contains: search, mode: "insensitive" } },
+                  { user: { firstName: { contains: search } } },
+                  { user: { lastName: { contains: search } } },
+                  { admissionNo: { contains: search } },
                 ],
               }
             : {}),

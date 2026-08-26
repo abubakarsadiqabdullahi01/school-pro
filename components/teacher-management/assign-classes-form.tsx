@@ -248,7 +248,7 @@ export function AssignClassesForm({
                       {term.isCurrent && (
                         <Badge
                           variant="secondary"
-                          className="ml-2 bg-green-100 text-green-800"
+                          className="ml-2 bg-green-500/10 text-green-700 dark:text-green-400"
                         >
                           Current
                         </Badge>
@@ -295,7 +295,7 @@ export function AssignClassesForm({
                           className={`flex items-center justify-between p-2 rounded ${
                             term.id === selectedTerm
                               ? "bg-blue-100 border border-blue-300"
-                              : "bg-white"
+                              : "bg-card"
                           }`}
                         >
                           <span className="font-medium">
@@ -303,7 +303,7 @@ export function AssignClassesForm({
                             {term.isCurrent && (
                               <Badge
                                 variant="secondary"
-                                className="ml-2 bg-green-100 text-green-800 text-xs"
+                                className="ml-2 bg-green-500/10 text-green-700 dark:text-green-400 text-xs"
                               >
                                 Current
                               </Badge>
@@ -427,7 +427,7 @@ export function AssignClassesForm({
                     <div className="flex items-center gap-2">
                       <Badge variant="outline">{classTerm.level}</Badge>
                       {classTerm.isCurrent && (
-                        <Badge className="bg-green-100 text-green-800">
+                        <Badge className="bg-green-500/10 text-green-700 dark:text-green-400">
                           Current
                         </Badge>
                       )}

@@ -316,7 +316,7 @@ export default function StudentList() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="container mx-auto py-6"
+      className="w-full py-6"
     >
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

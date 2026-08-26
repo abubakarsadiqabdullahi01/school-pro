@@ -54,14 +54,16 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
       setIsLoadingOptions(true)
       try {
         const result = await getTransitionOptions()
-        if (result.success) {
-          setTransitionOptions(result.data)
+        if (result.success && result.data) {
+          const data = result.data
+          setTransitionOptions(data)
 
           // If there's a current term, pre-select it as the source term
-          if (result.data.currentTerm) {
+          const currentTerm = data.currentTerm
+          if (currentTerm) {
             setForm((prev) => ({
               ...prev,
-              fromTermId: result.data.currentTerm.id,
+              fromTermId: currentTerm.id,
             }))
           }
         } else {
@@ -89,7 +91,7 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
       try {
         const result = await getTransitionHistory()
         if (result.success) {
-          setTransitionHistory(result.data)
+          setTransitionHistory(result.data ?? [])
         } else {
           console.error("Failed to get transition history:", result.error)
         }
@@ -118,7 +120,7 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
       try {
         // We'll fetch source classes even if destination term isn't selected yet
         const result = await getTransitionClasses(form.fromTermId, form.toTermId || form.fromTermId)
-        if (result.success) {
+        if (result.success && result.data) {
           setTransitionClasses((prev: any) => ({
             ...prev,
             sourceClasses: result.data.sourceClasses || [],
@@ -158,7 +160,7 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
       setIsLoadingClasses(true)
       try {
         const result = await getTransitionClasses(form.fromTermId, form.toTermId)
-        if (result.success) {
+        if (result.success && result.data) {
           setTransitionClasses((prev: any) => ({
             ...prev,
             destinationClasses: result.data.destinationClasses || [],
@@ -310,7 +312,7 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
               if (form.fromClassTermId) {
                 getStudentsForTransition(form.fromClassTermId).then((result) => {
                   if (result.success) {
-                    setStudentsForTransition(result.data)
+                    setStudentsForTransition(result.data ?? null)
                   }
                 })
               }
@@ -318,7 +320,7 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
               // Refresh history after transition
               getTransitionHistory().then((result) => {
                 if (result.success) {
-                  setTransitionHistory(result.data)
+                  setTransitionHistory(result.data ?? [])
                 }
               })
             }}

@@ -40,7 +40,7 @@ export default async function AdminClassResultsTermlyPage() {
     where: {
       isCurrent: true,
       session: {
-        schoolId: admin.schoolId,
+        schoolId: admin.school.id,
       },
     },
     include: {
@@ -57,7 +57,7 @@ export default async function AdminClassResultsTermlyPage() {
   const terms = await prisma.term.findMany({
     where: {
       session: {
-        schoolId: admin.schoolId,
+        schoolId: admin.school.id,
       },
     },
     include: {
@@ -85,7 +85,7 @@ export default async function AdminClassResultsTermlyPage() {
         </div>
 
         <ClassResultsTermlyComponent
-          schoolId={admin.schoolId}
+          schoolId={admin.school.id}
           schoolName={admin.school.name}
           schoolCode={admin.school.code}
           schoolAddress={admin.school.address || ""}

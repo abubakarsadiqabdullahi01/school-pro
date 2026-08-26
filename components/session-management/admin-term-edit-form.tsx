@@ -84,15 +84,21 @@ export function AdminTermEditForm({ termData }: AdminTermEditFormProps) {
         return
       }
 
-      await updateTerm({
+      const result = await updateTerm({
         id: termData.id,
+        sessionId: termData.sessionId,
         name: data.name,
         startDate: data.startDate,
         endDate: data.endDate,
         isCurrent: data.isCurrent,
       })
 
-      toast.success("Term updated successfully")
+      if (!result.success) {
+        toast.error(result.error || "Failed to update term")
+        return
+      }
+
+      toast.success(result.message || "Term updated successfully")
       router.push("/dashboard/admin/school-terms")
       router.refresh()
     } catch (error: any) {

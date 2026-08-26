@@ -1,27 +1,20 @@
 "use server"
 import { prisma } from "@/lib/db"
 import { auth } from "@/auth"
+import { assertSchoolAccess, requireAdminScope } from "@/lib/authz"
+import { recordAudit } from "@/lib/audit"
+import { revalidatePath } from "next/cache"
 // import { z } from "zod"
 import type { ClassLevel } from "@prisma/client"
+import { buildClassTermResults } from "@/lib/results/class-term-results"
 
 
 // Authorize and get school ID
+// Delegates to the shared boundary in lib/authz.ts. `undefined` still means "super
+// admin, no school filter", which is what every caller in this file expects.
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
-  const session = await auth()
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-  if (session.user.role === "ADMIN") {
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-      select: { schoolId: true },
-    })
-    if (!admin?.schoolId) {
-      throw new Error("Admin not assigned to a school")
-    }
-    return admin.schoolId
-  }
-  return undefined
+  const actor = await requireAdminScope()
+  return actor.schoolId ?? undefined
 }
 
 // Get grading system for a school
@@ -473,75 +466,27 @@ export async function getClassTermResults(classTermId: string) {
       },
     })
 
-    const results = studentClassTerms.map((sct) => {
-      const studentAssessments = assessments.filter((a) => a.student.id === sct.student.id)
-      let totalScore = 0
-      const subjectCount = classSubjects.length
-      const subjects: Record<string, { score: number | null; grade: string | null }> = {}
-
-      classSubjects.forEach((cs) => {
-        const assessment = studentAssessments.find((a) => a.subject.id === cs.subject.id)
-        const total = assessment && !assessment.isExempt && !assessment.isAbsent
-          ? ((assessment.ca1 ?? 0) + (assessment.ca2 ?? 0) + (assessment.ca3 ?? 0) + (assessment.exam ?? 0))
-          : 0 // Treat absent/exempt as 0
-
-        totalScore += total
-
-        const scoreInt = Math.floor(total)
-
-        const grade = gradingSystem.levels.find(
-          (level) => scoreInt >= level.minScore && scoreInt <= level.maxScore
-        )?.grade ?? null
-
-        subjects[cs.subject.id] = { score: total, grade }
-      })
-
-      const averageScore = subjectCount > 0 ? totalScore / subjectCount : 0
-      const avgScoreInt = Math.floor(averageScore)
-
-      const grade = gradingSystem.levels.find(
-        (level) => avgScoreInt >= level.minScore && avgScoreInt <= level.maxScore
-      )?.grade ?? ""
-
-      return {
+    // The arithmetic lives in lib/results/class-term-results.ts so it can be tested
+    // without a database. This action's job is to load the rows and hand them over.
+    const finalResults = buildClassTermResults({
+      students: studentClassTerms.map((sct) => ({
         studentId: sct.student.id,
         studentName: `${sct.student.user.firstName} ${sct.student.user.lastName}`,
         admissionNo: sct.student.admissionNo,
         gender: sct.student.user.gender,
-        subjects,
-        totalScore, // <-- FIXED: Add totalScore to the returned object
-        averageScore,
-        grade,
-        position: 0, // Placeholder, calculated below
-      }
-    })
-
-    // Calculate positions
-    const sortedResults = [...results].sort((a, b) => {
-      const aScore = a.totalScore ?? -Infinity
-      const bScore = b.totalScore ?? -Infinity
-      return bScore - aScore
-    })
-
-    let currentPosition = 1
-    let previousScore: number | null = null
-    let tieCount = 0
-
-    const finalResults = sortedResults.map((result) => {
-      const currentScore = result.totalScore ?? null
-      if (currentScore === null) {
-        return { ...result, position: 0 }
-      }
-      if (previousScore !== null && currentScore < previousScore) {
-        currentPosition += tieCount
-        tieCount = 1
-      } else if (currentScore === previousScore) {
-        tieCount++
-      } else {
-        tieCount = 1
-      }
-      previousScore = currentScore
-      return { ...result, position: currentPosition }
+      })),
+      subjectIds: classSubjects.map((cs) => cs.subject.id),
+      assessments: assessments.map((a) => ({
+        studentId: a.student.id,
+        subjectId: a.subject.id,
+        ca1: a.ca1,
+        ca2: a.ca2,
+        ca3: a.ca3,
+        exam: a.exam,
+        isAbsent: a.isAbsent,
+        isExempt: a.isExempt,
+      })),
+      gradeBands: gradingSystem.levels,
     })
 
     return { success: true, data: finalResults }
@@ -556,62 +501,187 @@ export async function getClassTermResults(classTermId: string) {
 
 
 // Auto-publish results if complete
-export async function autoPublishClassTermResults(classTermId: string) {
+/**
+ * Checks whether every enrolled student has a usable entry for every subject the class term
+ * offers. Absent and exempt count as entered — they are decisions, not gaps.
+ */
+async function classTermIsComplete(classTermId: string, termId: string) {
+  const [classSubjects, studentClassTerms] = await Promise.all([
+    prisma.classSubject.findMany({ where: { classTermId }, select: { subjectId: true } }),
+    prisma.studentClassTerm.findMany({
+      where: { classTermId, status: "ACTIVE" },
+      select: { id: true, studentId: true },
+    }),
+  ])
+
+  const assessments = await prisma.assessment.findMany({
+    where: {
+      studentClassTermId: { in: studentClassTerms.map((sct) => sct.id) },
+      subjectId: { in: classSubjects.map((cs) => cs.subjectId) },
+      termId,
+    },
+  })
+
+  const missing: string[] = []
+
+  for (const sct of studentClassTerms) {
+    for (const cs of classSubjects) {
+      const entered = assessments.some(
+        (a) =>
+          a.studentId === sct.studentId &&
+          a.subjectId === cs.subjectId &&
+          (a.isExempt ||
+            a.isAbsent ||
+            (a.ca1 !== null && a.ca2 !== null && a.ca3 !== null && a.exam !== null)),
+      )
+      if (!entered) missing.push(`${sct.studentId}:${cs.subjectId}`)
+    }
+  }
+
+  return {
+    complete: missing.length === 0,
+    missingCount: missing.length,
+    studentCount: studentClassTerms.length,
+    subjectCount: classSubjects.length,
+    studentClassTermIds: studentClassTerms.map((sct) => sct.id),
+  }
+}
+
+/**
+ * Releases a class term's results to students and parents.
+ *
+ * Replaces `autoPublishClassTermResults`, which flipped `isPublished` with no record of who
+ * released it, no timestamp, and no way back. Schools work in three stages — compiled,
+ * checked by the head, released — and a mistaken release previously could not be undone.
+ */
+export async function publishClassTermResults(classTermId: string) {
   try {
-    const schoolId = await authorizeAndGetSchoolId()
+    const actor = await requireAdminScope()
+
     const classTerm = await prisma.classTerm.findUnique({
       where: { id: classTermId },
-      include: { class: { select: { schoolId: true } } },
-    })
-
-    if (!classTerm) throw new Error("Class term not found")
-    if (schoolId && classTerm.class.schoolId !== schoolId) {
-      throw new Error("Class does not belong to admin's school")
-    }
-
-    const classSubjects = await prisma.classSubject.findMany({
-      where: { classTermId },
-      select: { subjectId: true },
-    })
-
-    const studentClassTerms = await prisma.studentClassTerm.findMany({
-      where: { classTermId },
-      select: { id: true, studentId: true },
-    })
-
-    const assessments = await prisma.assessment.findMany({
-      where: {
-        studentClassTermId: { in: studentClassTerms.map((sct) => sct.id) },
-        subjectId: { in: classSubjects.map((cs) => cs.subjectId) },
-        termId: classTerm.termId,
+      include: {
+        class: { select: { schoolId: true, name: true } },
+        term: { select: { name: true } },
       },
     })
 
-    const isComplete = studentClassTerms.every((sct) =>
-      classSubjects.every((cs) =>
-        assessments.some(
-          (a) =>
-            a.studentId === sct.studentId &&
-            a.subjectId === cs.subjectId &&
-            (a.isExempt || a.isAbsent || (a.ca1 !== null && a.ca2 !== null && a.ca3 !== null && a.exam !== null))
-        )
-      )
-    )
+    if (!classTerm) throw new Error("Class term not found")
+    assertSchoolAccess(actor, classTerm.class.schoolId)
 
-    if (isComplete) {
-      await prisma.assessment.updateMany({
-        where: {
-          studentClassTermId: { in: studentClassTerms.map((sct) => sct.id) },
-          termId: classTerm.termId,
-        },
-        data: { isPublished: true },
-      })
-      return { success: true, message: "Results published successfully" }
-    } else {
-      return { success: false, message: "Results incomplete, cannot publish" }
+    const completeness = await classTermIsComplete(classTermId, classTerm.termId)
+
+    if (!completeness.complete) {
+      return {
+        success: false,
+        message:
+          `Not ready to release. ${completeness.missingCount} of ` +
+          `${completeness.studentCount * completeness.subjectCount} subject entries are ` +
+          `still missing across ${completeness.studentCount} students. Mark a student ` +
+          `absent or exempt if they have no score.`,
+      }
+    }
+
+    const publishedAt = new Date()
+    const result = await prisma.assessment.updateMany({
+      where: {
+        studentClassTermId: { in: completeness.studentClassTermIds },
+        termId: classTerm.termId,
+        isPublished: false,
+      },
+      data: { isPublished: true, publishedAt, publishedBy: actor.userId },
+    })
+
+    await recordAudit({
+      actor,
+      action: "results.publish",
+      entityType: "ClassTerm",
+      entityId: classTermId,
+      schoolId: classTerm.class.schoolId,
+      summary: `Released results for ${classTerm.class.name}, ${classTerm.term.name} to parents`,
+      after: { classTermId, released: result.count, publishedAt: publishedAt.toISOString() },
+    })
+
+    revalidatePath("/dashboard/admin/compiler/class-results")
+    revalidatePath("/dashboard/admin/compiler/class-results/termly")
+
+    return {
+      success: true,
+      message:
+        result.count > 0
+          ? `Released ${result.count} result${result.count === 1 ? "" : "s"} for ${classTerm.class.name}, ${classTerm.term.name}.`
+          : "These results were already released.",
     }
   } catch (error) {
-    console.error("Failed to auto-publish results:", error)
+    console.error("Failed to publish results:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An unexpected error occurred",
+    }
+  }
+}
+
+/**
+ * Withdraws a class term's results from students and parents.
+ *
+ * The half that did not exist. A reason is required, because an unexplained withdrawal is
+ * the kind of thing a parent will ask about and nobody will be able to answer.
+ */
+export async function unpublishClassTermResults(classTermId: string, reason: string) {
+  try {
+    const actor = await requireAdminScope()
+
+    if (!reason?.trim()) {
+      return { success: false, message: "Give a reason for withdrawing these results." }
+    }
+
+    const classTerm = await prisma.classTerm.findUnique({
+      where: { id: classTermId },
+      include: {
+        class: { select: { schoolId: true, name: true } },
+        term: { select: { name: true } },
+      },
+    })
+
+    if (!classTerm) throw new Error("Class term not found")
+    assertSchoolAccess(actor, classTerm.class.schoolId)
+
+    const studentClassTerms = await prisma.studentClassTerm.findMany({
+      where: { classTermId },
+      select: { id: true },
+    })
+
+    const result = await prisma.assessment.updateMany({
+      where: {
+        studentClassTermId: { in: studentClassTerms.map((sct) => sct.id) },
+        termId: classTerm.termId,
+        isPublished: true,
+      },
+      // publishedAt and publishedBy are left in place on purpose: they record that a
+      // release happened, which withdrawing it does not undo.
+      data: { isPublished: false },
+    })
+
+    await recordAudit({
+      actor,
+      action: "results.unpublish",
+      entityType: "ClassTerm",
+      entityId: classTermId,
+      schoolId: classTerm.class.schoolId,
+      summary:
+        `Withdrew results for ${classTerm.class.name}, ${classTerm.term.name} — ${reason.trim()}`,
+      after: { classTermId, withdrawn: result.count, reason: reason.trim() },
+    })
+
+    revalidatePath("/dashboard/admin/compiler/class-results")
+    revalidatePath("/dashboard/admin/compiler/class-results/termly")
+
+    return {
+      success: true,
+      message: `Withdrew ${result.count} result${result.count === 1 ? "" : "s"} from parents.`,
+    }
+  } catch (error) {
+    console.error("Failed to unpublish results:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unexpected error occurred",

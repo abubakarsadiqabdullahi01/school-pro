@@ -256,6 +256,21 @@ export async function assignTeachersToSubject({
     // Get currently assigned teacher IDs
     const currentTeacherIds = subjectData.teacherSubjects.map((ts) => ts.teacherId)
 
+    const currentTerm = await prisma.term.findFirst({
+      where: {
+        session: {
+          schoolId: subjectData.schoolId,
+          isCurrent: true,
+        },
+        isCurrent: true,
+      },
+      select: { id: true },
+    })
+
+    if (!currentTerm) {
+      throw new Error("No current term found for this school")
+    }
+
     // Find teachers to remove (in current but not in new list)
     const teachersToRemove = currentTeacherIds.filter((id) => !teacherIds.includes(id))
 
@@ -290,6 +305,7 @@ export async function assignTeachersToSubject({
           data: {
             subjectId,
             teacherId,
+            termId: currentTerm.id,
           },
         })
       }

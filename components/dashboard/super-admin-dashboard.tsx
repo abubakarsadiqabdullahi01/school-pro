@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
+import { formatDate } from "@/lib/format"
 
 interface SystemStats {
   totalSchools: number
@@ -196,11 +197,11 @@ export function SuperAdminDashboard({ stats, schoolPerformance }: SuperAdminDash
 
           {/* Bottom Grid */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {/* Top Performing Schools */}
+            {/* School Activity */}
             <Card>
               <CardHeader>
-                <CardTitle>Top Performing Schools</CardTitle>
-                <CardDescription>Based on student enrollment and activity</CardDescription>
+                <CardTitle>Most Active Schools</CardTitle>
+                <CardDescription>Based on enrollment and staffing volume</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -223,25 +224,29 @@ export function SuperAdminDashboard({ stats, schoolPerformance }: SuperAdminDash
             <Card>
               <CardHeader>
                 <CardTitle>System Alerts</CardTitle>
-                <CardDescription>Recent system notifications</CardDescription>
+                <CardDescription>Actionable system notifications</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {schoolPerformance.systemAlerts.slice(0, 5).map((alert) => (
-                    <div key={alert.id} className="flex items-start gap-3">
-                      {getAlertIcon(alert.type)}
-                      <div className="flex-1">
-                        <div className="font-medium text-sm">{alert.message}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(alert.timestamp).toLocaleDateString()}
+                {schoolPerformance.systemAlerts.length > 0 ? (
+                  <div className="space-y-4">
+                    {schoolPerformance.systemAlerts.slice(0, 5).map((alert) => (
+                      <div key={alert.id} className="flex items-start gap-3">
+                        {getAlertIcon(alert.type)}
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{alert.message}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatDate(alert.timestamp)}
+                          </div>
                         </div>
+                        <Badge variant={getAlertBadgeVariant(alert.type) as any} className="text-xs">
+                          {alert.type}
+                        </Badge>
                       </div>
-                      <Badge variant={getAlertBadgeVariant(alert.type) as any} className="text-xs">
-                        {alert.type}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No active system alerts.</div>
+                )}
               </CardContent>
             </Card>
 
@@ -309,8 +314,8 @@ export function SuperAdminDashboard({ stats, schoolPerformance }: SuperAdminDash
 
             <Card className="md:col-span-2">
               <CardHeader>
-                <CardTitle>All Schools Performance</CardTitle>
-                <CardDescription>Overview of school metrics</CardDescription>
+                <CardTitle>All School Activity</CardTitle>
+                <CardDescription>Enrollment and staffing overview</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -407,17 +412,21 @@ export function SuperAdminDashboard({ stats, schoolPerformance }: SuperAdminDash
                 <CardDescription>Latest system activities</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {schoolPerformance.systemAlerts.map((alert) => (
-                    <div key={alert.id} className="flex items-center gap-2 text-sm">
-                      {getAlertIcon(alert.type)}
-                      <span className="flex-1">{alert.message}</span>
-                      <span className="text-muted-foreground text-xs">
-                        {new Date(alert.timestamp).toLocaleDateString()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                {schoolPerformance.systemAlerts.length > 0 ? (
+                  <div className="space-y-3">
+                    {schoolPerformance.systemAlerts.map((alert) => (
+                      <div key={alert.id} className="flex items-center gap-2 text-sm">
+                        {getAlertIcon(alert.type)}
+                        <span className="flex-1">{alert.message}</span>
+                        <span className="text-muted-foreground text-xs">
+                          {formatDate(alert.timestamp)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No active system alerts.</div>
+                )}
               </CardContent>
             </Card>
           </div>

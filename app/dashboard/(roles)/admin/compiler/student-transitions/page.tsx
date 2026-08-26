@@ -34,7 +34,7 @@ export default async function AdminStudentTransitionsPage() {
     <PageTransition>
       <div className="space-y-6">
         <StudentTransitionsOverview
-          schoolId={admin.schoolId}
+          schoolId={admin.school.id}
           schoolName={admin.school.name}
           schoolCode={admin.school.code}
         />

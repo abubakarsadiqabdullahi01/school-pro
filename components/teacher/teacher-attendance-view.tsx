@@ -34,7 +34,7 @@ export function TeacherAttendanceView({ teacherId, currentTerm }: TeacherAttenda
     try {
       const result = await getTeacherClasses(currentTerm?.id)
       if (result.success) {
-        setClasses(result.data)
+        setClasses(result.data ?? [])
       } else {
         toast.error(result.error)
       }
@@ -57,7 +57,7 @@ export function TeacherAttendanceView({ teacherId, currentTerm }: TeacherAttenda
     try {
       const result = await getClassAttendance(selectedClass, format(selectedDate, "yyyy-MM-dd"))
       if (result.success) {
-        setStudents(result.data)
+        setStudents(result.data ?? [])
       } else {
         toast.error(result.error)
       }
@@ -75,16 +75,17 @@ export function TeacherAttendanceView({ teacherId, currentTerm }: TeacherAttenda
   }, [selectedClass, selectedDate, loadAttendance])
 
   // Handle attendance change
-  const handleAttendanceChange = async (studentId: string, status: string) => {
+  const handleAttendanceChange = async (studentId: string, status: "PRESENT" | "ABSENT" | "LATE") => {
     setSaving(true)
     try {
       const result = await markAttendance({
         studentId,
+        classTermId: selectedClass,
         date: format(selectedDate, "yyyy-MM-dd"),
         status,
       })
 
-      if (result.success) {
+      if (result.success && result.data) {
         // Update local state
         setStudents((prev) =>
           prev.map((student) =>
@@ -254,10 +255,10 @@ export function TeacherAttendanceView({ teacherId, currentTerm }: TeacherAttenda
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Not Marked</CardTitle>
-              <Users className="h-4 w-4 text-gray-600" />
+              <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-gray-600">{stats.notMarked}</div>
+              <div className="text-2xl font-bold text-muted-foreground">{stats.notMarked}</div>
               <p className="text-xs text-muted-foreground">
                 {stats.total > 0 ? Math.round((stats.notMarked / stats.total) * 100) : 0}% of class
               </p>

@@ -284,7 +284,7 @@ const handleParentSelect = (parent: ParentOption) => {
         animate={{ opacity: 1, y: 0 }} 
         transition={{ duration: 0.5 }}
       >
-        <Card className="w-full max-w-6xl mx-auto border-0 shadow-xl">
+        <Card className="w-full border-0 shadow-xl">
           <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5 p-4">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-primary/20 rounded-lg">
@@ -454,7 +454,7 @@ const handleParentSelect = (parent: ParentOption) => {
                         />
                       </div>
                       
-                      <div className="grid grid-cols-1 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <FormField
                           control={form.control}
                           name="address"
@@ -613,7 +613,7 @@ const handleParentSelect = (parent: ParentOption) => {
                         </AlertDescription>
                       </Alert>
 
-                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border border-blue-100">
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 p-6 rounded-lg border border-blue-100 dark:border-blue-900">
                         <div className="flex items-center mb-4">
                           <div className="bg-blue-100 p-2 rounded-lg mr-3">
                             <User className="h-5 w-5 text-blue-600" />
@@ -648,9 +648,9 @@ const handleParentSelect = (parent: ParentOption) => {
                         </div>
 
                         {selectedParent && (
-                          <div className="bg-white p-4 rounded-lg border border-blue-200 shadow-sm">
+                          <div className="bg-card p-4 rounded-lg border border-blue-200 shadow-sm">
                             <div className="flex items-center gap-4">
-                              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center">
+                              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900 dark:to-indigo-900 flex items-center justify-center">
                                 <User className="h-6 w-6 text-blue-600" />
                               </div>
                               <div className="flex-1">
@@ -727,10 +727,10 @@ const handleParentSelect = (parent: ParentOption) => {
                       )}
 
                       {!selectedParent && (
-                        <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg">
-                          <User className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                          <p className="text-gray-500 text-sm">No parent/guardian selected yet</p>
-                          <p className="text-gray-400 text-xs">Click the buttons above to add one</p>
+                        <div className="text-center py-8 border-2 border-dashed border-border rounded-lg">
+                          <User className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                          <p className="text-muted-foreground text-sm">No parent/guardian selected yet</p>
+                          <p className="text-muted-foreground text-xs">Click the buttons above to add one</p>
                         </div>
                       )}
                     </motion.div>
@@ -753,12 +753,12 @@ const handleParentSelect = (parent: ParentOption) => {
                         </AlertDescription>
                       </Alert>
 
-                      <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-lg border border-purple-100">
+                      <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 p-6 rounded-lg border border-purple-100 dark:border-purple-900">
                         <h3 className="font-semibold text-lg text-foreground mb-4">Account Configuration</h3>
                         
                         <div className="space-y-4">
                           {/* Admission Number Card */}
-                          <div className="bg-white p-5 rounded-lg border border-purple-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-purple-100 dark:border-purple-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-3">
                               <div className="bg-purple-100 p-2 rounded-lg">
                                 <BookOpen className="h-5 w-5 text-purple-600" />
@@ -768,7 +768,7 @@ const handleParentSelect = (parent: ParentOption) => {
                                 <p className="text-sm text-muted-foreground">Unique identifier for student login</p>
                               </div>
                             </div>
-                            <div className="bg-gray-50 p-3 rounded-md">
+                            <div className="bg-muted/50 p-3 rounded-md">
                               <p className="font-mono text-lg font-semibold text-center text-foreground">
                                 {lastAdmissionNo || "XXXX-XXXX-XXXX"}
                               </p>
@@ -779,7 +779,7 @@ const handleParentSelect = (parent: ParentOption) => {
                           </div>
 
                           {/* Default Password Card */}
-                          <div className="bg-white p-5 rounded-lg border border-purple-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-purple-100 dark:border-purple-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-3">
                               <div className="bg-pink-100 p-2 rounded-lg">
                                 <Lock className="h-5 w-5 text-pink-600" />
@@ -789,7 +789,7 @@ const handleParentSelect = (parent: ParentOption) => {
                                 <p className="text-sm text-muted-foreground">Temporary password for first login</p>
                               </div>
                             </div>
-                            <div className="bg-gray-50 p-3 rounded-md">
+                            <div className="bg-muted/50 p-3 rounded-md">
                               <p className="font-mono text-lg font-semibold text-center text-foreground">
                                 {currentYear}
                               </p>
@@ -804,7 +804,7 @@ const handleParentSelect = (parent: ParentOption) => {
                             control={form.control}
                             name="createLoginCredentials"
                             render={({ field }) => (
-                              <FormItem className="bg-white p-5 rounded-lg border border-purple-100 shadow-sm">
+                              <FormItem className="bg-card p-5 rounded-lg border border-purple-100 dark:border-purple-900 shadow-sm">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
                                     <div className="bg-blue-100 p-2 rounded-lg">
@@ -834,7 +834,7 @@ const handleParentSelect = (parent: ParentOption) => {
                             control={form.control}
                             name="isActive"
                             render={({ field }) => (
-                              <FormItem className="bg-white p-5 rounded-lg border border-purple-100 shadow-sm">
+                              <FormItem className="bg-card p-5 rounded-lg border border-purple-100 dark:border-purple-900 shadow-sm">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
                                     <div className="bg-green-100 p-2 rounded-lg">
@@ -886,14 +886,14 @@ const handleParentSelect = (parent: ParentOption) => {
                         </AlertDescription>
                       </Alert>
 
-                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-lg border border-green-100">
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 p-6 rounded-lg border border-green-100 dark:border-green-900">
                         <h3 className="font-semibold text-lg text-foreground mb-6 text-center">
                           📋 Student Registration Summary
                         </h3>
 
                         <div className="space-y-6">
                           {/* Personal Information Section */}
-                          <div className="bg-white p-5 rounded-lg border border-green-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-green-100 dark:border-green-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-4">
                               <div className="bg-blue-100 p-2 rounded-lg">
                                 <User className="h-5 w-5 text-blue-600" />
@@ -922,7 +922,7 @@ const handleParentSelect = (parent: ParentOption) => {
                           <Separator className="my-6" />
 
                           {/* Academic Information Section */}
-                          <div className="bg-white p-5 rounded-lg border border-green-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-green-100 dark:border-green-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-4">
                               <div className="bg-purple-100 p-2 rounded-lg">
                                 <School className="h-5 w-5 text-purple-600" />
@@ -947,7 +947,7 @@ const handleParentSelect = (parent: ParentOption) => {
                           <Separator className="my-6" />
 
                           {/* Parent/Guardian Section */}
-                          <div className="bg-white p-5 rounded-lg border border-green-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-green-100 dark:border-green-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-4">
                               <div className="bg-pink-100 p-2 rounded-lg">
                                 <UserCheck className="h-5 w-5 text-pink-600" />
@@ -988,7 +988,7 @@ const handleParentSelect = (parent: ParentOption) => {
                           <Separator className="my-6" />
 
                           {/* Account Information Section */}
-                          <div className="bg-white p-5 rounded-lg border border-green-100 shadow-sm">
+                          <div className="bg-card p-5 rounded-lg border border-green-100 dark:border-green-900 shadow-sm">
                             <div className="flex items-center gap-3 mb-4">
                               <div className="bg-indigo-100 p-2 rounded-lg">
                                 <Lock className="h-5 w-5 text-indigo-600" />

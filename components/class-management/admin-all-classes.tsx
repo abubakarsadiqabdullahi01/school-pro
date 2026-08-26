@@ -50,7 +50,6 @@ interface Class {
   subjectsCount: number
   termsCount: number
   feeStructuresCount: number
-  terms: string
 }
 
 interface AllClassesTableProps {
@@ -202,13 +201,7 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
                       {cls.schoolName} <span className="text-xs text-muted-foreground">({cls.schoolCode})</span>
                     </TableCell> */}
                     <TableCell>{cls.subjectsCount} subject(s)</TableCell>
-                    <TableCell>
-                      {cls.terms === "Not Assigned Term" ? (
-                        <Badge variant="outline" color="destructive">{cls.terms}</Badge>
-                      ) : (
-                        cls.terms
-                      )}
-                    </TableCell>
+                    <TableCell>{cls.termsCount} term(s)</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

@@ -2,39 +2,12 @@
 
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { DayPicker, DayPickerSingleProps, DayPickerRangeProps } from "react-day-picker"
+import { DayPicker, type DayPickerProps } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
-// Define props type to support both single and range modes
-type CalendarProps = (DayPickerSingleProps | DayPickerRangeProps) & {
+type CalendarProps = DayPickerProps & {
   className?: string
-  classNames?: Partial<
-    {
-      months: string
-      month: string
-      caption: string
-      caption_label: string
-      nav: string
-      nav_button: string
-      nav_button_previous: string
-      nav_button_next: string
-      table: string
-      head_row: string
-      head_cell: string
-      row: string
-      cell: string
-      day: string
-      day_range_start: string
-      day_range_end: string
-      day_selected: string
-      day_today: string
-      day_outside: string
-      day_disabled: string
-      day_range_middle: string
-      day_hidden: string
-    }
-  >
   showOutsideDays?: boolean
 }
 
@@ -42,17 +15,19 @@ function Calendar({
   className,
   classNames,
   showOutsideDays = true,
-  mode = "single", // Default to single mode for most use cases
   ...props
 }: CalendarProps) {
+  const mode = props.mode ?? "single"
+
   return (
     <DayPicker
-      mode={mode}
+      {...(props as DayPickerProps)}
       showOutsideDays={showOutsideDays}
       className={cn("p-3", className)}
       classNames={{
-        months: "flex flex-col sm:flex-row gap-2",
-        month: "flex flex-col gap-4",
+        months: "flex flex-col gap-4 sm:flex-row",
+        month: "space-y-4",
+        month_caption: "flex h-8 items-center justify-center",
         caption: "flex justify-center pt-1 relative items-center w-full",
         caption_label: "text-sm font-medium",
         nav: "flex items-center gap-1",
@@ -62,19 +37,35 @@ function Calendar({
         ),
         nav_button_previous: "absolute left-1",
         nav_button_next: "absolute right-1",
-        table: "w-full border-collapse space-x-1",
-        head_row: "flex",
-        head_cell: "text-muted-foreground rounded-md w-8 font-normal text-[0.8rem]",
-        row: "flex w-full mt-2",
+        button_previous: cn(
+          buttonVariants({ variant: "outline" }),
+          "absolute left-1 size-7 bg-transparent p-0 opacity-50 hover:opacity-100"
+        ),
+        button_next: cn(
+          buttonVariants({ variant: "outline" }),
+          "absolute right-1 size-7 bg-transparent p-0 opacity-50 hover:opacity-100"
+        ),
+        table: "w-full border-collapse",
+        month_grid: "w-full border-collapse",
+        head_row: "grid grid-cols-7",
+        weekdays: "grid grid-cols-7",
+        head_cell: "flex h-8 w-9 items-center justify-center rounded-md text-[0.8rem] font-normal text-muted-foreground",
+        weekday: "flex h-8 w-9 items-center justify-center rounded-md text-[0.8rem] font-normal text-muted-foreground",
+        row: "grid grid-cols-7 mt-1",
+        week: "grid grid-cols-7 mt-1",
         cell: cn(
-          "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent",
+          "relative flex h-9 w-9 items-center justify-center p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent",
           mode === "range"
             ? "[&:has(>.day-range-end)]:rounded-r-md [&:has(>.day-range-start)]:rounded-l-md first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md"
             : "[&:has([aria-selected])]:rounded-md"
         ),
         day: cn(
           buttonVariants({ variant: "ghost" }),
-          "size-8 p-0 font-normal aria-selected:opacity-100"
+          "size-9 p-0 font-normal aria-selected:opacity-100"
+        ),
+        day_button: cn(
+          buttonVariants({ variant: "ghost" }),
+          "size-9 p-0 font-normal aria-selected:opacity-100"
         ),
         day_range_start:
           "day-range-start aria-selected:bg-primary aria-selected:text-primary-foreground",
@@ -89,14 +80,13 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ className, ...props }) => (
-          <ChevronLeft className={cn("size-4", className)} {...props} />
-        ),
-        IconRight: ({ className, ...props }) => (
-          <ChevronRight className={cn("size-4", className)} {...props} />
-        ),
+        Chevron: ({ className, orientation, ...props }) =>
+          orientation === "left" ? (
+            <ChevronLeft className={cn("size-4", className)} {...props} />
+          ) : (
+            <ChevronRight className={cn("size-4", className)} {...props} />
+          ),
       }}
-      {...props}
     />
   )
 }

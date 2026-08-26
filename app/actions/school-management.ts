@@ -32,6 +32,16 @@ export async function createSchool(data: {
       return { success: false, error: "School code already exists" }
     }
 
+    const normalizedSchoolName = data.name.trim().toLowerCase()
+    const existingName = await prisma.school.findFirst({
+      where: { name: data.name.trim() },
+      select: { id: true },
+    })
+
+    if (existingName || normalizedSchoolName.length === 0) {
+      return { success: false, error: "School name already exists" }
+    }
+
     // Check if email already exists
     const existingEmail = await prisma.school.findFirst({
       where: { email: data.email }
@@ -124,6 +134,19 @@ export async function updateSchool(id: string, data: {
       })
       if (codeExists) {
         return { success: false, error: "School code already exists" }
+      }
+    }
+
+    if (data.name !== existingSchool.name) {
+      const nameExists = await prisma.school.findFirst({
+        where: {
+          id: { not: id },
+          name: data.name.trim(),
+        },
+        select: { id: true },
+      })
+      if (nameExists) {
+        return { success: false, error: "School name already exists" }
       }
     }
 

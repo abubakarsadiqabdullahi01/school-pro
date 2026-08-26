@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { BookOpen, Edit } from "lucide-react"
 import Link from "next/link"
 import { ClassSubjectsTable } from "@/components/class-management/class-subjects-table"
+import { formatNaira } from "@/lib/money"
 
 export default async function AdminClassDetailsPage({ params }: { params: { id: string } }) {
   const session = await auth()
@@ -58,6 +59,14 @@ export default async function AdminClassDetailsPage({ params }: { params: { id: 
               },
             },
           },
+          // A fee belongs to the class term, so the term it applies to is the parent's.
+          feeStructures: {
+            select: {
+              id: true,
+              name: true,
+              amount: true,
+            },
+          },
         },
       },
       subjects: {
@@ -70,18 +79,6 @@ export default async function AdminClassDetailsPage({ params }: { params: { id: 
               code: true,
             },
           },
-        },
-      },
-      feeStructures: {
-        select: {
-          id: true,
-          term: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          amount: true,
         },
       },
     },
@@ -98,6 +95,16 @@ export default async function AdminClassDetailsPage({ params }: { params: { id: 
     name: subjectRelation.subject.name,
     code: subjectRelation.subject.code,
   }))
+
+  // Flatten the fees out of their class terms, carrying the term name each applies to.
+  const feeStructures = classData.classTerms.flatMap((classTerm) =>
+    classTerm.feeStructures.map((fee) => ({
+      id: fee.id,
+      name: fee.name,
+      amount: fee.amount,
+      termName: classTerm.term.name,
+    })),
+  )
 
   return (
     <PageTransition>
@@ -174,13 +181,15 @@ export default async function AdminClassDetailsPage({ params }: { params: { id: 
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Fee Structures</h3>
-                <p>{classData.feeStructures.length} fee structure(s) defined for this class</p>
-                {classData.feeStructures.length > 0 && (
+                <p>{feeStructures.length} fee structure(s) defined for this class</p>
+                {feeStructures.length > 0 && (
                   <div className="mt-2 space-y-2">
-                    {classData.feeStructures.map((fee) => (
+                    {feeStructures.map((fee) => (
                       <div key={fee.id} className="flex justify-between text-sm">
-                        <span>{fee.term.name}:</span>
-                        <span className="font-medium">₦{fee.amount.toLocaleString()}</span>
+                        <span>
+                          {fee.termName} — {fee.name}:
+                        </span>
+                        <span className="font-medium">{formatNaira(fee.amount)}</span>
                       </div>
                     ))}
                   </div>

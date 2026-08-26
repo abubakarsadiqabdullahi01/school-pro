@@ -163,9 +163,23 @@ export function AssignmentsManager({
   const handleClassAssignment = async () => {
     try {
       setIsAssigning(true);
+      const selectedTermId =
+        availableClassTerms.find((classTerm) =>
+          selectedClassTerms.includes(classTerm.id),
+        )?.termId ?? availableClassTerms.find((classTerm) => classTerm.isCurrent)?.termId;
+
+      if (!selectedTermId) {
+        toast.error("Error", {
+          description: "No term found for the selected classes.",
+        });
+        setIsAssigning(false);
+        return;
+      }
+
       const result = await assignClassesToTeacher({
         teacherId: teacher.id,
         classTermIds: selectedClassTerms,
+        termId: selectedTermId,
       });
 
       if (result.success) {
@@ -352,7 +366,7 @@ export function AssignmentsManager({
                     <span className="font-medium">Current Term</span>
                     <Badge
                       variant="secondary"
-                      className="bg-green-100 text-green-800"
+                      className="bg-green-500/10 text-green-700 dark:text-green-400"
                     >
                       {currentTermClasses.length}
                     </Badge>
@@ -408,7 +422,7 @@ export function AssignmentsManager({
               >
                 <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-md hover:bg-muted/50">
                   <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-gray-500" />
+                    <div className="h-2 w-2 rounded-full bg-muted-foreground" />
                     <span className="font-medium">Other Terms</span>
                     <Badge variant="outline">{otherTermClasses.length}</Badge>
                   </div>
@@ -607,7 +621,7 @@ export function AssignmentsManager({
                         {classTerm.isCurrent && (
                           <Badge
                             variant="secondary"
-                            className="bg-green-100 text-green-800"
+                            className="bg-green-500/10 text-green-700 dark:text-green-400"
                           >
                             Current
                           </Badge>

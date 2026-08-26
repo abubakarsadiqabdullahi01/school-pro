@@ -244,7 +244,7 @@ export function AssignSubjectsToTeacherForm({
                       {term.isCurrent && (
                         <Badge
                           variant="secondary"
-                          className="ml-2 bg-green-100 text-green-800"
+                          className="ml-2 bg-green-500/10 text-green-700 dark:text-green-400"
                         >
                           Current
                         </Badge>

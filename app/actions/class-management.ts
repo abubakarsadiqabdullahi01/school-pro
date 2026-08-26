@@ -128,8 +128,12 @@ export async function deleteClass(id: string) {
         schoolId: true,
         classTerms: { select: { id: true } },
         subjects: { select: { id: true } },
-        feeStructures: { select: { id: true } },
       },
+    })
+
+    // Fees now hang off ClassTerm rather than Class, so they are counted through it.
+    const feeStructureCount = await prisma.feeStructure.count({
+      where: { classTerm: { classId: id } },
     })
 
     if (!classToDelete) {
@@ -148,7 +152,14 @@ export async function deleteClass(id: string) {
       }
     }
 
-    // Delete all related data
+    // Delete all related data. Fees go first: they hang off ClassTerm, so deleting the
+    // class terms would cascade them away and leave this deleteMany matching nothing.
+    if (feeStructureCount > 0) {
+      await prisma.feeStructure.deleteMany({
+        where: { classTerm: { classId: id } },
+      })
+    }
+
     if (classToDelete.classTerms.length > 0) {
       await prisma.classTerm.deleteMany({
         where: { classId: id },
@@ -157,12 +168,6 @@ export async function deleteClass(id: string) {
 
     if (classToDelete.subjects.length > 0) {
       await prisma.classSubject.deleteMany({
-        where: { classId: id },
-      })
-    }
-
-    if (classToDelete.feeStructures.length > 0) {
-      await prisma.feeStructure.deleteMany({
         where: { classId: id },
       })
     }
@@ -313,6 +318,6 @@ export async function assignSubjectsToClass({
     return { success: true }
   } catch (error) {
     console.error("Failed to assign subjects:", error)
-    throw new Error(error.message || "Failed to assign subjects")
+    throw new Error(error instanceof Error ? error.message : "Failed to assign subjects")
   }
 }

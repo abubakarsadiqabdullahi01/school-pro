@@ -1,17 +1,11 @@
 import { Suspense } from "react"
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { SchoolSettingsOverview } from "@/components/school-settings-management/school-settings-overview"
 import { getSchoolSettingsData } from "@/app/actions/school-settings"
-
 import { LoadingSpinner } from "@/components/dashboard/loading-spinner"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function SchoolSettingsPage() {
-  const session = await auth()
-
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
+  await requireAdminSchool()
 
   return (
     <div className="space-y-6">
@@ -30,7 +24,7 @@ export default async function SchoolSettingsPage() {
 async function SchoolSettingsContent() {
   const settingsData = await getSchoolSettingsData()
 
-  if (!settingsData.success) {
+  if (!settingsData.success || !settingsData.data) {
     return (
       <div className="text-center py-8">
         <p className="text-destructive">Failed to load school settings</p>

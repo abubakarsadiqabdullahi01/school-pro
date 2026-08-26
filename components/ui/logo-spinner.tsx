@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { motion } from "framer-motion"
+import { motion, type Variants } from "framer-motion"
 import { Loader2, School } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -31,7 +31,7 @@ const textSizeClasses = {
   xl: "text-xl",
 }
 
-const spinVariants = {
+const spinVariants: Variants = {
   spin: {
     rotate: 360,
     transition: {
@@ -42,7 +42,7 @@ const spinVariants = {
   },
 }
 
-const pulseVariants = {
+const pulseVariants: Variants = {
   pulse: {
     scale: [1, 1.1, 1],
     opacity: [0.7, 1, 0.7],
@@ -54,7 +54,7 @@ const pulseVariants = {
   },
 }
 
-const bounceVariants = {
+const bounceVariants: Variants = {
   bounce: {
     y: [0, -10, 0],
     transition: {
@@ -65,7 +65,7 @@ const bounceVariants = {
   },
 }
 
-const fadeVariants = {
+const fadeVariants: Variants = {
   fade: {
     opacity: [0.3, 1, 0.3],
     transition: {
@@ -76,7 +76,7 @@ const fadeVariants = {
   },
 }
 
-const containerVariants = {
+const containerVariants: Variants = {
   initial: { opacity: 0, scale: 0.8 },
   animate: {
     opacity: 1,

@@ -12,7 +12,7 @@ export default async function SuperAdminDashboardPage() {
   // Fetch real data
   const [statsResult, performanceResult] = await Promise.all([getSystemStats(), getSchoolPerformance()])
 
-  if (!statsResult.success || !performanceResult.success) {
+  if (!statsResult.success || !performanceResult.success || !statsResult.data || !performanceResult.data) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">

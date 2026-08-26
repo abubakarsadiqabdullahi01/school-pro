@@ -46,13 +46,13 @@ export default async function TermDetailsPage({ params }: { params: { id: string
           id: true,
         },
       },
-      feeStructures: {
-        select: {
-          id: true,
-        },
-      },
     },
   })
+
+  // Fees hang off ClassTerm rather than Term, so they are counted through it.
+  const feeStructureCount = termData
+    ? await prisma.feeStructure.count({ where: { classTerm: { termId: termData.id } } })
+    : 0
 
   if (!termData) {
     notFound()
@@ -150,7 +150,7 @@ export default async function TermDetailsPage({ params }: { params: { id: string
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Fee Structures</h3>
-                <p>{termData.feeStructures.length} fee structure(s) defined for this term</p>
+                <p>{feeStructureCount} fee structure(s) defined for this term</p>
               </div>
               <div className="pt-4">
                 <Button variant="outline" asChild className="w-full">

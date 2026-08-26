@@ -13,7 +13,7 @@ export default async function SuperAdminAnalyticsPage() {
 
   const analyticsResult = await getSystemAnalytics()
 
-  if (!analyticsResult.success) {
+  if (!analyticsResult.success || !analyticsResult.data) {
     return (
       <PageTransition>
         <div className="flex items-center justify-center h-96">
@@ -28,7 +28,7 @@ export default async function SuperAdminAnalyticsPage() {
 
   return (
     <PageTransition>
-      <SuperAdminAnalytics data={analyticsResult.data} />
+      <SuperAdminAnalytics />
     </PageTransition>
   )
 }

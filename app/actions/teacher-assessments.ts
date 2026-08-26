@@ -2,8 +2,14 @@
 
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { requireTeacher } from "@/lib/authz";
+import { recordAudit } from "@/lib/audit";
 import { unstable_cache } from "next/cache";
 import { revalidateTag } from "next/cache";
+import { log } from "@/lib/logger";
+import { assertScoresWithinScheme } from "@/lib/assessment-scheme";
+import { loadAssessmentScheme } from "@/lib/assessment-scheme.server";
+import { gradeScoreForSchool } from "@/lib/grading.server";
 
 // Enhanced types
 interface AssessmentData {
@@ -27,18 +33,13 @@ interface AssessmentWithCalculations extends AssessmentData {
 }
 
 // Enhanced authorization for teachers
+// Role and school scope come from the shared boundary; the teacher record with its user
+// and school is still loaded because callers in this file read names off it.
 async function authorizeTeacherAndGetUser() {
-  const session = await auth();
-  if (!session?.user) {
-    throw new Error("Authentication required");
-  }
+  const actor = await requireTeacher();
 
-  if (session.user.role !== "TEACHER") {
-    throw new Error("Teacher access required");
-  }
-
-  const teacher = await prisma.teacher.findUnique({
-    where: { userId: session.user.id },
+  const teacher = await prisma.teacher.findUniqueOrThrow({
+    where: { id: actor.teacherId },
     include: {
       user: {
         select: {
@@ -55,38 +56,10 @@ async function authorizeTeacherAndGetUser() {
     },
   });
 
-  if (!teacher) {
-    throw new Error("Teacher profile not found");
-  }
-
-  return { teacher, schoolId: teacher.schoolId, role: session.user.role };
+  return { actor, teacher, schoolId: actor.schoolId!, role: actor.role };
 }
 
 // Enhanced grading system with fallback
-const getGradingSystem = unstable_cache(
-  async (schoolId: string) => {
-    try {
-      const gradingSystem = await prisma.gradingSystem.findFirst({
-        where: {
-          schoolId,
-          isDefault: true,
-        },
-        include: {
-          levels: {
-            orderBy: { minScore: "desc" },
-          },
-        },
-      });
-
-      return gradingSystem;
-    } catch (error) {
-      console.error("Error fetching grading system:", error);
-      return null;
-    }
-  },
-  ["grading-system"],
-  { revalidate: 3600, tags: ["grading"] },
-);
 
 // Safe calculation functions
 function calculateTotalScore(
@@ -105,37 +78,22 @@ function calculateTotalScore(
 }
 
 // Enhanced grade calculation
+// Delegates to the single grading implementation in lib/grading.ts. This used to be a
+// local copy of the bands and the fallback, one of three that agreed with each other but
+// not with the class-term aggregation.
 export async function calculateGradeFromScore(
   totalScore: number | null,
   schoolId: string,
 ): Promise<{ grade: string; remark: string } | null> {
   if (totalScore === null || totalScore === undefined) return null;
 
-  try {
-    const gradingSystem = await getGradingSystem(schoolId);
+  const result = await gradeScoreForSchool(totalScore, schoolId);
 
-    if (!gradingSystem?.levels || gradingSystem.levels.length === 0) {
-      // Enhanced default grading system
-      if (totalScore >= 80) return { grade: "A1", remark: "Excellent" };
-      if (totalScore >= 70) return { grade: "A2", remark: "Very Good" };
-      if (totalScore >= 60) return { grade: "B1", remark: "Good" };
-      if (totalScore >= 50) return { grade: "B2", remark: "Fair" };
-      if (totalScore >= 45) return { grade: "C1", remark: "Pass" };
-      if (totalScore >= 40) return { grade: "C2", remark: "Weak Pass" };
-      return { grade: "F", remark: "Fail" };
-    }
-
-    const level = gradingSystem.levels.find(
-      (l) => totalScore >= l.minScore && totalScore <= l.maxScore,
-    );
-
-    return level
-      ? { grade: level.grade, remark: level.remark }
-      : { grade: "F", remark: "Fail" };
-  } catch (error) {
-    console.error("Error calculating grade:", error);
-    return { grade: "F", remark: "Error" };
-  }
+  // Callers render this straight into a report card, so an unmatched score has to say so
+  // rather than borrow a letter it did not earn.
+  return result.grade === null
+    ? { grade: "\u2014", remark: result.remark }
+    : { grade: result.grade, remark: result.remark };
 }
 
 // Get subjects assigned to the current teacher
@@ -616,9 +574,12 @@ export async function saveAssessments(
   classTermId: string,
 ) {
   try {
-    console.log("\n=== TEACHER SAVE ASSESSMENTS START ===");
+    log.debug("\n=== TEACHER SAVE ASSESSMENTS START ===");
 
-    const { teacher, schoolId } = await authorizeTeacherAndGetUser();
+    const { actor, teacher, schoolId } = await authorizeTeacherAndGetUser();
+
+    // Loaded once for the whole batch rather than per student.
+    const assessmentScheme = await loadAssessmentScheme(schoolId);
 
     // Validate that teacher is assigned to this class term
     const teacherClassTerm = await prisma.teacherClassTerm.findFirst({
@@ -653,12 +614,12 @@ export async function saveAssessments(
       throw new Error("Term ID and Subject ID are required");
     }
 
-    console.log("Input Parameters:");
-    console.log("- termId:", termId);
-    console.log("- subjectId:", subjectId);
-    console.log("- classTermId:", classTermId);
-    console.log("- teacherId:", teacher.id);
-    console.log("- assessments count:", assessments.length);
+    log.debug("Input Parameters:");
+    log.debug("- termId:", termId);
+    log.debug("- subjectId:", subjectId);
+    log.debug("- classTermId:", classTermId);
+    log.debug("- teacherId:", teacher.id);
+    log.debug("- assessments count:", assessments.length);
 
     // Validate that all required entities exist
     const [termExists, subjectExists] = await Promise.all([
@@ -700,13 +661,13 @@ export async function saveAssessments(
       );
     }
 
-    // Check for existing assessments to avoid unique constraint violations
+    // Informational only — the save itself upserts. Deliberately not filtered by
+    // teacherId: a row saved by an admin or another teacher is still this student's row.
     const existingAssessments = await prisma.assessment.findMany({
       where: {
         studentId: { in: studentIds },
         subjectId,
         termId,
-        teacherId: teacher.id,
       },
       select: {
         id: true,
@@ -714,7 +675,7 @@ export async function saveAssessments(
       },
     });
 
-    console.log(`Found ${existingAssessments.length} existing assessments`);
+    log.debug(`Found ${existingAssessments.length} existing assessments`);
 
     // Process assessments in batches for better performance
     const BATCH_SIZE = 5;
@@ -722,7 +683,7 @@ export async function saveAssessments(
 
     for (let i = 0; i < assessments.length; i += BATCH_SIZE) {
       const batch = assessments.slice(i, i + BATCH_SIZE);
-      console.log(
+      log.debug(
         `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}, items ${i + 1} to ${Math.min(i + BATCH_SIZE, assessments.length)}`,
       );
 
@@ -730,30 +691,15 @@ export async function saveAssessments(
         const batchResults = await prisma.$transaction(
           batch.map((assessment, batchIndex) => {
             const globalIndex = i + batchIndex;
-            console.log(
+            log.debug(
               `Processing assessment ${globalIndex + 1} for student ${assessment.studentId}`,
             );
 
             // Validate score ranges
-            const validateScore = (
-              score: number | null | undefined,
-              field: string,
-              max: number,
-            ) => {
-              if (score !== null && score !== undefined) {
-                if (score < 0 || score > max) {
-                  throw new Error(
-                    `${field} score must be between 0 and ${max}, got ${score}`,
-                  );
-                }
-              }
-            };
-
-            validateScore(assessment.ca1, "CA1", 10);
-            validateScore(assessment.ca2, "CA2", 10);
-            validateScore(assessment.ca3, "CA3", 10);
-            validateScore(assessment.exam, "Exam", 70);
-
+            // Bounds come from the school's own scheme, loaded once for this save, not
+            // from literals. This used to be a local validator hardcoded to CA 10/10/10
+            // plus a 70-mark exam, repeated in three files.
+            assertScoresWithinScheme(assessment, assessmentScheme);
             // Prepare data according to schema
             const data = {
               studentId: assessment.studentId,
@@ -772,73 +718,89 @@ export async function saveAssessments(
               createdBy: teacher.userId,
             };
 
-            console.log(
-              `Assessment data for student ${assessment.studentId}:`,
-              JSON.stringify(data, null, 2),
-            );
 
-            // Check if this is an update or create operation
-            const existingAssessment = existingAssessments.find(
-              (ea) => ea.studentId === assessment.studentId,
-            );
-
-            if (assessment.id || existingAssessment) {
-              const assessmentId = assessment.id || existingAssessment?.id;
-              console.log(`Updating existing assessment ${assessmentId}`);
-              return prisma.assessment.update({
-                where: { id: assessmentId },
-                data: {
-                  ...data,
-                  updatedBy: teacher.userId,
+            // One atomic upsert on the natural key. This used to look for an existing row
+            // filtered by `teacherId`, so it never saw a row an admin or another teacher
+            // had already saved for this student and subject, fell through to `create`,
+            // and inserted a duplicate alongside it. Keyed without teacherId there is one
+            // row to find, and `teacherId` below simply records who last entered a score.
+            return prisma.assessment.upsert({
+              where: {
+                studentId_subjectId_termId: {
+                  studentId: assessment.studentId,
+                  subjectId,
+                  termId,
                 },
-              });
-            } else {
-              console.log(
-                `Creating new assessment for student ${assessment.studentId}`,
-              );
-              return prisma.assessment.create({
-                data: {
-                  ...data,
-                  createdBy: teacher.userId,
-                },
-              });
-            }
+              },
+              update: {
+                ...data,
+                updatedBy: teacher.userId,
+              },
+              create: {
+                ...data,
+                createdBy: teacher.userId,
+              },
+            });
           }),
         );
 
         savedAssessments.push(...batchResults);
-        console.log(
+        log.debug(
           `Batch ${Math.floor(i / BATCH_SIZE) + 1} completed successfully`,
         );
       } catch (batchError) {
+        const prismaError = batchError as {
+          code?: string;
+          meta?: unknown;
+          message?: string;
+        };
         console.error(
           `Error in batch ${Math.floor(i / BATCH_SIZE) + 1}:`,
           batchError,
         );
 
         // Log the specific Prisma error details
-        if (batchError.code) {
-          console.error("Prisma error code:", batchError.code);
+        if (prismaError.code) {
+          console.error("Prisma error code:", prismaError.code);
         }
-        if (batchError.meta) {
-          console.error("Prisma error meta:", batchError.meta);
+        if (prismaError.meta) {
+          console.error("Prisma error meta:", prismaError.meta);
         }
-        if (batchError.message) {
-          console.error("Prisma error message:", batchError.message);
+        if (prismaError.message) {
+          console.error("Prisma error message:", prismaError.message);
         }
 
         throw new Error(
-          `Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batchError.message}`,
+          `Failed to save batch ${Math.floor(i / BATCH_SIZE) + 1}: ${
+            prismaError.message ?? "Unknown error"
+          }`,
         );
       }
     }
 
     // Revalidate relevant caches
-    revalidateTag(`assessments-${termId}-${subjectId}`);
-    revalidateTag("assessments");
+    revalidateTag(`assessments-${termId}-${subjectId}`, "max");
+    revalidateTag("assessments", "max");
 
-    console.log(`Successfully saved ${savedAssessments.length} assessments`);
-    console.log("=== TEACHER SAVE ASSESSMENTS COMPLETE ===\n");
+    log.debug(`Successfully saved ${savedAssessments.length} assessments`);
+    log.debug("=== TEACHER SAVE ASSESSMENTS COMPLETE ===\n");
+
+    await recordAudit({
+      actor,
+      action: "assessment.save",
+      entityType: "Assessment",
+      schoolId: teacher.schoolId,
+      summary:
+        `Saved ${savedAssessments.length} score${savedAssessments.length === 1 ? "" : "s"} ` +
+        `for subject ${subjectId} (entered by teacher)`,
+      after: {
+        termId,
+        subjectId,
+        classTermId,
+        studentCount: savedAssessments.length,
+        recordedTeacherId: teacher.id,
+      },
+    });
 
     return {
       success: true,
@@ -1096,7 +1058,7 @@ export async function bulkUpdateAssessments(
     );
 
     // Revalidate cache
-    revalidateTag(`assessments-${termId}-${subjectId}`);
+    revalidateTag(`assessments-${termId}-${subjectId}`, "max");
 
     return { success: true, data: results };
   } catch (error) {

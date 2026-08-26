@@ -82,14 +82,14 @@ export function TermTimeline({ sessions, selectedSession, onSessionSelect }: Ter
   const now = new Date()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Session Selector */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Academic Timeline</CardTitle>
+      <Card className="shadow-sm">
+        <CardHeader className="p-4">
+          <CardTitle className="text-base">Academic Timeline</CardTitle>
           <CardDescription>View the chronological timeline of your academic sessions</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 pt-0">
           <div className="space-y-2">
             <label className="text-sm font-medium">Select Session</label>
             <Select
@@ -123,17 +123,17 @@ export function TermTimeline({ sessions, selectedSession, onSessionSelect }: Ter
 
       {/* Timeline */}
       {selectedSession && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{selectedSession.name} Timeline</CardTitle>
+        <Card className="shadow-sm">
+          <CardHeader className="p-4">
+            <CardTitle className="text-base">{selectedSession.name} Timeline</CardTitle>
             <CardDescription>Complete timeline with terms, breaks, and milestones</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pt-0">
             <div className="relative">
               {/* Timeline line */}
               <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-border"></div>
 
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {timelineItems.map((item, index) => {
                   const isPast = item.date < now
                   const isCurrent =
@@ -153,7 +153,7 @@ export function TermTimeline({ sessions, selectedSession, onSessionSelect }: Ter
                             ? "bg-green-500 border-green-500"
                             : isCurrent
                               ? "bg-blue-500 border-blue-500"
-                              : "bg-white border-gray-300"
+                              : "bg-card border-border"
                         }
                       `}
                       >
@@ -171,7 +171,7 @@ export function TermTimeline({ sessions, selectedSession, onSessionSelect }: Ter
                           </Badge>
                         </div>
 
-                        <p className="text-sm text-muted-foreground mb-2">{item.description}</p>
+                        <p className="mb-1.5 text-sm text-muted-foreground">{item.description}</p>
 
                         <div className="flex items-center gap-4 text-xs text-muted-foreground">
                           <div className="flex items-center gap-1">

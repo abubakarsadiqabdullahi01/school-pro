@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { toNumber } from "@/lib/money";
 import bcrypt from "bcryptjs";
 import { Gender } from "@prisma/client";
 import { revalidatePath } from "next/cache";
@@ -69,6 +70,8 @@ export async function createStudent(data: {
     if (!data.classId || !data.termId) {
       return { success: false, error: "Class and Term are required" };
     }
+    const classId = data.classId;
+    const termId = data.termId;
 
     // ============================================
     // GENERATE ADMISSION NUMBER (SAFE)
@@ -177,16 +180,16 @@ export async function createStudent(data: {
       // ============================================
       console.log(
         "Enrolling student with classId:",
-        data.classId,
+        classId,
         "termId:",
-        data.termId,
+        termId,
       );
 
       // First, get or create the ClassTerm
       let classTerm = await tx.classTerm.findFirst({
         where: {
-          classId: data.classId,
-          termId: data.termId,
+          classId,
+          termId,
         },
       });
 
@@ -195,8 +198,8 @@ export async function createStudent(data: {
         console.log("ClassTerm not found, creating new one...");
         classTerm = await tx.classTerm.create({
           data: {
-            classId: data.classId,
-            termId: data.termId,
+            classId,
+            termId,
           },
         });
       }
@@ -209,7 +212,7 @@ export async function createStudent(data: {
           data: {
             studentId: student.id,
             classTermId: classTerm.id,
-            termId: data.termId,
+            termId,
             status: "ACTIVE",
           },
         });
@@ -219,7 +222,7 @@ export async function createStudent(data: {
           data: {
             studentId: student.id,
             classTermId: classTerm.id,
-            termId: data.termId,
+            termId,
             action: "ENROLLED",
             createdBy: userId,
           },
@@ -536,7 +539,17 @@ export async function toggleStudentStatus(studentId: string) {
 
     const student = await prisma.student.findUnique({
       where: { id: studentId },
-      include: { user: true },
+      include: {
+        user: {
+          include: {
+            credentials: {
+              where: { type: "EMAIL" },
+              select: { value: true },
+              take: 1,
+            },
+          },
+        },
+      },
     });
 
     if (!student) {
@@ -690,7 +703,8 @@ export async function getStudent(input: { studentId: string }) {
 
     const payments = student.payments.map((p) => ({
       id: p.id,
-      amount: p.amount,
+      // Plain number at the boundary into a client component. Display only.
+      amount: toNumber(p.amount),
       status: p.status,
       paymentDate: p.paymentDate.toISOString().split("T")[0],
       receiptNo: p.receiptNo,
@@ -823,9 +837,9 @@ export async function getStudents({
     // Search by name or admission number
     if (search) {
       where.OR = [
-        { admissionNo: { contains: search, mode: "insensitive" } },
-        { user: { firstName: { contains: search, mode: "insensitive" } } },
-        { user: { lastName: { contains: search, mode: "insensitive" } } },
+        { admissionNo: { contains: search } },
+        { user: { firstName: { contains: search } } },
+        { user: { lastName: { contains: search } } },
       ];
     }
 
@@ -1005,12 +1019,22 @@ export async function searchParents(query: string) {
       where: {
         schoolId,
         OR: [
-          { user: { firstName: { contains: query, mode: "insensitive" } } },
-          { user: { lastName: { contains: query, mode: "insensitive" } } },
-          { user: { phone: { contains: query, mode: "insensitive" } } },
+          { user: { firstName: { contains: query } } },
+          { user: { lastName: { contains: query } } },
+          { user: { phone: { contains: query } } },
         ],
       },
-      include: { user: true },
+      include: {
+        user: {
+          include: {
+            credentials: {
+              where: { type: "EMAIL" },
+              select: { value: true },
+              take: 1,
+            },
+          },
+        },
+      },
       take: 10,
     });
 

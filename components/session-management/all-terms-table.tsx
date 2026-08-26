@@ -2,13 +2,13 @@
 
 import { useState } from "react"
 import { format } from "date-fns"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   CalendarRange,
   Download,
   Edit,
   Eye,
   MoreHorizontal,
-  Plus,
   Search,
   Trash2,
   Calendar,
@@ -44,6 +44,7 @@ import {
 import { toast } from "sonner"
 import { deleteTerm, setCurrentTerm } from "@/app/actions/term-management"
 import { motion } from "framer-motion"
+import { queryKeys } from "@/lib/query-keys"
 
 interface Term {
   id: string
@@ -62,15 +63,17 @@ interface Term {
 
 interface AllTermsTableProps {
   terms: Term[]
+  hideSchoolColumn?: boolean
 }
 
-export function AllTermsTable({ terms }: AllTermsTableProps) {
+export function AllTermsTable({ terms, hideSchoolColumn = false }: AllTermsTableProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [termToDelete, setTermToDelete] = useState<Term | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSettingCurrent, setIsSettingCurrent] = useState<string | null>(null)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   // Filter terms based on search query
   const filteredTerms = terms.filter(
@@ -93,13 +96,13 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
     const endDate = new Date(term.endDate)
 
     if (term.isCurrent) {
-      return { label: "Current", variant: "default" as const, color: "bg-green-100 text-green-800" }
+      return { label: "Current", variant: "default" as const, color: "bg-green-500/10 text-green-700 dark:text-green-400" }
     } else if (now < startDate) {
-      return { label: "Upcoming", variant: "secondary" as const, color: "bg-blue-100 text-blue-800" }
+      return { label: "Upcoming", variant: "secondary" as const, color: "bg-blue-500/10 text-blue-700 dark:text-blue-400" }
     } else if (now > endDate) {
-      return { label: "Completed", variant: "outline" as const, color: "bg-gray-100 text-gray-800" }
+      return { label: "Completed", variant: "outline" as const, color: "bg-muted text-foreground" }
     } else {
-      return { label: "Active", variant: "secondary" as const, color: "bg-yellow-100 text-yellow-800" }
+      return { label: "Active", variant: "secondary" as const, color: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400" }
     }
   }
 
@@ -113,53 +116,57 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
     router.push(`/dashboard/super-admin/terms/${termId}`)
   }
 
-  // Handle add term
-  const handleAddTerm = () => {
-    router.push("/dashboard/super-admin/terms/create")
-  }
-
-  // Handle delete term
-  const handleDeleteTerm = async () => {
-    if (!termToDelete) return
-
-    try {
-      setIsDeleting(true)
-      const result = await deleteTerm(termToDelete.id)
-
+  const deleteTermMutation = useMutation({
+    mutationFn: deleteTerm,
+    onMutate: () => setIsDeleting(true),
+    onSuccess: async (result) => {
       if (result.success) {
         toast.success("Success", { description: result.message })
+        await queryClient.invalidateQueries({ queryKey: queryKeys.superAdmin.terms })
         router.refresh()
       } else {
         toast.error("Error", { description: result.error })
       }
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error("Failed to delete term:", error)
       toast.error("Error", { description: "Failed to delete term" })
-    } finally {
+    },
+    onSettled: () => {
       setIsDeleting(false)
       setDeleteDialogOpen(false)
       setTermToDelete(null)
-    }
-  }
+    },
+  })
 
-  // Handle set as current term
-  const handleSetCurrentTerm = async (termId: string, sessionId: string) => {
-    try {
-      setIsSettingCurrent(termId)
-      const result = await setCurrentTerm(termId, sessionId)
-
+  const setCurrentTermMutation = useMutation({
+    mutationFn: ({ termId, sessionId }: { termId: string; sessionId: string }) => setCurrentTerm(termId, sessionId),
+    onMutate: ({ termId }) => setIsSettingCurrent(termId),
+    onSuccess: async (result) => {
       if (result.success) {
         toast.success("Success", { description: result.message })
+        await queryClient.invalidateQueries({ queryKey: queryKeys.superAdmin.terms })
         router.refresh()
       } else {
         toast.error("Error", { description: result.error })
       }
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error("Failed to update current term:", error)
       toast.error("Error", { description: "Failed to update current term" })
-    } finally {
-      setIsSettingCurrent(null)
-    }
+    },
+    onSettled: () => setIsSettingCurrent(null),
+  })
+
+  // Handle delete term
+  const handleDeleteTerm = () => {
+    if (!termToDelete) return
+    deleteTermMutation.mutate(termToDelete.id)
+  }
+
+  // Handle set as current term
+  const handleSetCurrentTerm = (termId: string, sessionId: string) => {
+    setCurrentTermMutation.mutate({ termId, sessionId })
   }
 
   return (
@@ -167,66 +174,54 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="space-y-6"
+      className="space-y-4"
     >
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Academic Terms</h2>
-          <p className="text-muted-foreground">Manage academic terms across all sessions and schools</p>
-        </div>
-        <Button onClick={handleAddTerm}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Term
-        </Button>
-      </div>
-
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Total Terms</CardTitle>
             <BookOpen className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{terms.length}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{terms.length}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Current Terms</CardTitle>
             <CalendarRange className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{terms.filter((t) => t.isCurrent).length}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{terms.filter((t) => t.isCurrent).length}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Active Sessions</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{new Set(terms.map((t) => t.sessionId)).size}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{new Set(terms.map((t) => t.sessionId)).size}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
             <CardTitle className="text-sm font-medium">Schools</CardTitle>
             <School className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{new Set(terms.map((t) => t.schoolId)).size}</div>
+          <CardContent className="p-3 pt-1">
+            <div className="text-lg font-bold leading-tight">{new Set(terms.map((t) => t.schoolId)).size}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* Search and Actions */}
-      <Card>
-        <CardHeader>
+      <Card className="shadow-sm">
+        <CardHeader className="p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative w-full sm:w-96">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -247,14 +242,14 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
           </div>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="p-4 pt-0">
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="whitespace-nowrap">Term Name</TableHead>
                   <TableHead className="whitespace-nowrap">Session</TableHead>
-                  <TableHead className="whitespace-nowrap">School</TableHead>
+                  {!hideSchoolColumn && <TableHead className="whitespace-nowrap">School</TableHead>}
                   <TableHead className="whitespace-nowrap">Duration</TableHead>
                   <TableHead className="whitespace-nowrap">Students</TableHead>
                   <TableHead className="whitespace-nowrap">Status</TableHead>
@@ -264,7 +259,7 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
               <TableBody>
                 {filteredTerms.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">
+                    <TableCell colSpan={hideSchoolColumn ? 6 : 7} className="h-24 text-center">
                       {searchQuery ? "No terms found matching your search." : "No terms found."}
                     </TableCell>
                   </TableRow>
@@ -281,12 +276,14 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
                             <div className="font-medium">{term.sessionName}</div>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{term.schoolName}</div>
-                            <div className="text-sm text-muted-foreground">({term.schoolCode})</div>
-                          </div>
-                        </TableCell>
+                        {!hideSchoolColumn && (
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{term.schoolName}</div>
+                              <div className="text-sm text-muted-foreground">({term.schoolCode})</div>
+                            </div>
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="text-sm">
                             <div className="flex items-center gap-1">

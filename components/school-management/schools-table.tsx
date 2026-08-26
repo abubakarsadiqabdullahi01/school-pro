@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 import {
   ColumnDef,
@@ -15,7 +16,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { ArrowUpDown, Eye, Edit, MoreHorizontal, Power, PowerOff } from 'lucide-react'
+import { ArrowUpDown, Eye, Edit, MoreHorizontal, Power, PowerOff, Plus } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -39,6 +40,7 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { toggleSchoolStatus } from "@/app/actions/school-management"
 import Link from "next/link"
+import { queryKeys } from "@/lib/query-keys"
 
 interface School {
   id: string
@@ -59,23 +61,30 @@ interface SchoolsTableProps {
 
 export function SchoolsTable({ schools }: SchoolsTableProps) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = useState({})
 
-  const handleToggleStatus = async (schoolId: string) => {
-    try {
-      const result = await toggleSchoolStatus(schoolId)
+  const toggleStatusMutation = useMutation({
+    mutationFn: toggleSchoolStatus,
+    onSuccess: async (result) => {
       if (result.success) {
         toast.success(result.data?.message)
+        await queryClient.invalidateQueries({ queryKey: queryKeys.superAdmin.schools })
         router.refresh()
       } else {
         toast.error(result.error)
       }
-    } catch (error) {
+    },
+    onError: () => {
       toast.error("Failed to update school status")
-    }
+    },
+  })
+
+  const handleToggleStatus = (schoolId: string) => {
+    toggleStatusMutation.mutate(schoolId)
   }
 
   const columns: ColumnDef<School>[] = [
@@ -115,7 +124,10 @@ export function SchoolsTable({ schools }: SchoolsTableProps) {
         )
       },
       cell: ({ row }) => (
-        <div className="font-medium">{row.getValue("name")}</div>
+        <div className="min-w-[220px]">
+          <div className="font-medium">{row.getValue("name")}</div>
+          <div className="text-xs text-muted-foreground">Code: {row.original.code}</div>
+        </div>
       ),
     },
     {
@@ -129,14 +141,16 @@ export function SchoolsTable({ schools }: SchoolsTableProps) {
       accessorKey: "email",
       header: "Email",
       cell: ({ row }) => (
-        <div className="text-sm">{row.getValue("email")}</div>
+        <div className="max-w-[260px] truncate text-sm" title={row.getValue("email")}>
+          {row.getValue("email")}
+        </div>
       ),
     },
     {
       accessorKey: "phone",
       header: "Phone",
       cell: ({ row }) => (
-        <div className="text-sm">{row.getValue("phone")}</div>
+        <div className="whitespace-nowrap text-sm">{row.getValue("phone")}</div>
       ),
     },
     {
@@ -278,17 +292,18 @@ export function SchoolsTable({ schools }: SchoolsTableProps) {
 
   return (
     <div className="w-full">
-      <div className="flex items-center justify-between py-4">
+      <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
         <Input
           placeholder="Filter schools..."
           value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
           onChange={(event) =>
             table.getColumn("name")?.setFilterValue(event.target.value)
           }
-          className="max-w-sm"
+          className="w-full sm:max-w-sm"
         />
         <Button asChild>
           <Link href="/dashboard/super-admin/schools/add">
+            <Plus className="mr-2 h-4 w-4" />
             Add School
           </Link>
         </Button>

@@ -1,5 +1,7 @@
 import { UserManagementTable } from "@/components/user-management/user-management-table"
 import { prisma } from "@/lib/db"
+import { getActiveSchool } from "@/lib/school-context.server"
+import { schoolLabel } from "@/lib/school-context"
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 
@@ -12,8 +14,14 @@ export default async function TeacherUsersPage() {
   }
 
   // Fetch teacher users
+  // Scope to the school selected in the header switcher, or show every school.
+  const activeSchool = await getActiveSchool()
+
   const users = await prisma.user.findMany({
-    where: { role: "TEACHER" },
+    where: {
+      role: "TEACHER",
+      ...(activeSchool ? { teacher: { schoolId: activeSchool.id } } : {}),
+    },
     include: {
       teacher: true,
       credentials: {
@@ -39,7 +47,9 @@ export default async function TeacherUsersPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Teacher Users</h2>
-        <p className="text-muted-foreground">Manage teacher accounts in the system</p>
+        <p className="text-muted-foreground">
+          {activeSchool ? `Teacher accounts at ${schoolLabel(activeSchool)}` : "Manage teacher accounts in the system"}
+        </p>
       </div>
 
       <UserManagementTable

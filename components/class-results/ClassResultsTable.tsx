@@ -13,7 +13,7 @@ interface StudentResult {
   studentId: string
   studentName: string
   admissionNo: string
-  gender: string
+  gender: string | null
   subjects: Record<string, { score: number | null; grade: string | null }>
   totalScore: number
   averageScore: number
@@ -47,23 +47,23 @@ export const ClassResultsTable = memo(function ClassResultsTable({
   isLoading,
 }: ClassResultsTableProps) {
   const getGradeColor = (grade: string | null) => {
-    if (!grade) return "bg-gray-100 text-gray-800"
+    if (!grade) return "bg-muted text-foreground"
 
     const firstChar = grade.charAt(0).toUpperCase()
     switch (firstChar) {
       case "A":
-        return "bg-green-100 text-green-800"
+        return "bg-green-500/10 text-green-700 dark:text-green-400"
       case "B":
-        return "bg-blue-100 text-blue-800"
+        return "bg-blue-500/10 text-blue-700 dark:text-blue-400"
       case "C":
-        return "bg-yellow-100 text-yellow-800"
+        return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
       case "D":
       case "E":
-        return "bg-orange-100 text-orange-800"
+        return "bg-orange-500/10 text-orange-700 dark:text-orange-400"
       case "F":
-        return "bg-red-100 text-red-800"
+        return "bg-red-500/10 text-red-700 dark:text-red-400"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-muted text-foreground"
     }
   }
 
@@ -82,7 +82,7 @@ export const ClassResultsTable = memo(function ClassResultsTable({
     children: React.ReactNode
     className?: string
   }) => (
-    <TableHead className={`cursor-pointer hover:bg-gray-100 ${className}`} onClick={() => onSort(field)}>
+    <TableHead className={`cursor-pointer hover:bg-muted ${className}`} onClick={() => onSort(field)}>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -110,32 +110,32 @@ export const ClassResultsTable = memo(function ClassResultsTable({
   if (!results.length) {
     return (
       <div className="py-12 text-center">
-        <p className="text-gray-500">No results found. Ensure subject scores have been entered.</p>
+        <p className="text-muted-foreground">No results found. Ensure subject scores have been entered.</p>
       </div>
     )
   }
 
   return (
-    <div className="rounded-md border border-gray-300 overflow-x-auto">
-      <Table className="min-w-full bg-white">
+    <div className="rounded-md border border-border overflow-x-auto">
+      <Table className="min-w-full bg-card">
         <TableHeader>
-          <TableRow className="bg-gray-200">
+          <TableRow className="bg-muted">
             {showPositions && (
-              <SortableHeader field="position" className="w-[80px] text-center font-bold text-gray-800">
+              <SortableHeader field="position" className="w-[80px] text-center font-bold text-foreground">
                 Position
               </SortableHeader>
             )}
-            <SortableHeader field="admissionNo" className="w-[120px] text-center font-bold text-gray-800">
+            <SortableHeader field="admissionNo" className="w-[120px] text-center font-bold text-foreground">
               Adm. No.
             </SortableHeader>
-            <SortableHeader field="name" className="font-bold text-gray-800 min-w-[200px]">
+            <SortableHeader field="name" className="font-bold text-foreground min-w-[200px]">
               Student Name
             </SortableHeader>
-            <TableHead className="w-[60px] text-center font-bold text-gray-800">Gender</TableHead>
+            <TableHead className="w-[60px] text-center font-bold text-foreground">Gender</TableHead>
 
             {/* Subject Columns */}
             {subjects.map((subject) => (
-              <TableHead key={subject.id} className="w-[80px] text-center font-bold text-gray-800">
+              <TableHead key={subject.id} className="w-[80px] text-center font-bold text-foreground">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -147,18 +147,18 @@ export const ClassResultsTable = memo(function ClassResultsTable({
               </TableHead>
             ))}
 
-            <SortableHeader field="totalScore" className="w-[80px] text-center font-bold text-gray-800">
+            <SortableHeader field="totalScore" className="w-[80px] text-center font-bold text-foreground">
               Total
             </SortableHeader>
-            <SortableHeader field="averageScore" className="w-[80px] text-center font-bold text-gray-800">
+            <SortableHeader field="averageScore" className="w-[80px] text-center font-bold text-foreground">
               Average
             </SortableHeader>
-            <TableHead className="w-[80px] text-center font-bold text-gray-800">Grade</TableHead>
+            <TableHead className="w-[80px] text-center font-bold text-foreground">Grade</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {results.map((result) => (
-            <TableRow key={result.studentId} className="hover:bg-gray-50">
+            <TableRow key={result.studentId} className="hover:bg-muted/50">
               {showPositions && (
                 <TableCell className="text-center font-medium">
                   {result.position === 0 ? "-" : `${result.position}${getOrdinalSuffix(result.position)}`}
@@ -185,7 +185,7 @@ export const ClassResultsTable = memo(function ClassResultsTable({
                     )}
                   </div>
                 ) : (
-                  <span className="text-gray-400">-</span>
+                  <span className="text-muted-foreground">-</span>
                 )}
               </TableCell>
 

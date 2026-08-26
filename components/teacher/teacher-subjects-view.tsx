@@ -245,10 +245,10 @@ export function TeacherSubjectsView({
   return (
     <div className="space-y-8">
       {/* Quick Actions Bar */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between bg-white p-6 rounded-lg border shadow-sm">
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between bg-card p-6 rounded-lg border shadow-sm">
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input
               placeholder="Search subjects..."
               value={searchQuery}
@@ -435,11 +435,11 @@ interface SummaryCardProps {
 
 function SummaryCard({ title, value, icon: Icon, color }: SummaryCardProps) {
   const colorClasses = {
-    blue: "from-blue-50 to-blue-100 border-blue-200 text-blue-600",
-    green: "from-green-50 to-green-100 border-green-200 text-green-600",
-    purple: "from-purple-50 to-purple-100 border-purple-200 text-purple-600",
-    orange: "from-orange-50 to-orange-100 border-orange-200 text-orange-600",
-    indigo: "from-indigo-50 to-indigo-100 border-indigo-200 text-indigo-600"
+    blue: "from-blue-50 to-blue-100 border-blue-200 text-blue-600 dark:from-blue-950 dark:to-blue-900 dark:border-blue-800 dark:text-blue-400",
+    green: "from-green-50 to-green-100 border-green-200 text-green-600 dark:from-green-950 dark:to-green-900 dark:border-green-800 dark:text-green-400",
+    purple: "from-purple-50 to-purple-100 border-purple-200 text-purple-600 dark:from-purple-950 dark:to-purple-900 dark:border-purple-800 dark:text-purple-400",
+    orange: "from-orange-50 to-orange-100 border-orange-200 text-orange-600 dark:from-orange-950 dark:to-orange-900 dark:border-orange-800 dark:text-orange-400",
+    indigo: "from-indigo-50 to-indigo-100 border-indigo-200 text-indigo-600 dark:from-indigo-950 dark:to-indigo-900 dark:border-indigo-800 dark:text-indigo-400"
   };
 
   const textColorClasses = {
@@ -465,9 +465,9 @@ function EmptyState({ icon: Icon, title, description }: { icon: React.ElementTyp
   return (
     <Card>
       <CardContent className="flex flex-col items-center justify-center py-12">
-        <Icon className="h-12 w-12 text-gray-400 mb-4" />
-        <h3 className="text-lg font-semibold mb-2 text-gray-900">{title}</h3>
-        <p className="text-gray-600 text-center max-w-md">{description}</p>
+        <Icon className="h-12 w-12 text-muted-foreground mb-4" />
+        <h3 className="text-lg font-semibold mb-2 text-foreground">{title}</h3>
+        <p className="text-muted-foreground text-center max-w-md">{description}</p>
       </CardContent>
     </Card>
   );
@@ -475,13 +475,13 @@ function EmptyState({ icon: Icon, title, description }: { icon: React.ElementTyp
 
 function CurrentTermSubjectCard({ subject }: { subject: EnrichedTeacherSubject }) {
   return (
-    <div className="bg-white p-4 rounded-lg border border-blue-200">
+    <div className="bg-card p-4 rounded-lg border border-blue-200">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="font-semibold text-gray-900 truncate">{subject.subject.name}</h4>
+        <h4 className="font-semibold text-foreground truncate">{subject.subject.name}</h4>
         <Badge variant="outline" className="text-xs shrink-0">{subject.subject.code}</Badge>
       </div>
       {subject.currentTermAssignment && (
-        <div className="space-y-1 text-sm text-gray-600">
+        <div className="space-y-1 text-sm text-muted-foreground">
           <p className="flex items-center gap-1 truncate">
             <Users className="h-3 w-3 shrink-0" />
             {subject.currentTermAssignment.classTerm.class.name}
@@ -524,7 +524,7 @@ function SubjectCard({
         <CardHeader className="pb-4">
           <div className="flex items-start justify-between">
             <div className="space-y-1">
-              <CardTitle className="text-xl text-gray-900 flex items-center gap-2">
+              <CardTitle className="text-xl text-foreground flex items-center gap-2">
                 <BookOpen className="h-5 w-5 text-blue-600" />
                 {subject.subject.name}
               </CardTitle>
@@ -533,7 +533,7 @@ function SubjectCard({
                   {subject.subject.code}
                 </Badge>
                 {isCurrentlyTeaching && (
-                  <Badge className="bg-green-100 text-green-800 text-xs">
+                  <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 text-xs">
                     Active
                   </Badge>
                 )}
@@ -544,18 +544,18 @@ function SubjectCard({
 
         <CardContent className="space-y-4">
           {/* Quick Stats */}
-          <div className="grid grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
+          <div className="grid grid-cols-3 gap-3 p-3 bg-muted/50 rounded-lg">
             <div className="text-center">
               <p className="text-lg font-bold text-blue-600">{subject.totalClasses}</p>
-              <p className="text-xs text-gray-600">Classes</p>
+              <p className="text-xs text-muted-foreground">Classes</p>
             </div>
             <div className="text-center">
               <p className="text-lg font-bold text-green-600">{subject.totalStudents}</p>
-              <p className="text-xs text-gray-600">Students</p>
+              <p className="text-xs text-muted-foreground">Students</p>
             </div>
             <div className="text-center">
               <p className="text-lg font-bold text-purple-600">{subject.termAssignments.length}</p>
-              <p className="text-xs text-gray-600">Terms</p>
+              <p className="text-xs text-muted-foreground">Terms</p>
             </div>
           </div>
 
@@ -580,11 +580,11 @@ function SubjectCard({
           {/* Term Assignments Preview */}
           {showTermInfo && subject.termAssignments.length > 0 && (
             <div className="space-y-2">
-              <h5 className="font-medium text-gray-900 text-sm">Teaching History</h5>
+              <h5 className="font-medium text-foreground text-sm">Teaching History</h5>
               <div className="space-y-1 max-h-24 overflow-y-auto">
                 {subject.termAssignments.slice(0, 3).map((termAssignment) => (
-                  <div key={termAssignment.term.id} className="flex items-center justify-between text-xs p-2 bg-gray-50 rounded">
-                    <span className="text-gray-700">
+                  <div key={termAssignment.term.id} className="flex items-center justify-between text-xs p-2 bg-muted/50 rounded">
+                    <span className="text-foreground">
                       {termAssignment.term.session.name} - {termAssignment.term.name}
                     </span>
                     <Badge variant="outline" className="text-xs">
@@ -593,7 +593,7 @@ function SubjectCard({
                   </div>
                 ))}
                 {subject.termAssignments.length > 3 && (
-                  <p className="text-xs text-gray-500 text-center py-1">
+                  <p className="text-xs text-muted-foreground text-center py-1">
                     +{subject.termAssignments.length - 3} more terms
                   </p>
                 )}

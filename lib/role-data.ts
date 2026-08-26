@@ -21,8 +21,26 @@ export async function getRoleSpecificData(userId: string, role: string) {
           where: { userId },
           select: {
             id: true,
-            subjects: true,
             department: true,
+            teacherSubjects: {
+              select: {
+                id: true,
+                subject: {
+                  select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                  },
+                },
+                term: {
+                  select: {
+                    id: true,
+                    name: true,
+                    isCurrent: true,
+                  },
+                },
+              },
+            },
             // Add other necessary fields
           },
         })
@@ -64,4 +82,3 @@ export async function getRoleSpecificData(userId: string, role: string) {
     return null
   }
 }
-

@@ -71,8 +71,12 @@ export function AdminTermsTable({ terms, sessionId }: AdminTermsTableProps) {
 
     try {
       setIsDeleting(true)
-      await deleteTerm(termToDelete.id)
-      toast.success("Term deleted successfully")
+      const result = await deleteTerm(termToDelete.id)
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to delete term")
+        return
+      }
+      toast.success(result.message ?? "Term deleted successfully")
       router.refresh()
     } catch (error) {
       console.error("Failed to delete term:", error)
@@ -88,8 +92,12 @@ export function AdminTermsTable({ terms, sessionId }: AdminTermsTableProps) {
   const handleSetCurrentTerm = async (termId: string) => {
     try {
       setIsSettingCurrent(true)
-      await setCurrentTerm(termId, sessionId)
-      toast.success("Current term updated successfully")
+      const result = await setCurrentTerm(termId, sessionId)
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to update current term")
+        return
+      }
+      toast.success(result.message ?? "Current term updated successfully")
       router.refresh()
     } catch (error) {
       console.error("Failed to update current term:", error)
@@ -126,7 +134,7 @@ export function AdminTermsTable({ terms, sessionId }: AdminTermsTableProps) {
               <TableCell>{formatDate(term.endDate)}</TableCell>
               <TableCell>
                 {term.isCurrent ? (
-                  <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Current</Badge>
+                  <Badge className="bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-100">Current</Badge>
                 ) : (
                   <Badge variant="outline">Inactive</Badge>
                 )}

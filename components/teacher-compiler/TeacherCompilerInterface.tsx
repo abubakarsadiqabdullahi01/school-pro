@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { motion } from "framer-motion"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,7 +26,8 @@ import {
   saveTeacherAssessments,
 } from "@/app/actions/teacher-compiler"
 
-import type { FormState, Student, Subject, Assessment } from "@/components/score-entry/types"
+import type { FormState, Student, Subject, ScoreEntry } from "@/components/score-entry/types"
+import { queryKeys, queryTiming } from "@/lib/query-keys"
 
 interface TeacherCompilerInterfaceProps {
   teacherId: string
@@ -55,8 +56,8 @@ export function TeacherCompilerInterface({
     searchQuery: "",
   })
 
-  const [isSaving, setIsSaving] = useState(false)
   const [saveProgress, setSaveProgress] = useState(0)
+  const queryClient = useQueryClient()
 
   const {
     scores,
@@ -83,7 +84,7 @@ export function TeacherCompilerInterface({
       if (!result.success) throw new Error(result.error)
       return result.data
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // Get current term
@@ -97,7 +98,7 @@ export function TeacherCompilerInterface({
       if (!result.success) return null
       return result.data
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // Set initial term when terms load
@@ -117,15 +118,15 @@ export function TeacherCompilerInterface({
     isError: isClassTermsError,
     error: classTermsError,
   } = useQuery({
-    queryKey: ["teacher-class-terms", teacherId, form.termId],
+    queryKey: queryKeys.teacher.classes(form.termId),
     queryFn: async () => {
       if (!form.termId) return []
       const result = await getTeacherClassTerms(form.termId)
       if (!result.success) throw new Error(result.error)
-      return result.data
+      return result.data ?? []
     },
     enabled: !!form.termId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // Fetch teacher's subjects for selected class term
@@ -135,15 +136,15 @@ export function TeacherCompilerInterface({
     isError: isSubjectsError,
     error: subjectsError,
   } = useQuery<Subject[]>({
-    queryKey: ["teacher-subjects", teacherId, form.classId],
+    queryKey: queryKeys.teacher.subjects(form.classId),
     queryFn: async () => {
       if (!form.classId) return []
       const result = await getTeacherSubjectsForClassTerm(form.classId)
       if (!result.success) throw new Error(result.error)
-      return result.data
+      return result.data ?? []
     },
     enabled: !!form.classId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // Fetch students for selected class term
@@ -153,15 +154,15 @@ export function TeacherCompilerInterface({
     isError: isStudentsError,
     error: studentsError,
   } = useQuery<Student[]>({
-    queryKey: ["teacher-students", teacherId, form.classId],
+    queryKey: queryKeys.scoreEntry.students(form.classId),
     queryFn: async () => {
       if (!form.classId) return []
       const result = await getTeacherClassTermStudents(form.classId)
       if (!result.success) throw new Error(result.error)
-      return result.data
+      return result.data ?? []
     },
     enabled: !!form.classId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: queryTiming.stable,
   })
 
   // Fetch assessments with status
@@ -170,9 +171,8 @@ export function TeacherCompilerInterface({
     isLoading: isLoadingAssessments,
     isError: isAssessmentsError,
     error: assessmentsError,
-    refetch: refetchAssessments,
   } = useQuery({
-    queryKey: ["teacher-assessments-with-status", teacherId, form.classId, form.subjectId, form.termId],
+    queryKey: queryKeys.teacher.assessments(form.classId, form.subjectId, form.termId),
     queryFn: async () => {
       if (!form.classId || !form.subjectId || !form.termId) return null
       const result = await getTeacherAssessmentsWithStatus(form.classId, form.subjectId, form.termId)
@@ -180,7 +180,7 @@ export function TeacherCompilerInterface({
       return result.data
     },
     enabled: !!form.classId && !!form.subjectId && !!form.termId,
-    staleTime: 2 * 60 * 1000,
+    staleTime: queryTiming.interactive,
   })
 
   // Extract assessments and statistics from the enhanced data
@@ -191,6 +191,79 @@ export function TeacherCompilerInterface({
   const assessmentStats = useMemo(() => {
     return assessmentData?.statistics || null
   }, [assessmentData])
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!form.termId || !form.subjectId || !form.classId) {
+        throw new Error("Please select a term, class, and subject")
+      }
+
+      const dirtyScores = Object.values(scores).filter((score) => score.isDirty)
+      if (dirtyScores.length === 0) {
+        return { dirtyScores, result: null }
+      }
+
+      const studentClassTermByStudentId = new Map(students.map((student) => [student.id, student.studentClassTermId]))
+      const assessmentsToSave = dirtyScores.map((score) => ({
+        id: score.id ?? undefined,
+        studentId: score.studentId,
+        subjectId: form.subjectId,
+        termId: form.termId,
+        studentClassTermId: studentClassTermByStudentId.get(score.studentId) || "",
+        ca1: score.ca1,
+        ca2: score.ca2,
+        ca3: score.ca3,
+        exam: score.exam,
+        isAbsent: score.isAbsent,
+        isExempt: score.isExempt,
+      }))
+
+      const result = await saveTeacherAssessments(assessmentsToSave, form.termId, form.subjectId, form.classId)
+
+      if (!result.success) {
+        throw new Error(result.error || "Failed to save assessments")
+      }
+
+      return { dirtyScores, result }
+    },
+    onMutate: () => {
+      setSaveProgress(0)
+    },
+    onSuccess: async ({ dirtyScores, result }) => {
+      if (!result) {
+        toast.info("No changes to save")
+        return
+      }
+
+      const studentIds = dirtyScores.map((score) => score.studentId)
+      const assessmentIds: Record<string, string> = {}
+
+      result.data?.forEach((assessment, index) => {
+        const studentId = dirtyScores[index]?.studentId
+        if (studentId) {
+          assessmentIds[studentId] = assessment.id
+        }
+      })
+
+      markSaved(studentIds, assessmentIds)
+      toast.success("Assessments saved successfully", {
+        description: result.message || `Saved ${dirtyScores.length} assessment(s)`,
+      })
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.teacher.assessments(form.classId, form.subjectId, form.termId),
+      })
+    },
+    onError: (error) => {
+      console.error("Error saving assessments:", error)
+      toast.error("Failed to save assessments", {
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+      })
+    },
+    onSettled: () => {
+      setSaveProgress(0)
+    },
+  })
 
   // Initialize scores when students and assessments are loaded
   useEffect(() => {
@@ -253,7 +326,7 @@ export function TeacherCompilerInterface({
 
   // Handle score changes
   const handleScoreChange = useCallback(
-    (studentId: string, field: keyof Assessment, value: any) => {
+    (studentId: string, field: keyof ScoreEntry, value: any) => {
       updateScore(studentId, field, value)
     },
     [updateScore],
@@ -281,69 +354,8 @@ export function TeacherCompilerInterface({
 
   // Save assessments
   const handleSave = useCallback(async () => {
-    if (!form.termId || !form.subjectId || !form.classId) {
-      toast.error("Please select a term, class, and subject")
-      return
-    }
-
-    const dirtyScores = Object.values(scores).filter((score) => score.isDirty)
-    if (dirtyScores.length === 0) {
-      toast.info("No changes to save")
-      return
-    }
-
-    setIsSaving(true)
-    setSaveProgress(0)
-
-    try {
-      const assessmentsToSave = dirtyScores.map((score) => ({
-        id: score.id,
-        studentId: score.studentId,
-        subjectId: form.subjectId,
-        termId: form.termId,
-        studentClassTermId: students.find((s) => s.id === score.studentId)?.studentClassTermId || "",
-        ca1: score.ca1,
-        ca2: score.ca2,
-        ca3: score.ca3,
-        exam: score.exam,
-        isAbsent: score.isAbsent,
-        isExempt: score.isExempt,
-      }))
-
-      const result = await saveTeacherAssessments(assessmentsToSave, form.termId, form.subjectId, form.classId)
-
-      if (!result.success) {
-        throw new Error(result.error || "Failed to save assessments")
-      }
-
-      // Mark as saved
-      const studentIds = dirtyScores.map((s) => s.studentId)
-      const assessmentIds: Record<string, string> = {}
-
-      if (result.data) {
-        result.data.forEach((assessment, index) => {
-          const studentId = dirtyScores[index].studentId
-          assessmentIds[studentId] = assessment.id
-        })
-      }
-
-      markSaved(studentIds, assessmentIds)
-
-      toast.success("Assessments saved successfully", {
-        description: result.message || `Saved ${dirtyScores.length} assessment(s)`,
-      })
-
-      await refetchAssessments()
-    } catch (error) {
-      console.error("Error saving assessments:", error)
-      toast.error("Failed to save assessments", {
-        description: error instanceof Error ? error.message : "An unknown error occurred",
-      })
-    } finally {
-      setIsSaving(false)
-      setSaveProgress(0)
-    }
-  }, [form.termId, form.subjectId, form.classId, scores, students, markSaved, refetchAssessments])
+    saveMutation.mutate()
+  }, [saveMutation])
 
   // Handle query errors
   useEffect(() => {
@@ -398,22 +410,22 @@ export function TeacherCompilerInterface({
       className="space-y-6"
     >
       {/* Teacher Info Card */}
-      <Card className="border shadow-md bg-gradient-to-r from-blue-50 to-indigo-50">
+      <Card className="border shadow-md bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950">
         <CardHeader>
           <CardTitle className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="h-6 w-6" />
             Assessment Compiler
           </CardTitle>
-          <div className="flex flex-wrap gap-2 text-sm text-gray-600">
-            <Badge variant="outline" className="bg-blue-100 text-blue-800">
+          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-700 dark:text-blue-400">
               Teacher: {teacherName}
             </Badge>
             {department && (
-              <Badge variant="outline" className="bg-green-100 text-green-800">
+              <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400">
                 Department: {department}
               </Badge>
             )}
-            <Badge variant="outline" className="bg-purple-100 text-purple-800">
+            <Badge variant="outline" className="bg-purple-500/10 text-purple-700 dark:text-purple-400">
               School: {schoolName} ({schoolCode})
             </Badge>
           </div>
@@ -473,22 +485,22 @@ export function TeacherCompilerInterface({
               <Users className="h-5 w-5" />
               Student Assessment Scores
             </CardTitle>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm bg-gray-50 p-3 rounded-lg">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm bg-muted/50 p-3 rounded-lg">
               <div>
-                <span className="font-medium text-gray-700">Session & Term:</span>
-                <div className="text-gray-900">{selectedTerm?.session.name} - {selectedTerm?.name}</div>
+                <span className="font-medium text-foreground">Session & Term:</span>
+                <div className="text-foreground">{selectedTerm?.session.name} - {selectedTerm?.name}</div>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Class:</span>
-                <div className="text-gray-900">{selectedClass?.className} ({selectedClass?.classLevel})</div>
+                <span className="font-medium text-foreground">Class:</span>
+                <div className="text-foreground">{selectedClass?.className} ({selectedClass?.classLevel})</div>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Subject:</span>
-                <div className="text-gray-900">{selectedSubject?.name} ({selectedSubject?.code})</div>
+                <span className="font-medium text-foreground">Subject:</span>
+                <div className="text-foreground">{selectedSubject?.name} ({selectedSubject?.code})</div>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Students:</span>
-                <div className="text-gray-900">{students.length} enrolled</div>
+                <span className="font-medium text-foreground">Students:</span>
+                <div className="text-foreground">{students.length} enrolled</div>
               </div>
             </div>
           </CardHeader>
@@ -496,7 +508,7 @@ export function TeacherCompilerInterface({
             <ActionButtons
               hasChanges={hasChanges}
               errorCount={errorCount}
-              isSaving={isSaving}
+              isSaving={saveMutation.isPending}
               saveProgress={saveProgress}
               onSave={handleSave}
               onReset={handleReset}
@@ -519,9 +531,9 @@ export function TeacherCompilerInterface({
       {!isLoadingTerms && terms.length === 0 && (
         <Card className="border shadow-md">
           <CardContent className="py-12 text-center">
-            <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Assignments Found</h3>
-            <p className="text-gray-600">
+            <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">No Assignments Found</h3>
+            <p className="text-muted-foreground">
               You haven't been assigned to any classes yet. Please contact your school administrator.
             </p>
           </CardContent>
@@ -531,9 +543,9 @@ export function TeacherCompilerInterface({
       {form.termId && !isLoadingClassTerms && classTerms.length === 0 && (
         <Card className="border shadow-md">
           <CardContent className="py-12 text-center">
-            <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Classes Assigned</h3>
-            <p className="text-gray-600">
+            <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">No Classes Assigned</h3>
+            <p className="text-muted-foreground">
               You haven't been assigned to any classes for the selected term.
             </p>
           </CardContent>
@@ -543,9 +555,9 @@ export function TeacherCompilerInterface({
       {form.classId && !isLoadingSubjects && subjects.length === 0 && (
         <Card className="border shadow-md">
           <CardContent className="py-12 text-center">
-            <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Subjects Assigned</h3>
-            <p className="text-gray-600">
+            <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">No Subjects Assigned</h3>
+            <p className="text-muted-foreground">
               You haven't been assigned to teach any subjects for this class.
             </p>
           </CardContent>
