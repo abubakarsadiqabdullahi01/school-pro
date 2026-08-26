@@ -26,6 +26,10 @@ import {
   CreditCard,
   Percent,
   Receipt,
+  Banknote,
+  Wallet,
+  ReceiptText,
+  Scale,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -72,6 +76,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
     account: true,
     resultsCompilation: true,
     finance: true,
+    expenditure: true,
   });
 
   // Convert string role to the format used in component
@@ -257,10 +262,18 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                       </SidebarMenuItem>
                     </Collapsible>
 
-                    <FinanceNavGroup
+                    <MoneyNavGroup
                       pathname={pathname}
-                      basePath="/dashboard/admin/finance"
-                      canManageFees
+                      label="Finance"
+                      icon={DollarSign}
+                      links={financeLinks("/dashboard/admin/finance", true)}
+                    />
+
+                    <MoneyNavGroup
+                      pathname={pathname}
+                      label="Expenditure"
+                      icon={Banknote}
+                      links={expenditureLinks("/dashboard/admin/expenditure", true)}
                     />
 
                     <Collapsible>
@@ -829,10 +842,18 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                       </SidebarMenuItem>
                     </Collapsible>
 
-                    <FinanceNavGroup
+                    <MoneyNavGroup
                       pathname={pathname}
-                      basePath="/dashboard/admin/finance"
-                      canManageFees
+                      label="Finance"
+                      icon={DollarSign}
+                      links={financeLinks("/dashboard/admin/finance", true)}
+                    />
+
+                    <MoneyNavGroup
+                      pathname={pathname}
+                      label="Expenditure"
+                      icon={Banknote}
+                      links={expenditureLinks("/dashboard/admin/expenditure", true)}
                     />
 
                     <SidebarMenuItem>
@@ -885,6 +906,47 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {roleString === "accountant" && (
+          <Collapsible
+            open={openGroups.expenditure}
+            onOpenChange={() => toggleGroup("expenditure")}
+          >
+            <SidebarGroup>
+              <CollapsibleTrigger asChild>
+                <SidebarGroupLabel className="flex justify-between cursor-pointer">
+                  Expenditure
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${openGroups.expenditure ? "rotate-180" : ""}`}
+                  />
+                </SidebarGroupLabel>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {expenditureLinks("/dashboard/accountant/expenditure", false).map(
+                      (link) => (
+                        <SidebarMenuItem key={link.href}>
+                          <SidebarMenuButton
+                            href={link.href}
+                            isActive={
+                              link.exact
+                                ? pathname === link.href
+                                : pathname.startsWith(link.href)
+                            }
+                          >
+                            <link.icon className="h-4 w-4" />
+                            <span>{link.label}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ),
+                    )}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -1138,15 +1200,41 @@ function financeLinks(basePath: string, canManageFees: boolean): FinanceLink[] {
   ];
 }
 
-/** Finance as one collapsible entry, for roles whose sidebar covers more than finance. */
-function FinanceNavGroup({
+/**
+ * The expenditure menu — the spending side, in the order it is worked: see the position,
+ * record a payment, work the approval queue, then report on it.
+ *
+ * `canManage` drops the payment chart and category setup, which are the admin's to
+ * configure. The actions behind those pages require a manager whatever link is shown.
+ */
+function expenditureLinks(basePath: string, canManage: boolean): FinanceLink[] {
+  return [
+    { href: basePath, label: "Dashboard", icon: LayoutDashboard, exact: true },
+    ...(canManage
+      ? [
+          { href: `${basePath}/categories`, label: "Categories", icon: ReceiptText, exact: true },
+          { href: `${basePath}/accounts`, label: "Payment Chart", icon: Wallet, exact: true },
+        ]
+      : []),
+    { href: `${basePath}/new`, label: "Record Expense", icon: Banknote, exact: true },
+    { href: `${basePath}/transactions`, label: "Transactions", icon: FileText, exact: false },
+    { href: `${basePath}/reports/termly`, label: "Termly Report", icon: BarChart3, exact: true },
+    { href: `${basePath}/reports/session`, label: "Session Report", icon: BarChart3, exact: true },
+    { href: `${basePath}/budget-summary`, label: "Budget Summary", icon: Scale, exact: true },
+  ];
+}
+
+/** One collapsible money menu, for roles whose sidebar covers more than money. */
+function MoneyNavGroup({
   pathname,
-  basePath,
-  canManageFees,
+  label,
+  icon: Icon,
+  links,
 }: {
   pathname: string;
-  basePath: string;
-  canManageFees: boolean;
+  label: string;
+  icon: LucideIcon;
+  links: FinanceLink[];
 }) {
   return (
     <Collapsible>
@@ -1154,15 +1242,15 @@ function FinanceNavGroup({
         <CollapsibleTrigger asChild>
           <SidebarMenuButton className="justify-between">
             <div className="flex items-center">
-              <DollarSign className="h-4 w-4 mr-2" />
-              <span>Finance</span>
+              <Icon className="h-4 w-4 mr-2" />
+              <span>{label}</span>
             </div>
             <ChevronDown className="h-4 w-4 ml-2" />
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <SidebarMenuSub>
-            {financeLinks(basePath, canManageFees).map((link) => (
+            {links.map((link) => (
               <SidebarMenuSubItem key={link.href}>
                 <SidebarMenuSubButton
                   asChild

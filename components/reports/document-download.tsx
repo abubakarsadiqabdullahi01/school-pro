@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { exportFileName } from "@/lib/csv"
 
 /**
- * A one-off finance document — a receipt or a statement of account — as a downloadable PDF.
+ * A one-off financial document — a receipt, a statement, an expenditure voucher — as a PDF.
  *
  * Printing already offers "Save as PDF", but a receipt handed to a parent should not depend
  * on the cashier picking the right printer destination, and a statement emailed to a parent
@@ -20,7 +20,7 @@ import { exportFileName } from "@/lib/csv"
  */
 export type DocumentField = { label: string; value: string }
 
-export type FinanceDocument = {
+export type PrintableDocument = {
   /** Heading on the page, e.g. "Receipt". */
   title: string
   /** Used for the filename, e.g. a receipt number or student name. */
@@ -32,7 +32,7 @@ export type FinanceDocument = {
   totals: DocumentField[]
 }
 
-export function FinanceDocumentDownload({ document: doc, label }: { document: FinanceDocument; label: string }) {
+export function DocumentDownload({ document: doc, label }: { document: PrintableDocument; label: string }) {
   const [isBuilding, setIsBuilding] = useState(false)
 
   async function download() {

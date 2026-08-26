@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation"
 
 import { getStudentStatement } from "@/app/actions/finance"
-import { FinanceDocumentDownload, type FinanceDocument } from "@/components/finance/finance-document-download"
-import { PrintButton } from "@/components/finance/print-button"
+import { DocumentDownload, type PrintableDocument } from "@/components/reports/document-download"
+import { PrintButton } from "@/components/reports/print-button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain } from "@/lib/money"
 
@@ -14,7 +14,7 @@ export async function StudentStatementView({ studentId }: { studentId: string })
   const { school, student, totals, charges, payments } = statement.data
   const adjustments = String(Number(totals.discounts) + Number(totals.exemptions))
 
-  const document: FinanceDocument = {
+  const document: PrintableDocument = {
     title: "Statement of Account",
     reference: `${student.name} ${student.admissionNo}`,
     schoolName: school.name,
@@ -51,7 +51,7 @@ export async function StudentStatementView({ studentId }: { studentId: string })
         </div>
         <div className="flex gap-2 print:hidden">
           <PrintButton label="Print Statement" />
-          <FinanceDocumentDownload document={document} label="Download PDF" />
+          <DocumentDownload document={document} label="Download PDF" />
         </div>
       </div>
 

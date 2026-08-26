@@ -2,7 +2,7 @@ import Link from "next/link"
 
 import { getDebtorsReport, getFinanceSetupData, type DebtorFilters } from "@/app/actions/finance"
 import { DebtorsFilter, type DebtorsFilterValues } from "@/components/finance/debtors-filter"
-import { FinanceExport, type ExportTable } from "@/components/finance/finance-export"
+import { ReportExport, type ExportTable } from "@/components/reports/report-export"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
@@ -92,7 +92,7 @@ export async function DebtorsView({ basePath, filters }: { basePath: string; fil
           <h1 className="text-3xl font-bold tracking-tight">Debtors</h1>
           <p className="text-muted-foreground">Students with unpaid or partially paid charges by class and term.</p>
         </div>
-        <FinanceExport title={`Debtors ${scope}`} subtitle={scope} table={exportTable} />
+        <ReportExport title={`Debtors ${scope}`} subtitle={scope} table={exportTable} />
       </div>
 
       {setup.success && (

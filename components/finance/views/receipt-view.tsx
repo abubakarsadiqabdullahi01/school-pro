@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation"
 
 import { getReceipt } from "@/app/actions/finance"
-import { FinanceDocumentDownload, type FinanceDocument } from "@/components/finance/finance-document-download"
-import { PrintButton } from "@/components/finance/print-button"
+import { DocumentDownload, type PrintableDocument } from "@/components/reports/document-download"
+import { PrintButton } from "@/components/reports/print-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain } from "@/lib/money"
 
@@ -15,7 +15,7 @@ export async function ReceiptView({ paymentId }: { paymentId: string }) {
   const paymentDate = new Date(data.paymentDate).toLocaleDateString()
   const paymentMethod = data.paymentMethod.replace("_", " ")
 
-  const document: FinanceDocument = {
+  const document: PrintableDocument = {
     title: "Receipt",
     reference: data.receiptNo,
     schoolName: data.school.name,
@@ -48,7 +48,7 @@ export async function ReceiptView({ paymentId }: { paymentId: string }) {
         </div>
         <div className="flex gap-2">
           <PrintButton label="Print Receipt" />
-          <FinanceDocumentDownload document={document} label="Download PDF" />
+          <DocumentDownload document={document} label="Download PDF" />
         </div>
       </div>
 

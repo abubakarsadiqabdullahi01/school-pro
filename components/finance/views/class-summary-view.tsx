@@ -1,6 +1,6 @@
 import { getClassPaymentSummary, getFinanceSetupData } from "@/app/actions/finance"
-import { FinanceExport, type ExportTable } from "@/components/finance/finance-export"
-import { FinanceReportFilter } from "@/components/finance/finance-report-filter"
+import { ReportExport, type ExportTable } from "@/components/reports/report-export"
+import { PeriodFilter } from "@/components/reports/period-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
 
@@ -50,14 +50,14 @@ export async function ClassSummaryView({ basePath, termId }: { basePath: string;
           <h1 className="text-3xl font-bold tracking-tight">Class Payment Summary</h1>
           <p className="text-muted-foreground">Expected, paid, outstanding, and collection percentage by class.</p>
         </div>
-        <FinanceExport
+        <ReportExport
           title={termName ? `Class Payment Summary ${termName}` : "Class Payment Summary"}
           subtitle={termName ? `Term: ${termName}` : "All terms"}
           table={exportTable}
         />
       </div>
       {setup.success && (
-        <FinanceReportFilter basePath={`${basePath}/class-summary`} terms={setup.data.terms} selectedTermId={termId} />
+        <PeriodFilter basePath={`${basePath}/class-summary`} terms={setup.data.terms} selectedTermId={termId} />
       )}
       <Card>
         <CardHeader>

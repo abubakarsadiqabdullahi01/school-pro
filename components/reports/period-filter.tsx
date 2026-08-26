@@ -3,7 +3,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
-interface FinanceReportFilterProps {
+interface PeriodFilterProps {
   basePath: string
   terms?: Array<{ id: string; name: string; isCurrent: boolean }>
   sessions?: Array<{ id: string; name: string; isCurrent: boolean }>
@@ -11,13 +11,13 @@ interface FinanceReportFilterProps {
   selectedSessionId?: string
 }
 
-export function FinanceReportFilter({
+export function PeriodFilter({
   basePath,
   terms = [],
   sessions = [],
   selectedTermId,
   selectedSessionId,
-}: FinanceReportFilterProps) {
+}: PeriodFilterProps) {
   return (
     <Card className="print:hidden">
       <CardContent className="flex flex-wrap items-center gap-2 p-4">

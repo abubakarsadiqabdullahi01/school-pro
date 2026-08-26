@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { exportFileName, toCsv } from "@/lib/csv"
 
 /**
- * Print, PDF and CSV for a finance report table.
+ * Print, PDF and CSV for a tabular report.
  *
  * Cells arrive as finished strings. The server view formats them — money through the
  * Decimal helpers, dates in the school's locale — so this component never imports
@@ -26,7 +26,7 @@ export type ExportTable = {
   csvRows?: string[][]
 }
 
-export function FinanceExport({
+export function ReportExport({
   title,
   subtitle,
   table,

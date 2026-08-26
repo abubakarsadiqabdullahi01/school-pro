@@ -1,6 +1,6 @@
 import { getAccumulatedFundReport, getFinanceSetupData } from "@/app/actions/finance"
-import { FinanceExport, type ExportTable } from "@/components/finance/finance-export"
-import { FinanceReportFilter } from "@/components/finance/finance-report-filter"
+import { ReportExport, type ExportTable } from "@/components/reports/report-export"
+import { PeriodFilter } from "@/components/reports/period-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
 
@@ -73,14 +73,14 @@ export async function AccumulatedFundView({ basePath, sessionId }: { basePath: s
           <h1 className="text-3xl font-bold tracking-tight">Accumulated Fund</h1>
           <p className="text-muted-foreground">Term and session income totals before expenditure is introduced.</p>
         </div>
-        <FinanceExport
+        <ReportExport
           title={sessionName ? `Accumulated Fund ${sessionName}` : "Accumulated Fund"}
           subtitle={sessionName ? `Session: ${sessionName}` : "All sessions"}
           table={exportTable}
         />
       </div>
       {setup.success && (
-        <FinanceReportFilter
+        <PeriodFilter
           basePath={`${basePath}/accumulated-fund`}
           sessions={setup.data.sessions}
           selectedSessionId={sessionId}

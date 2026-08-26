@@ -119,7 +119,7 @@ Rules:
 
 ## 5. Expenditure Module
 
-Status: Missing.
+Status: Completed. See `documentation/expenditure-module-completion.md`.
 
 Add database/models:
 - Expense category/type.

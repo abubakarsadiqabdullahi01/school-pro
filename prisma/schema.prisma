@@ -37,6 +37,11 @@ model User {
   enrollmentHistory  StudentEnrollmentHistory[] @relation("EnrollmentHistoryCreatedBy")
   integrityChecks    DataIntegrityCheck[] @relation("IntegrityChecksRunBy")
   receivedPayments   Payment[]           @relation("PaymentReceivedByUser")
+  expensesRecorded   Expense[]           @relation("ExpenseRecordedBy")
+  expensesApproved   Expense[]           @relation("ExpenseApprovedBy")
+  expensesPaid       Expense[]           @relation("ExpensePaidBy")
+  expensesReceived   Expense[]           @relation("ExpensePayeeUser")
+  expenseAttachments ExpenseAttachment[] @relation("ExpenseAttachmentUploadedBy")
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
@@ -66,6 +71,7 @@ model Student {
   charges     StudentCharge[]      @relation("StudentCharges")
   discounts   Discount[]           @relation("StudentDiscounts")
   exemptions  FeeExemption[]       @relation("StudentFeeExemptions")
+  expensesReceived Expense[]       @relation("ExpensePayeeStudent")
   transitions StudentTransition[] @relation("StudentTransitions")
   attendances Attendance[]        @relation("StudentAttendances")
   enrollmentHistory StudentEnrollmentHistory[] @relation("StudentEnrollmentHistory")
@@ -384,6 +390,10 @@ model School {
   feeExemptions           FeeExemption[]
   payments                Payment[]
   receiptSequences        ReceiptSequence[]
+  expenseCategories       ExpenseCategory[]
+  paymentAccounts         PaymentAccount[]
+  expenses                Expense[]
+  voucherSequences        ExpenseVoucherSequence[]
   assessmentScheme        AssessmentScheme?
 
   createdAt               DateTime          @default(now())
@@ -417,6 +427,7 @@ model Session {
   studentCharges StudentCharge[]
   discounts Discount[]
   feeExemptions FeeExemption[]
+  expenses  Expense[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -444,6 +455,7 @@ model Term {
   studentClassTerms StudentClassTerm[]
   teacherSubjects TeacherSubject[]  // Added relationship
   enrollmentHistory StudentEnrollmentHistory[]
+  expenses          Expense[]
 
   @@index([isCurrent])
 }
@@ -928,6 +940,159 @@ model Attendance {
   @@index([date])
 }
 
+// ---------------------------------------------------------------------------
+// Expenditure
+//
+// The spending side of the ledger. Finance answers what came in; this answers where it
+// went, and the two meet in the budget summary: paid income minus paid expenditure.
+//
+// Money is Decimal(12,2) here as it is in finance. Never Float.
+// ---------------------------------------------------------------------------
+
+model ExpenseCategory {
+  id          String   @id @default(uuid())
+  schoolId    String
+  name        String
+  description String?
+  /// A soft ceiling per term, reported against but never enforced. A school that has to fix
+  /// a burst pipe should not be blocked by a stationery budget; the report says it went over.
+  budgetLimit Decimal? @db.Decimal(12, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school   School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId, isActive])
+}
+
+/// Where money is paid from - the payment chart. Cash office, bank account, POS, petty cash.
+model PaymentAccount {
+  id             String             @id @default(uuid())
+  schoolId       String
+  name           String
+  type           PaymentAccountType @default(CASH)
+  bankName       String?
+  accountNumber  String?
+  /// What the account held when it was first entered. Its running balance is this minus
+  /// everything paid out of it, computed on read rather than stored, so a corrected or
+  /// cancelled expense cannot leave a stale balance behind.
+  openingBalance Decimal            @default(0) @db.Decimal(12, 2)
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  school   School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId, isActive])
+  @@index([type])
+}
+
+model Expense {
+  id         String @id @default(uuid())
+  schoolId   String
+  sessionId  String
+  /// Required, because every expenditure report is termly. Spending in a vacation belongs to
+  /// the term it sits against in the school's own accounts.
+  termId     String
+  categoryId String
+  accountId  String
+  voucherNo  String
+
+  payeeName String
+  payeeType PayeeType @default(VENDOR)
+  /// Set when the payee is a member of staff, so payroll and expenditure can be reconciled.
+  payeeUserId    String?
+  /// Set when the payee is a student - a fee refund, or a bursary paid out.
+  payeeStudentId String?
+
+  description   String        @db.Text
+  amount        Decimal       @db.Decimal(12, 2)
+  paymentMethod PaymentMethod @default(CASH)
+  referenceNo   String?
+  expenseDate   DateTime
+  notes         String?       @db.Text
+
+  status ExpenseStatus @default(PENDING_APPROVAL)
+
+  /// Segregation of duties: who wrote it up, who allowed it, who released the money. All
+  /// three are kept even after the person leaves, which is why they are SetNull and not
+  /// Cascade - deleting a user must not erase who approved a payment.
+  recordedBy String
+  approvedBy String?
+  approvedAt DateTime?
+  paidBy     String?
+  paidAt     DateTime?
+  /// Why it was rejected or cancelled. The actions require one for both.
+  decisionReason String? @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school         School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  session        Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  term           Term            @relation(fields: [termId], references: [id], onDelete: Cascade)
+  category       ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  account        PaymentAccount  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  recordedByUser User            @relation("ExpenseRecordedBy", fields: [recordedBy], references: [id], onDelete: Restrict)
+  approvedByUser User?           @relation("ExpenseApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  paidByUser     User?           @relation("ExpensePaidBy", fields: [paidBy], references: [id], onDelete: SetNull)
+  payeeUser      User?           @relation("ExpensePayeeUser", fields: [payeeUserId], references: [id], onDelete: SetNull)
+  payeeStudent   Student?        @relation("ExpensePayeeStudent", fields: [payeeStudentId], references: [id], onDelete: SetNull)
+  attachments    ExpenseAttachment[]
+
+  /// Voucher numbers are issued per school, so two schools may both hold voucher 0001.
+  @@unique([schoolId, voucherNo])
+  @@index([schoolId, status])
+  @@index([sessionId, status])
+  @@index([termId, status])
+  @@index([categoryId, status])
+  @@index([accountId, status])
+  @@index([expenseDate])
+  @@index([recordedBy])
+  @@index([approvedBy])
+  @@index([paidBy])
+  @@index([payeeUserId])
+  @@index([payeeStudentId])
+}
+
+/// A scanned receipt or invoice backing an expense. Object storage holds the file; this
+/// holds where it is and who put it there.
+model ExpenseAttachment {
+  id         String   @id @default(uuid())
+  expenseId  String
+  url        String   @db.VarChar(1000)
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  uploadedBy String
+  createdAt  DateTime @default(now())
+
+  expense        Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  uploadedByUser User    @relation("ExpenseAttachmentUploadedBy", fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@index([expenseId])
+}
+
+/// Voucher numbering, per school per year. Mirrors ReceiptSequence on the income side.
+model ExpenseVoucherSequence {
+  id           String   @id @default(uuid())
+  schoolId     String
+  year         Int
+  lastSequence Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, year])
+  @@index([schoolId, year])
+}
+
 // Enums remain the same
 enum Role {
   SUPER_ADMIN
@@ -1039,4 +1204,41 @@ enum EnrollmentStatus {
   TRANSFERRED
   COMPLETED
   DROPPED
+}
+
+enum PaymentAccountType {
+  CASH
+  BANK
+  POS
+  WALLET
+  OTHER
+}
+
+enum PayeeType {
+  STAFF
+  VENDOR
+  PARENT
+  STUDENT
+  OTHER
+}
+
+/// DRAFT and PENDING_APPROVAL are editable; APPROVED and beyond are not. A paid expense is
+/// corrected by cancelling it with a reason, never by a silent edit.
+enum ExpenseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+/// Used by Expense. `Payment.paymentMethod` on the income side is still a plain String
+/// validated by zod; it predates this and changing it would mean migrating live receipts.
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  POS
+  CHEQUE
+  ONLINE
 }
