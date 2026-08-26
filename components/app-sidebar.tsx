@@ -23,6 +23,10 @@ import {
   Users,
   ScreenShare,
   ComputerIcon,
+  CreditCard,
+  Percent,
+  Receipt,
+  type LucideIcon,
 } from "lucide-react";
 import {
   Sidebar,
@@ -67,6 +71,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
     children: true,
     account: true,
     resultsCompilation: true,
+    finance: true,
   });
 
   // Convert string role to the format used in component
@@ -149,10 +154,10 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
               </div>
             </>
           ) : (
-            /* Default SchoolPro branding for super-admin */
+            /* Default DigiSchool-Pro branding for super-admin */
             <>
               <School className="h-6 w-6 text-primary flex-shrink-0" />
-              <span className="text-xl font-bold">SchoolPro</span>
+              <span className="text-xl font-bold">DigiSchool-Pro</span>
             </>
           )}
         </div>
@@ -251,6 +256,12 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+
+                    <FinanceNavGroup
+                      pathname={pathname}
+                      basePath="/dashboard/admin/finance"
+                      canManageFees
+                    />
 
                     <Collapsible>
                       <SidebarMenuItem>
@@ -818,6 +829,12 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                       </SidebarMenuItem>
                     </Collapsible>
 
+                    <FinanceNavGroup
+                      pathname={pathname}
+                      basePath="/dashboard/admin/finance"
+                      canManageFees
+                    />
+
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/admin/school-settings"
@@ -829,6 +846,45 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <span>School Settings</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {roleString === "accountant" && (
+          <Collapsible
+            open={openGroups.finance}
+            onOpenChange={() => toggleGroup("finance")}
+          >
+            <SidebarGroup>
+              <CollapsibleTrigger asChild>
+                <SidebarGroupLabel className="flex justify-between cursor-pointer">
+                  Finance
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${openGroups.finance ? "rotate-180" : ""}`}
+                  />
+                </SidebarGroupLabel>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {financeLinks("/dashboard/accountant", false).map((link) => (
+                      <SidebarMenuItem key={link.href}>
+                        <SidebarMenuButton
+                          href={link.href}
+                          isActive={
+                            link.exact
+                              ? pathname === link.href
+                              : pathname.startsWith(link.href)
+                          }
+                        >
+                          <link.icon className="h-4 w-4" />
+                          <span>{link.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -913,40 +969,18 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
+                    {/* One entry, because there is one page. This group previously listed
+                        My Classes, Grades, Attendance and Timetable — four links that all
+                        resolved to this same route, which read as a half-built product.
+                        Timetable is gone entirely: there is no timetable model, action or
+                        page behind it. Add entries back as real pages are built. */}
                     <SidebarMenuItem>
                       <SidebarMenuButton
-                        href="/dashboard/student/my-classes"
-                        isActive={pathname === "/dashboard/student/my-classes"}
-                      >
-                        <BookOpen className="h-4 w-4" />
-                        <span>My Classes</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        href="/dashboard/student/grades"
-                        isActive={pathname === "/dashboard/student/grades"}
+                        href="/dashboard/student"
+                        isActive={pathname === "/dashboard/student"}
                       >
                         <BookOpenCheck className="h-4 w-4" />
-                        <span>Grades</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        href="/dashboard/student/attendance"
-                        isActive={pathname === "/dashboard/student/attendance"}
-                      >
-                        <ClipboardList className="h-4 w-4" />
-                        <span>Attendance</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        href="/dashboard/student/timetable"
-                        isActive={pathname === "/dashboard/student/timetable"}
-                      >
-                        <Calendar className="h-4 w-4" />
-                        <span>Timetable</span>
+                        <span>My Results</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   </SidebarMenu>
@@ -973,42 +1007,17 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
+                    {/* One entry, because there is one page. This group previously listed
+                        My Children, Academic Progress, Attendance and Fees, all resolving
+                        here. Fees especially: there is no finance UI yet, and pointing a
+                        Fees link at a dashboard is the worst way to promise one. */}
                     <SidebarMenuItem>
                       <SidebarMenuButton
-                        href="/dashboard/parent/my-children"
-                        isActive={pathname === "/dashboard/parent/my-children"}
+                        href="/dashboard/parent"
+                        isActive={pathname === "/dashboard/parent"}
                       >
                         <Users className="h-4 w-4" />
                         <span>My Children</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        href="/dashboard/parent/academic-progress"
-                        isActive={
-                          pathname === "/dashboard/parent/academic-progress"
-                        }
-                      >
-                        <BookOpenCheck className="h-4 w-4" />
-                        <span>Academic Progress</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        href="/dashboard/parent/attendance"
-                        isActive={pathname === "/dashboard/parent/attendance"}
-                      >
-                        <ClipboardList className="h-4 w-4" />
-                        <span>Attendance</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        href="/dashboard/parent/fees"
-                        isActive={pathname === "/dashboard/parent/fees"}
-                      >
-                        <DollarSign className="h-4 w-4" />
-                        <span>Fees</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   </SidebarMenu>
@@ -1070,5 +1079,105 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
         </div>
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+type FinanceLink = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** Fee Setup has child routes (/fees/create), so it matches by prefix. */
+  exact: boolean;
+};
+
+/**
+ * The finance menu, in the order a term is actually worked: see the position, set the
+ * fees, take the money, chase what is left, then report on it.
+ *
+ * `basePath` differs by role. Admins and super admins own the whole school and work under
+ * /dashboard/admin/finance; an assigned accountant works under /dashboard/accountant.
+ * Each tree has a layout guard, so pointing one role at the other's URLs bounces them.
+ *
+ * `canManageFees` drops fee setup, discounts, and exemptions. Configuring fees and
+ * approving adjustments belong to the admin, and the actions behind those pages require a
+ * finance manager whatever link is shown — this only keeps the menu honest.
+ */
+function financeLinks(basePath: string, canManageFees: boolean): FinanceLink[] {
+  return [
+    { href: basePath, label: "Dashboard", icon: LayoutDashboard, exact: true },
+    ...(canManageFees
+      ? [{ href: `${basePath}/fees`, label: "Fee Setup", icon: Settings, exact: false }]
+      : []),
+    {
+      href: `${basePath}/student-payments`,
+      label: "Student Payments",
+      icon: CreditCard,
+      exact: true,
+    },
+    { href: `${basePath}/debtors`, label: "Debtors", icon: Users, exact: true },
+    {
+      href: `${basePath}/class-summary`,
+      label: "Class Summary",
+      icon: BarChart3,
+      exact: true,
+    },
+    {
+      href: `${basePath}/accumulated-fund`,
+      label: "Accumulated Fund",
+      icon: FileText,
+      exact: true,
+    },
+    ...(canManageFees
+      ? [
+          { href: `${basePath}/discounts`, label: "Discounts", icon: Percent, exact: true },
+          { href: `${basePath}/exemptions`, label: "Exemptions", icon: Receipt, exact: true },
+          { href: `${basePath}/staff`, label: "Finance Staff", icon: UserCog, exact: true },
+        ]
+      : []),
+  ];
+}
+
+/** Finance as one collapsible entry, for roles whose sidebar covers more than finance. */
+function FinanceNavGroup({
+  pathname,
+  basePath,
+  canManageFees,
+}: {
+  pathname: string;
+  basePath: string;
+  canManageFees: boolean;
+}) {
+  return (
+    <Collapsible>
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton className="justify-between">
+            <div className="flex items-center">
+              <DollarSign className="h-4 w-4 mr-2" />
+              <span>Finance</span>
+            </div>
+            <ChevronDown className="h-4 w-4 ml-2" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {financeLinks(basePath, canManageFees).map((link) => (
+              <SidebarMenuSubItem key={link.href}>
+                <SidebarMenuSubButton
+                  asChild
+                  isActive={
+                    link.exact
+                      ? pathname === link.href
+                      : pathname.startsWith(link.href)
+                  }
+                >
+                  <Link href={link.href}>{link.label}</Link>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
   );
 }

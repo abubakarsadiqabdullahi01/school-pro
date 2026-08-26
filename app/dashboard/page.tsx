@@ -16,6 +16,10 @@ export default async function DashboardPage() {
       redirect("/dashboard/super-admin")
     case "ADMIN":
       redirect("/dashboard/admin")
+    case "ACCOUNTANT":
+      // Finance-only staff. Admins keep the full school at /dashboard/admin/finance;
+      // this tree carries the same views minus fee setup and discount approval.
+      redirect("/dashboard/accountant")
     case "TEACHER":
       redirect("/dashboard/teacher")
     case "PARENT":

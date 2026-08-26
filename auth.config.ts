@@ -27,6 +27,10 @@ export const authConfig = {
         token.lastName = user.lastName
         token.isActive = user.isActive
         token.avatarUrl = user.avatarUrl
+        // Identifies this specific sign-in, so it can be revoked individually. Absent for
+        // tokens issued before this existed — see requireActor, which treats that as
+        // "no per-session check" rather than locking the user out.
+        token.sessionRecordId = user.sessionRecordId ?? null
       }
       return token
     },
@@ -38,6 +42,7 @@ export const authConfig = {
         session.user.lastName = token.lastName as string
         session.user.isActive = token.isActive as boolean
         session.user.avatarUrl = token.avatarUrl as string | null
+        session.user.sessionRecordId = (token.sessionRecordId as string | null) ?? null
       }
       return session
     },

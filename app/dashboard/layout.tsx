@@ -3,10 +3,11 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client"
+import { getActiveSchool, getSchoolOptions } from "@/lib/school-context.server"
 
 export const metadata = {
-  title: "Dashboard | SchoolPro",
-  description: "SchoolPro dashboard for managing school operations",
+  title: "Dashboard | DigiSchool-Pro",
+  description: "DigiSchool-Pro dashboard for managing school operations",
 }
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -21,11 +22,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const userRole = session.user.role || "STUDENT"
   const userName = `${session.user.firstName} ${session.user.lastName}`
 
+  // A super admin browses every school, so they get a switcher instead of a fixed school.
+  // Everyone else is pinned to the school on their own record.
+  const isSuperAdmin = session.user.role === "SUPER_ADMIN"
+  const [schoolOptions, activeSchool] = isSuperAdmin
+    ? await Promise.all([getSchoolOptions(), getActiveSchool()])
+    : [[], null]
+
   // Fetch school information for non-super-admin users
   let schoolInfo = null
   if (session.user.role !== "SUPER_ADMIN") {
     try {
-      if (session.user.role === "ADMIN") {
+      if (session.user.role === "ADMIN" || session.user.role === "ACCOUNTANT") {
         const admin = await prisma.admin.findUnique({
           where: { userId: session.user.id },
           include: {
@@ -93,6 +101,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       userName={userName}
       userAvatar={session.user.avatarUrl}
       schoolInfo={schoolInfo}
+      schoolOptions={schoolOptions}
+      activeSchool={activeSchool}
     >
       {children}
     </DashboardLayoutClient>

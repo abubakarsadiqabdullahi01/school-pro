@@ -10,6 +10,7 @@ import { NavigationProgress } from "@/components/navigation-progress"
 import { LoadingOverlay } from "@/components/dashboard/loading-overlay"
 import { useLoading } from "@/contexts/loading-context"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import type { Role } from "@prisma/client"
 
 // Create a QueryClient instance
 const queryClient = new QueryClient()
@@ -20,12 +21,22 @@ interface SchoolInfo {
   logoUrl?: string | null
 }
 
+interface SchoolOption {
+  id: string
+  name: string
+  code: string
+}
+
 interface DashboardLayoutClientProps {
   children: React.ReactNode
-  userRole: string
+  userRole: Role
   userName: string
   userAvatar?: string | null
   schoolInfo?: SchoolInfo | null
+  /** Super admin only — the schools available in the header switcher. */
+  schoolOptions?: SchoolOption[]
+  /** Super admin only — the school currently in focus, or null for all schools. */
+  activeSchool?: SchoolOption | null
 }
 
 export function DashboardLayoutClient({
@@ -34,6 +45,8 @@ export function DashboardLayoutClient({
   userName,
   userAvatar,
   schoolInfo,
+  schoolOptions = [],
+  activeSchool = null,
 }: DashboardLayoutClientProps) {
   const pathname = usePathname()
   const { setLoading } = useLoading()
@@ -51,7 +64,13 @@ export function DashboardLayoutClient({
         <AppSidebar userRole={userRole} schoolInfo={schoolInfo} />
         <SidebarInset>
           <div className="flex flex-col min-h-screen">
-            <DashboardHeader userRole={userRole} userName={userName} userAvatar={userAvatar} />
+            <DashboardHeader
+              userRole={userRole}
+              userName={userName}
+              userAvatar={userAvatar}
+              schoolOptions={schoolOptions}
+              activeSchool={activeSchool}
+            />
             <main className="flex-1 p-5 md:p-6 overflow-auto">
               <div className="mx-auto max-w-8xl">{children}</div>
             </main>

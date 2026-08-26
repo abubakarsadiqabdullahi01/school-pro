@@ -8,6 +8,8 @@ declare module "next-auth" {
     role: Role
     isActive: boolean
     avatarUrl?: string | null
+    /** The LoginSession row for this sign-in, so it can be revoked individually. */
+    sessionRecordId?: string | null
   }
 
   interface Session {
@@ -19,6 +21,7 @@ declare module "next-auth" {
       isActive: boolean
       avatarUrl?: string | null
       email?: string | null
+      sessionRecordId?: string | null
     }
   }
 }
@@ -31,6 +34,7 @@ declare module "next-auth/jwt" {
     role: Role
     isActive: boolean
     avatarUrl?: string | null
+    sessionRecordId?: string | null
   }
 }
 

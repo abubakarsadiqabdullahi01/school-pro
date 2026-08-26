@@ -4,7 +4,8 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/db"
 import { authConfig } from "./auth.config"
-import { CredentialType } from "@prisma/client"
+import { CredentialType, Prisma, type AttemptStatus } from "@prisma/client"
+import { evaluateLoginThrottle } from "@/lib/login-throttle.server"
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -18,17 +19,27 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       },
       async authorize(credentials, req) {
         try {
-          if (!credentials?.identifier || !credentials?.password) {
+          if (
+            typeof credentials?.identifier !== "string" ||
+            typeof credentials?.password !== "string" ||
+            !credentials.identifier ||
+            !credentials.password
+          ) {
             console.log("Missing credentials")
             return null
           }
 
-          console.log("Attempting login with identifier:", credentials.identifier)
+          const identifier = credentials.identifier
+          const password = credentials.password
+          const ipAddress = getClientIp(req)
+          const userAgent = getUserAgent(req)
+
+          console.log("Attempting login with identifier:", identifier)
 
           // Find credential by any of the possible types
           const credential = await prisma.credential.findFirst({
             where: {
-              value: credentials.identifier,
+              value: identifier,
             },
             include: {
               user: {
@@ -46,13 +57,31 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
 
 
           if (!credential) {
-            console.log("No credential found for:", credentials.identifier)
+            console.log("No credential found for:", identifier)
             // Log failed attempt
             await logLoginAttempt({
               credentialId: null,
               userId: null,
-              ipAddress: "127.0.0.1", // In production, get from request
+              ipAddress,
+              userAgent,
               status: "FAILED_CREDENTIAL",
+            })
+            return null
+          }
+
+          // Brute-force check. Enforced here rather than only in the login server action,
+          // because the NextAuth credentials callback is reachable directly and a control
+          // that can be bypassed by posting to an API route is not a control.
+          const throttle = await evaluateLoginThrottle(credential.userId, ipAddress)
+          if (throttle.blocked) {
+            console.warn("Sign-in throttled:", { userId: credential.userId, reason: throttle.reason })
+            await logLoginAttempt({
+              credentialId: credential.id,
+              userId: credential.userId,
+              ipAddress,
+              userAgent,
+              status: "LOCKED_OUT",
+              metadata: { reason: throttle.reason },
             })
             return null
           }
@@ -65,14 +94,15 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
             await logLoginAttempt({
               credentialId: credential.id,
               userId: credential.userId,
-              ipAddress: "127.0.0.1", // In production, get from request
+              ipAddress,
+              userAgent,
               status: "FAILED_CREDENTIAL",
             })
             return null
           }
 
           // Verify password
-          const isValidPassword = await bcrypt.compare(credentials.password, credential.passwordHash)
+          const isValidPassword = await bcrypt.compare(password, credential.passwordHash)
 
           if (!isValidPassword) {
             console.log("Invalid password for user:", credential.userId)
@@ -80,7 +110,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
             await logLoginAttempt({
               credentialId: credential.id,
               userId: credential.userId,
-              ipAddress: "127.0.0.1", // In production, get from request
+              ipAddress,
+              userAgent,
               status: "FAILED_PASSWORD",
             })
             return null
@@ -98,15 +129,18 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           await logLoginAttempt({
             credentialId: credential.id,
             userId: credential.userId,
-            ipAddress: "127.0.0.1", // In production, get from request
+            ipAddress,
+            userAgent,
             status: "SUCCESS",
           })
 
-          // Create session record
-          await createLoginSession({
+          // Create session record. Its id travels in the JWT so a specific sign-in can be
+          // revoked later — without it, `revokedAt` had nothing to point at.
+          const loginSession = await createLoginSession({
             userId: credential.userId,
             credentialId: credential.id,
-            ipAddress: "127.0.0.1", // In production, get from request
+            ipAddress,
+            userAgent,
           })
 
           // Return the user object with all required fields
@@ -120,6 +154,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
             role: credential.user.role,
             isActive: credential.user.isActive,
             avatarUrl: credential.user.avatarUrl,
+            sessionRecordId: loginSession?.id ?? null,
           }
         } catch (error) {
           console.error("Error in authorize callback:", error)
@@ -140,6 +175,14 @@ async function logLoginAttempt({
   userAgent = null,
   deviceFingerprint = null,
   metadata = null,
+}: {
+  credentialId?: string | null
+  userId?: string | null
+  ipAddress: string
+  status: AttemptStatus
+  userAgent?: string | null
+  deviceFingerprint?: string | null
+  metadata?: Prisma.InputJsonValue | null
 }) {
   try {
     if (!userId && credentialId) {
@@ -160,7 +203,7 @@ async function logLoginAttempt({
         userAgent,
         deviceFingerprint,
         status,
-        metadata,
+        metadata: metadata ?? Prisma.JsonNull,
       },
     })
   } catch (error) {
@@ -170,7 +213,19 @@ async function logLoginAttempt({
 }
 
 // Helper function to create login session
-async function createLoginSession({ userId, credentialId, ipAddress, userAgent = null, deviceId = null }) {
+async function createLoginSession({
+  userId,
+  credentialId,
+  ipAddress,
+  userAgent = null,
+  deviceId = null,
+}: {
+  userId: string
+  credentialId?: string | null
+  ipAddress: string
+  userAgent?: string | null
+  deviceId?: string | null
+}) {
   try {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 30) // 30 days from now
@@ -193,3 +248,23 @@ async function createLoginSession({ userId, credentialId, ipAddress, userAgent =
   }
 }
 
+// Resolve the real client IP. Behind cPanel/Cloudflare the socket address is the
+// proxy, so trust the forwarding headers first and fall back to "unknown" rather
+// than recording a placeholder that looks like a real address.
+function getClientIp(req: Request | undefined): string {
+  const headers = req?.headers
+  if (!headers) return "unknown"
+
+  const forwardedFor = headers.get("x-forwarded-for")
+  if (forwardedFor) {
+    // Comma-separated proxy chain; the original client is the first entry.
+    const client = forwardedFor.split(",")[0]?.trim()
+    if (client) return client
+  }
+
+  return headers.get("cf-connecting-ip") ?? headers.get("x-real-ip") ?? "unknown"
+}
+
+function getUserAgent(req: Request | undefined): string | null {
+  return req?.headers?.get("user-agent") ?? null
+}

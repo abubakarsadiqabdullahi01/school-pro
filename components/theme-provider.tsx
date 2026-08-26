@@ -2,43 +2,44 @@
 
 import type React from "react"
 
-import { createContext, useContext, useState, useEffect } from "react"
+import { ThemeProvider as NextThemesProvider, useTheme as useNextTheme } from "next-themes"
 
-interface ThemeContextProps {
-  theme: "light" | "dark"
-  setTheme: (theme: "light" | "dark") => void
-}
-
-const ThemeContext = createContext<ThemeContextProps>({
-  theme: "light",
-  setTheme: () => {},
-})
-
+/**
+ * Wraps next-themes rather than hand-rolling theme state.
+ *
+ * The previous implementation initialised to "light" and corrected inside an
+ * effect, so dark-mode users saw a white flash on every page load. It also read
+ * the OS preference once and persisted the result, so it never followed a later
+ * system change. next-themes injects a blocking script that resolves the theme
+ * before first paint, and tracks the system preference properly.
+ *
+ * components/ui/sonner.tsx already reads useTheme from next-themes directly, so
+ * mounting this provider is also what makes toasts follow the theme.
+ */
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
-  const [theme, setTheme] = useState<"light" | "dark">("light")
-
-  useEffect(() => {
-    const storedTheme = localStorage.getItem("theme")
-    if (storedTheme) {
-      setTheme(storedTheme === "dark" ? "dark" : "light")
-    } else {
-      // Set default theme based on system preference
-      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-      setTheme(prefersDark ? "dark" : "light")
-    }
-  }, [])
-
-  useEffect(() => {
-    localStorage.setItem("theme", theme)
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [theme])
-
-  return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>
+  return (
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+    >
+      {children}
+    </NextThemesProvider>
+  )
 }
 
-export const useTheme = () => useContext(ThemeContext)
+/**
+ * Keeps the shape the existing callers expect — `{ theme, setTheme }` where
+ * theme is always resolved to "light" or "dark", never "system". That matters
+ * for the header toggle, which flips based on the current value.
+ */
+export const useTheme = () => {
+  const { theme, resolvedTheme, setTheme } = useNextTheme()
+  const resolved = (resolvedTheme ?? theme ?? "light") === "dark" ? "dark" : "light"
 
+  return {
+    theme: resolved as "light" | "dark",
+    setTheme: (next: "light" | "dark") => setTheme(next),
+  }
+}

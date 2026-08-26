@@ -21,14 +21,31 @@ import { useTheme } from "@/components/theme-provider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { SchoolSwitcher } from "@/components/dashboard/school-switcher"
+
+interface SchoolOption {
+  id: string
+  name: string
+  code: string
+}
 
 interface HeaderProps {
   userRole: Role
   userName?: string
   userAvatar?: string | null
+  /** Super admin only — schools available in the switcher. */
+  schoolOptions?: SchoolOption[]
+  /** Super admin only — school currently in focus, or null for all schools. */
+  activeSchool?: SchoolOption | null
 }
 
-export function DashboardHeader({ userRole, userName, userAvatar }: HeaderProps) {
+export function DashboardHeader({
+  userRole,
+  userName,
+  userAvatar,
+  schoolOptions = [],
+  activeSchool = null,
+}: HeaderProps) {
   const { theme, setTheme } = useTheme()
   const [showSearch, setShowSearch] = useState(false)
 
@@ -94,6 +111,13 @@ export function DashboardHeader({ userRole, userName, userAvatar }: HeaderProps)
           <Search className="h-5 w-5" />
           <span className="sr-only">Search</span>
         </Button>
+
+        {/* Only a super admin has more than one school to be "in". */}
+        {userRole === "SUPER_ADMIN" && (
+          <div className="hidden sm:block">
+            <SchoolSwitcher schools={schoolOptions} activeSchool={activeSchool} />
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
