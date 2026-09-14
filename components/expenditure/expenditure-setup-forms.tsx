@@ -1,5 +1,6 @@
 "use client"
 
+import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import { toast } from "sonner"
@@ -78,6 +79,30 @@ export function ExpenseCategoriesForm({ categories }: { categories: Category[] }
     })
   }
 
+  const categoryColumns: DataTableColumn[] = [
+    { label: "Category" },
+    { label: "Budget Limit", align: "right" },
+    { label: "Expenses", align: "right" },
+    { label: "Status" },
+    { label: "Action" },
+  ]
+
+  const categoryRows: DataTableRow[] = categories.map((category) => ({
+    id: category.id,
+    search: `${category.name} ${category.description ?? ""} ${category.isActive ? "active" : "retired"}`,
+    cells: [
+      <>
+        <div className="font-medium">{category.name}</div>
+        {category.description && <div className="text-muted-foreground">{category.description}</div>}
+      </>,
+      category.budgetLimit ? formatNaira(category.budgetLimit) : "—",
+      category.expenseCount,
+      category.isActive ? "Active" : "Retired",
+      <Button variant="outline" size="sm" disabled={isPending} onClick={() => toggle(category.id, !category.isActive)}>
+        {category.isActive ? "Retire" : "Reactivate"}
+      </Button>,
+    ],
+  }))
   return (
     <div className="space-y-6">
       <Card>
@@ -116,46 +141,15 @@ export function ExpenseCategoriesForm({ categories }: { categories: Category[] }
             A category in use is retired rather than deleted, so past vouchers keep their labels.
           </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4 font-medium">Category</th>
-                <th className="py-2 pr-4 font-medium">Budget Limit</th>
-                <th className="py-2 pr-4 font-medium">Expenses</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((category) => (
-                <tr key={category.id} className="border-b last:border-0">
-                  <td className="py-3 pr-4">
-                    <div className="font-medium">{category.name}</div>
-                    {category.description && <div className="text-muted-foreground">{category.description}</div>}
-                  </td>
-                  <td className="py-3 pr-4">{category.budgetLimit ? formatNaira(category.budgetLimit) : "—"}</td>
-                  <td className="py-3 pr-4">{category.expenseCount}</td>
-                  <td className="py-3 pr-4">{category.isActive ? "Active" : "Retired"}</td>
-                  <td className="py-3 pr-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isPending}
-                      onClick={() => toggle(category.id, !category.isActive)}
-                    >
-                      {category.isActive ? "Retire" : "Reactivate"}
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {categories.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No categories yet. Add one before recording expenditure.
-            </p>
-          )}
+        <CardContent>
+          <DataTable
+            columns={categoryColumns}
+            rows={categoryRows}
+            pageSize={10}
+            unit="categories"
+            searchPlaceholder="Search by category name"
+            emptyMessage="No expense categories yet. Create the first one above."
+          />
         </CardContent>
       </Card>
     </div>
@@ -196,6 +190,38 @@ export function PaymentAccountsForm({ accounts }: { accounts: Account[] }) {
     })
   }
 
+  const accountColumns: DataTableColumn[] = [
+    { label: "Account" },
+    { label: "Type" },
+    { label: "Opening", align: "right" },
+    { label: "Balance", align: "right" },
+    { label: "Status" },
+    { label: "Action" },
+  ]
+
+  const accountRows: DataTableRow[] = accounts.map((account) => ({
+    id: account.id,
+    search: [account.name, account.type, account.bankName ?? "", account.accountNumber ?? ""].join(" "),
+    cells: [
+      <>
+        <div className="font-medium">{account.name}</div>
+        {(account.bankName || account.accountNumber) && (
+          <div className="text-muted-foreground">
+            {[account.bankName, account.accountNumber].filter(Boolean).join(" · ")}
+          </div>
+        )}
+      </>,
+      account.type,
+      formatNaira(account.openingBalance),
+      <span className={`font-semibold ${Number(account.balance) < 0 ? "text-destructive" : ""}`}>
+        {formatNaira(account.balance)}
+      </span>,
+      account.isActive ? "Active" : "Closed",
+      <Button variant="outline" size="sm" disabled={isPending} onClick={() => toggle(account.id, !account.isActive)}>
+        {account.isActive ? "Close" : "Reopen"}
+      </Button>,
+    ],
+  }))
   return (
     <div className="space-y-6">
       <Card>
@@ -250,54 +276,15 @@ export function PaymentAccountsForm({ accounts }: { accounts: Account[] }) {
             cancelled payment corrects it immediately.
           </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4 font-medium">Account</th>
-                <th className="py-2 pr-4 font-medium">Type</th>
-                <th className="py-2 pr-4 font-medium">Opening</th>
-                <th className="py-2 pr-4 font-medium">Balance</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((account) => (
-                <tr key={account.id} className="border-b last:border-0">
-                  <td className="py-3 pr-4">
-                    <div className="font-medium">{account.name}</div>
-                    {(account.bankName || account.accountNumber) && (
-                      <div className="text-muted-foreground">
-                        {[account.bankName, account.accountNumber].filter(Boolean).join(" · ")}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-3 pr-4">{account.type}</td>
-                  <td className="py-3 pr-4">{formatNaira(account.openingBalance)}</td>
-                  <td className={`py-3 pr-4 font-semibold ${Number(account.balance) < 0 ? "text-destructive" : ""}`}>
-                    {formatNaira(account.balance)}
-                  </td>
-                  <td className="py-3 pr-4">{account.isActive ? "Active" : "Closed"}</td>
-                  <td className="py-3 pr-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isPending}
-                      onClick={() => toggle(account.id, !account.isActive)}
-                    >
-                      {account.isActive ? "Close" : "Reopen"}
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {accounts.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No payment accounts yet. Add one before recording expenditure.
-            </p>
-          )}
+        <CardContent>
+          <DataTable
+            columns={accountColumns}
+            rows={accountRows}
+            pageSize={10}
+            unit="accounts"
+            searchPlaceholder="Search account, bank or number"
+            emptyMessage="No payment accounts yet. Create the first one above."
+          />
         </CardContent>
       </Card>
     </div>

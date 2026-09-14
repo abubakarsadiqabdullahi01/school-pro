@@ -205,6 +205,7 @@ export async function getTeacherClassTermStudents(classTermId: string) {
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: {
         classTermId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
       },
       include: {
         student: {
@@ -313,6 +314,7 @@ export async function getTeacherAssessmentsWithStatus(
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: {
         classTermId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
       },
       include: {
         student: {
@@ -633,6 +635,7 @@ export async function saveTeacherAssessments(
       where: {
         id: { in: assessments.map((a) => a.studentClassTermId) },
         classTermId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
         student: {
           id: { in: studentIds },
         },
@@ -642,6 +645,22 @@ export async function saveTeacherAssessments(
 
     if (validStudentClassTerms.length !== assessments.length) {
       throw new Error("Some students do not belong to this class term");
+    }
+
+    const enrollmentById = new Map(
+      validStudentClassTerms.map((studentClassTerm) => [
+        studentClassTerm.id,
+        studentClassTerm,
+      ]),
+    );
+
+    for (const assessment of assessments) {
+      const enrollment = enrollmentById.get(assessment.studentClassTermId);
+      if (!enrollment || enrollment.studentId !== assessment.studentId) {
+        throw new Error(
+          `Student ${assessment.studentId} is not linked to enrollment ${assessment.studentClassTermId}`,
+        );
+      }
     }
 
     // Check for existing assessments (without teacher filter to match unique constraint)

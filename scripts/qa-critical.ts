@@ -6,10 +6,11 @@
  *
  * Run:  npx tsx scripts/qa-critical.ts
  */
-import { PrismaClient, Prisma, type AttendanceStatus } from "@prisma/client";
+import { Prisma, type AttendanceStatus } from "@prisma/client";
 import { calculateGrade } from "../lib/grading";
+import { createPrismaClient } from "../lib/prisma-client";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 type Verdict = "CONFIRMED" | "REFUTED" | "SKIPPED";
 const results: { id: string; claim: string; verdict: Verdict; detail: string }[] = [];

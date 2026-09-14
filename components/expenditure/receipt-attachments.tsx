@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from "react"
 import { FileText, Paperclip, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
-import { addExpenseAttachment, removeExpenseAttachment } from "@/app/actions/expenditure"
+import { removeExpenseAttachment } from "@/app/actions/expenditure"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -28,9 +28,8 @@ function readableSize(bytes: number): string {
 /**
  * Receipts backing an expense.
  *
- * The file goes straight from the browser to object storage using a presigned URL from
- * `/api/expenditure/receipt-upload`, so it never passes through the server. Only the
- * resulting URL is recorded against the expense.
+ * The authenticated upload endpoint stores the receipt on the server and records
+ * its protected download URL against the expense.
  *
  * Receipts can be added at any point except on a cancelled or rejected expense — the paper
  * often turns up after the payment. Removing one is an admin's call.
@@ -54,31 +53,12 @@ export function ReceiptAttachments({
   async function upload(file: File) {
     setIsUploading(true)
     try {
-      const presign = await fetch("/api/expenditure/receipt-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size }),
-      })
-      const presigned = await presign.json()
-      if (!presign.ok || !presigned.success) {
-        throw new Error(presigned.error ?? "Could not start the upload")
-      }
-
-      const put = await fetch(presigned.presignedUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      })
-      if (!put.ok) throw new Error("The file could not be uploaded to storage")
-
-      const result = await addExpenseAttachment({
-        expenseId,
-        url: presigned.publicUrl,
-        fileName: file.name,
-        mimeType: file.type,
-        sizeBytes: file.size,
-      })
-      if (!result.success) throw new Error(result.error)
+      const form = new FormData()
+      form.set("receipt", file)
+      form.set("expenseId", expenseId)
+      const response = await fetch("/api/expenditure/receipt-upload", { method: "POST", body: form })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error ?? "Could not upload receipt")
 
       toast.success("Receipt attached")
       router.refresh()

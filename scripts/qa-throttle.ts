@@ -7,11 +7,11 @@
  * database. Inserts rows under a distinctive marker IP and deletes exactly those rows
  * afterwards, in a finally block.
  */
-import { PrismaClient } from "@prisma/client"
+import { createPrismaClient } from "../lib/prisma-client"
 import { evaluateLoginThrottle } from "../lib/login-throttle.server";
 import { MAX_FAILURES_PER_ACCOUNT } from "../lib/login-throttle";
 
-const prisma = new PrismaClient()
+const prisma = createPrismaClient()
 const MARKER_IP = "203.0.113.250" // TEST-NET-3, never a real client
 
 async function main() {

@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { exportFileName, toCsv } from "@/lib/csv"
+import { drawSchoolHeader, type PdfSchool } from "@/lib/pdf/school-header"
 
 /**
  * Print, PDF and CSV for a tabular report.
@@ -30,10 +31,15 @@ export function ReportExport({
   title,
   subtitle,
   table,
+  school,
+  orientation = "landscape",
 }: {
   title: string
   subtitle?: string
   table: ExportTable
+  /** The letterhead. Omitted, the PDF still prints with a plain title. */
+  school?: PdfSchool | null
+  orientation?: "portrait" | "landscape"
 }) {
   const [isBuilding, setIsBuilding] = useState(false)
   const isEmpty = table.rows.length === 0
@@ -61,23 +67,22 @@ export function ReportExport({
         import("jspdf-autotable"),
       ])
 
-      // Landscape: these reports run to seven columns and portrait crushes them.
-      const doc = new jsPDF({ orientation: "landscape" })
+      const doc = new jsPDF({ orientation })
 
-      doc.setFontSize(16)
-      doc.text(title, 14, 18)
+      doc.setProperties({ title, subject: subtitle ?? title, author: school?.name ?? "DigiSchool-Pro" })
 
-      if (subtitle) {
-        doc.setFontSize(10)
-        doc.setTextColor(110)
-        doc.text(subtitle, 14, 25)
-        doc.setTextColor(0)
-      }
+      // The same letterhead a receipt or a payslip gets, so an exported report is
+      // recognisably from the school rather than an anonymous table.
+      const headerBottom = await drawSchoolHeader(doc, {
+        school: school ?? null,
+        title,
+        reference: subtitle,
+      })
 
       autoTable(doc, {
         head: [table.columns],
         body: table.rows,
-        startY: subtitle ? 31 : 24,
+        startY: headerBottom,
         styles: { fontSize: 8, cellPadding: 2 },
         headStyles: { fillColor: [30, 41, 59] },
       })

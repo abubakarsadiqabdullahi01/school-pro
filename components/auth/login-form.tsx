@@ -197,6 +197,11 @@ export function LoginForm({ className }: { className?: string }) {
             </div>
           </form>
           <div className="relative hidden bg-muted md:block">
+            <img
+              src="/image-login.webp"
+              alt="Login"
+              className="absolute inset-0 h-full w-full object-cover opacity-20"
+            />
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
               <div className="space-y-2">
                 <School className="mx-auto h-12 w-12 text-primary" />
@@ -274,11 +279,6 @@ export function LoginForm({ className }: { className?: string }) {
                 </div>
               </div>
             </div>
-            <img
-              src="/image-login.webp"
-              alt="Login"
-              className="absolute inset-0 h-full w-full object-cover opacity-20"
-            />
           </div>
         </CardContent>
       </Card>

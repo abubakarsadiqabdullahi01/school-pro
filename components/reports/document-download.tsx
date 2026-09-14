@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { exportFileName } from "@/lib/csv"
+import { drawSchoolHeader, type PdfSchool } from "@/lib/pdf/school-header"
 
 /**
  * A one-off financial document — a receipt, a statement, an expenditure voucher — as a PDF.
@@ -25,11 +26,20 @@ export type PrintableDocument = {
   title: string
   /** Used for the filename, e.g. a receipt number or student name. */
   reference: string
+  /** Optional explicit filename stem when the document needs a stricter naming standard. */
+  fileName?: string
   schoolName: string
   schoolCode?: string
+  /**
+   * The full letterhead: logo, address and contact line. When present the document gets the
+   * same masthead as the compiler's report card. `schoolName` alone still works, so an older
+   * caller degrades to a plain title rather than breaking.
+   */
+  school?: PdfSchool | null
   fields: DocumentField[]
   table: { caption: string; columns: string[]; rows: string[][] }
   totals: DocumentField[]
+  signatureLabel?: string
 }
 
 export function DocumentDownload({ document: doc, label }: { document: PrintableDocument; label: string }) {
@@ -47,28 +57,23 @@ export function DocumentDownload({ document: doc, label }: { document: Printable
       const pageWidth = pdf.internal.pageSize.getWidth()
       const marginX = 14
 
-      pdf.setFontSize(15)
-      pdf.text(doc.schoolName, marginX, 18)
-      if (doc.schoolCode) {
-        pdf.setFontSize(10)
-        pdf.setTextColor(110)
-        pdf.text(doc.schoolCode, marginX, 24)
-        pdf.setTextColor(0)
-      }
+      pdf.setProperties({
+        title: `${doc.title} - ${doc.reference}`,
+        subject: doc.title,
+        author: doc.schoolName,
+      })
 
-      pdf.setFontSize(13)
-      pdf.text(doc.title, pageWidth - marginX, 18, { align: "right" })
-      pdf.setFontSize(10)
-      pdf.setTextColor(110)
-      pdf.text(doc.reference, pageWidth - marginX, 24, { align: "right" })
-      pdf.setTextColor(0)
-
-      pdf.setDrawColor(200)
-      pdf.line(marginX, 29, pageWidth - marginX, 29)
+      // One letterhead for every printed document in the system, matching the report card.
+      const headerBottom = await drawSchoolHeader(pdf, {
+        school: doc.school ?? { name: doc.schoolName, code: doc.schoolCode },
+        title: doc.title,
+        reference: doc.reference,
+        marginX,
+      })
 
       // Detail pairs in two columns, so a six-field receipt stays on three lines.
       pdf.setFontSize(9)
-      let cursorY = 37
+      let cursorY = headerBottom
       doc.fields.forEach((field, index) => {
         const isRightColumn = index % 2 === 1
         const x = isRightColumn ? pageWidth / 2 : marginX
@@ -102,7 +107,17 @@ export function DocumentDownload({ document: doc, label }: { document: Printable
         totalsY += 7
       }
 
-      pdf.save(exportFileName(`${doc.title} ${doc.reference}`, "pdf"))
+      if (doc.signatureLabel) {
+        const signatureY = Math.max(totalsY + 14, 250)
+        pdf.setDrawColor(160)
+        pdf.line(marginX, signatureY, marginX + 65, signatureY)
+        pdf.setFontSize(9)
+        pdf.setTextColor(80)
+        pdf.text(doc.signatureLabel, marginX, signatureY + 5)
+        pdf.setTextColor(0)
+      }
+
+      pdf.save(exportFileName(doc.fileName ?? `${doc.title} ${doc.reference}`, "pdf"))
     } catch (error) {
       console.error("Failed to build finance document PDF", error)
       toast.error("Could not build the PDF", {

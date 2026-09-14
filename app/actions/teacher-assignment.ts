@@ -1,21 +1,15 @@
 "use server";
 
-import { auth } from "@/auth";
+import { assertSchoolAccess, requirePermission, type Actor } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
-// Helper function to get admin's school ID
-async function getAdminSchoolId(session: any): Promise<string | null> {
-  if (session.user.role === "SUPER_ADMIN") {
-    return null; // Super admin has access to all schools
+function assertTeacherAssignmentSchool(actor: Actor, schoolId: string, message: string) {
+  try {
+    assertSchoolAccess(actor, schoolId);
+  } catch {
+    throw new Error(message);
   }
-
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    select: { schoolId: true },
-  });
-
-  return admin?.schoolId || null;
 }
 
 // Assign a teacher to a class term (term-specific)
@@ -24,20 +18,7 @@ export async function assignTeacherToClass(data: {
   classTermId: string;
 }) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const schoolId = await getAdminSchoolId(session);
-
-    if (session.user.role === "ADMIN" && !schoolId) {
-      return { success: false, error: "Admin not associated with a school" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -49,9 +30,7 @@ export async function assignTeacherToClass(data: {
       return { success: false, error: "Teacher not found" };
     }
 
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
-      return { success: false, error: "Unauthorized to assign this teacher" };
-    }
+    assertTeacherAssignmentSchool(actor, teacher.schoolId, "Unauthorized to assign this teacher");
 
     // Verify the class term exists and belongs to the admin's school
     const classTerm = await prisma.classTerm.findUnique({
@@ -70,12 +49,7 @@ export async function assignTeacherToClass(data: {
       return { success: false, error: "Class term not found" };
     }
 
-    if (
-      session.user.role === "ADMIN" &&
-      classTerm.class.schoolId !== schoolId
-    ) {
-      return { success: false, error: "Unauthorized to assign to this class" };
-    }
+    assertTeacherAssignmentSchool(actor, classTerm.class.schoolId, "Unauthorized to assign to this class");
 
     // Check if the assignment already exists
     const existingAssignment = await prisma.teacherClassTerm.findUnique({
@@ -122,14 +96,7 @@ export async function assignTeacherToClass(data: {
 // Unassign a teacher from a class term
 export async function unassignTeacherFromClass(teacherClassTermId: string) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Get the assignment details to verify permissions
     const assignment = await prisma.teacherClassTerm.findUnique({
@@ -155,25 +122,8 @@ export async function unassignTeacherFromClass(teacherClassTermId: string) {
       return { success: false, error: "Assignment not found" };
     }
 
-    // Get the admin's school ID if applicable
-    if (session.user.role === "ADMIN") {
-      const schoolId = await getAdminSchoolId(session);
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-
-      // Verify the teacher and class belong to the admin's school
-      if (
-        assignment.teacher.schoolId !== schoolId ||
-        assignment.classTerm.class.schoolId !== schoolId
-      ) {
-        return {
-          success: false,
-          error: "Unauthorized to unassign this teacher",
-        };
-      }
-    }
+    assertTeacherAssignmentSchool(actor, assignment.teacher.schoolId, "Unauthorized to unassign this teacher");
+    assertTeacherAssignmentSchool(actor, assignment.classTerm.class.schoolId, "Unauthorized to unassign this teacher");
 
     // Warning: Check if this is a past term assignment
     if (!assignment.classTerm.term.isCurrent) {
@@ -216,20 +166,7 @@ export async function assignClassesToTeacher(data: {
   termId: string;
 }) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const schoolId = await getAdminSchoolId(session);
-
-    if (session.user.role === "ADMIN" && !schoolId) {
-      return { success: false, error: "Admin not associated with a school" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -241,9 +178,7 @@ export async function assignClassesToTeacher(data: {
       return { success: false, error: "Teacher not found" };
     }
 
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
-      return { success: false, error: "Unauthorized to assign this teacher" };
-    }
+    assertTeacherAssignmentSchool(actor, teacher.schoolId, "Unauthorized to assign this teacher");
 
     // Verify all class terms belong to the specified term
     const classTerms = await prisma.classTerm.findMany({
@@ -265,17 +200,15 @@ export async function assignClassesToTeacher(data: {
       };
     }
 
-    // Verify school ownership for admin
-    if (session.user.role === "ADMIN") {
-      const invalidClasses = classTerms.filter(
-        (ct) => ct.class.schoolId !== schoolId,
-      );
-      if (invalidClasses.length > 0) {
-        return {
-          success: false,
-          error: "Some classes don't belong to your school",
-        };
+    try {
+      for (const classTerm of classTerms) {
+        assertSchoolAccess(actor, classTerm.class.schoolId);
       }
+    } catch {
+      return {
+        success: false,
+        error: "Some classes don't belong to your school",
+      };
     }
 
     // Get existing assignments for this teacher and term
@@ -348,20 +281,7 @@ export async function assignTeacherToSubject(data: {
   termId: string;
 }) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const schoolId = await getAdminSchoolId(session);
-
-    if (session.user.role === "ADMIN" && !schoolId) {
-      return { success: false, error: "Admin not associated with a school" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -373,9 +293,7 @@ export async function assignTeacherToSubject(data: {
       return { success: false, error: "Teacher not found" };
     }
 
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
-      return { success: false, error: "Unauthorized to assign this teacher" };
-    }
+    assertTeacherAssignmentSchool(actor, teacher.schoolId, "Unauthorized to assign this teacher");
 
     // Verify the subject exists and belongs to the admin's school
     const subject = await prisma.subject.findUnique({
@@ -387,22 +305,22 @@ export async function assignTeacherToSubject(data: {
       return { success: false, error: "Subject not found" };
     }
 
-    if (session.user.role === "ADMIN" && subject.schoolId !== schoolId) {
-      return {
-        success: false,
-        error: "Unauthorized to assign to this subject",
-      };
-    }
+    assertTeacherAssignmentSchool(actor, subject.schoolId, "Unauthorized to assign to this subject");
 
-    // Verify the term exists
+    // Verify the term exists and belongs to the admin's school. Checking only that it
+    // exists validated two ids out of three: the teacher and the subject were scoped, and
+    // the term was taken on trust, so an id from another school produced an assignment row
+    // pointing across the tenancy boundary.
     const term = await prisma.term.findUnique({
       where: { id: data.termId },
-      select: { id: true, name: true, isCurrent: true },
+      select: { id: true, name: true, isCurrent: true, session: { select: { schoolId: true } } },
     });
 
     if (!term) {
       return { success: false, error: "Term not found" };
     }
+
+    assertTeacherAssignmentSchool(actor, term.session.schoolId, "Unauthorized to assign in this term");
 
     // Check if the assignment already exists
     const existingAssignment = await prisma.teacherSubject.findUnique({
@@ -454,14 +372,7 @@ export async function assignTeacherToSubject(data: {
 // Unassign a teacher from a subject
 export async function unassignTeacherFromSubject(teacherSubjectId: string) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Get the assignment details to verify permissions
     const assignment = await prisma.teacherSubject.findUnique({
@@ -483,25 +394,8 @@ export async function unassignTeacherFromSubject(teacherSubjectId: string) {
       return { success: false, error: "Assignment not found" };
     }
 
-    // Get the admin's school ID if applicable
-    if (session.user.role === "ADMIN") {
-      const schoolId = await getAdminSchoolId(session);
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-
-      // Verify the teacher and subject belong to the admin's school
-      if (
-        assignment.teacher.schoolId !== schoolId ||
-        assignment.subject.schoolId !== schoolId
-      ) {
-        return {
-          success: false,
-          error: "Unauthorized to unassign this teacher",
-        };
-      }
-    }
+    assertTeacherAssignmentSchool(actor, assignment.teacher.schoolId, "Unauthorized to unassign this teacher");
+    assertTeacherAssignmentSchool(actor, assignment.subject.schoolId, "Unauthorized to unassign this teacher");
 
     // Warning: Check if this is a past term assignment
     if (!assignment.term.isCurrent) {
@@ -544,20 +438,7 @@ export async function assignSubjectsToTeacher(data: {
   termId: string;
 }) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const schoolId = await getAdminSchoolId(session);
-
-    if (session.user.role === "ADMIN" && !schoolId) {
-      return { success: false, error: "Admin not associated with a school" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -569,40 +450,44 @@ export async function assignSubjectsToTeacher(data: {
       return { success: false, error: "Teacher not found" };
     }
 
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
-      return { success: false, error: "Unauthorized to assign this teacher" };
-    }
+    assertTeacherAssignmentSchool(actor, teacher.schoolId, "Unauthorized to assign this teacher");
 
-    // Verify the term exists
+    // Verify the term exists and belongs to the admin's school. Checking only that it
+    // exists validated two ids out of three: the teacher and the subject were scoped, and
+    // the term was taken on trust, so an id from another school produced an assignment row
+    // pointing across the tenancy boundary.
     const term = await prisma.term.findUnique({
       where: { id: data.termId },
-      select: { id: true, name: true, isCurrent: true },
+      select: { id: true, name: true, isCurrent: true, session: { select: { schoolId: true } } },
     });
 
     if (!term) {
       return { success: false, error: "Term not found" };
     }
 
-    // Verify all subjects belong to the school
-    if (session.user.role === "ADMIN") {
-      const adminSchoolId = schoolId;
-      if (!adminSchoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
+    assertTeacherAssignmentSchool(actor, term.session.schoolId, "Unauthorized to assign in this term");
 
-      const subjects = await prisma.subject.findMany({
-        where: {
-          id: { in: data.subjectIds },
-          schoolId: adminSchoolId,
-        },
-      });
+    const subjects = await prisma.subject.findMany({
+      where: { id: { in: data.subjectIds } },
+      select: { id: true, schoolId: true },
+    });
 
-      if (subjects.length !== data.subjectIds.length) {
-        return {
-          success: false,
-          error: "Some subjects don't belong to your school",
-        };
+    if (subjects.length !== data.subjectIds.length) {
+      return {
+        success: false,
+        error: "Some subjects don't belong to your school",
+      };
+    }
+
+    try {
+      for (const subject of subjects) {
+        assertSchoolAccess(actor, subject.schoolId);
       }
+    } catch {
+      return {
+        success: false,
+        error: "Some subjects don't belong to your school",
+      };
     }
 
     // Get existing assignments for this teacher for the specific term
@@ -670,30 +555,11 @@ export async function assignSubjectsToTeacher(data: {
 // Get available class terms for assignment (grouped by term)
 export async function getAvailableClassTerms() {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const schoolId = await getAdminSchoolId(session);
-
-    if (session.user.role === "ADMIN" && !schoolId) {
-      return { success: false, error: "Admin not associated with a school" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Get all class terms for the school
     const classTerms = await prisma.classTerm.findMany({
-      where: schoolId
-        ? {
-            class: {
-              schoolId,
-            },
-          }
-        : undefined,
+      where: actor.schoolId ? { class: { schoolId: actor.schoolId } } : undefined,
       include: {
         class: true,
         term: {
@@ -749,24 +615,11 @@ export async function getAvailableClassTerms() {
 // Get available subjects for assignment
 export async function getAvailableSubjects() {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const schoolId = await getAdminSchoolId(session);
-
-    if (session.user.role === "ADMIN" && !schoolId) {
-      return { success: false, error: "Admin not associated with a school" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Get all subjects for the school
     const subjects = await prisma.subject.findMany({
-      where: schoolId ? { schoolId } : undefined,
+      where: actor.schoolId ? { schoolId: actor.schoolId } : undefined,
       orderBy: { name: "asc" },
     });
 
@@ -796,30 +649,11 @@ export async function getAvailableSubjects() {
 // Get available terms for a school
 export async function getAvailableTerms() {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const schoolId = await getAdminSchoolId(session);
-
-    if (session.user.role === "ADMIN" && !schoolId) {
-      return { success: false, error: "Admin not associated with a school" };
-    }
+    const actor = await requirePermission("teachers.manage");
 
     // Get all terms for the school
     const terms = await prisma.term.findMany({
-      where: schoolId
-        ? {
-            session: {
-              schoolId,
-            },
-          }
-        : undefined,
+      where: actor.schoolId ? { session: { schoolId: actor.schoolId } } : undefined,
       include: {
         session: {
           select: {

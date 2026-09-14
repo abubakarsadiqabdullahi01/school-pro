@@ -8,7 +8,7 @@ import { MoveLeft as MoveLeftIcon } from "lucide-react"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminTeacherDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdminSchool()
+  await requireAdminSchool("teachers.manage")
   const { id } = await params
 
   const teacherResult = await getTeacher(id)

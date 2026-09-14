@@ -5,7 +5,7 @@ import { LoadingSpinner } from "@/components/dashboard/loading-spinner"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function SchoolSettingsPage() {
-  await requireAdminSchool()
+  await requireAdminSchool("school.manage")
 
   return (
     <div className="space-y-6">

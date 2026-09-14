@@ -5,7 +5,7 @@ import { getTeacher } from "@/app/actions/teacher-management"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminEditTeacherPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdminSchool()
+  await requireAdminSchool("teachers.manage")
   const { id } = await params
 
   const teacherResult = await getTeacher(id)

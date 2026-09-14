@@ -1,22 +1,12 @@
 "use server";
 
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { requireAdminScope } from "@/lib/authz";
+import { assertSchoolAccess, authActive, requirePermission, type Actor } from "@/lib/authz";
 import { recordAudit } from "@/lib/audit";
 import { getActiveSchool } from "@/lib/school-context.server";
 import { revalidatePath } from "next/cache";
 
-async function getAdminSchoolId(userId: string) {
-  const admin = await prisma.admin.findUnique({
-    where: { userId },
-    select: { schoolId: true },
-  });
-
-  return admin?.schoolId ?? null;
-}
-
-async function canManageSession(userId: string, role: string, sessionId: string) {
+async function canManageSession(actor: Actor, sessionId: string) {
   const sessionData = await prisma.session.findUnique({
     where: { id: sessionId },
     select: { schoolId: true, startDate: true, endDate: true },
@@ -26,16 +16,12 @@ async function canManageSession(userId: string, role: string, sessionId: string)
     return null;
   }
 
-  if (role === "SUPER_ADMIN") {
+  try {
+    assertSchoolAccess(actor, sessionData.schoolId);
     return sessionData;
-  }
-
-  if (role !== "ADMIN") {
+  } catch {
     return null;
   }
-
-  const schoolId = await getAdminSchoolId(userId);
-  return schoolId === sessionData.schoolId ? sessionData : null;
 }
 
 // Create a new term
@@ -47,10 +33,7 @@ export async function createTerm(data: {
   isCurrent: boolean;
 }) {
   try {
-    const session = await auth();
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requirePermission("academics.manage");
 
     // Check if term name already exists for this session
     const existingTerm = await prisma.term.findFirst({
@@ -68,7 +51,7 @@ export async function createTerm(data: {
     }
 
     // Validate that term dates are within session dates
-    const sessionData = await canManageSession(session.user.id, session.user.role, data.sessionId);
+    const sessionData = await canManageSession(actor, data.sessionId);
 
     if (!sessionData) {
       return { success: false, error: "Session not found for this school" };
@@ -129,10 +112,7 @@ export async function updateTerm(data: {
   isCurrent: boolean;
 }) {
   try {
-    const session = await auth();
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requirePermission("academics.manage");
 
     const targetTerm = await prisma.term.findUnique({
       where: { id: data.id },
@@ -164,7 +144,7 @@ export async function updateTerm(data: {
     }
 
     // Validate that term dates are within session dates
-    const sessionData = await canManageSession(session.user.id, session.user.role, data.sessionId);
+    const sessionData = await canManageSession(actor, data.sessionId);
 
     if (!sessionData) {
       return { success: false, error: "Session not found for this school" };
@@ -220,10 +200,7 @@ export async function updateTerm(data: {
 // Delete term
 export async function deleteTerm(id: string) {
   try {
-    const session = await auth();
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requirePermission("academics.manage");
 
     // Check if term has assessments or other related data
     const termWithData = await prisma.term.findUnique({
@@ -251,12 +228,10 @@ export async function deleteTerm(id: string) {
       where: { classTerm: { termId: id } },
     });
 
-    if (session.user.role === "ADMIN") {
-      const schoolId = await getAdminSchoolId(session.user.id);
-
-      if (!schoolId || schoolId !== termWithData.session.schoolId) {
-        return { success: false, error: "Unauthorized for this school" };
-      }
+    try {
+      assertSchoolAccess(actor, termWithData.session.schoolId);
+    } catch {
+      return { success: false, error: "Unauthorized for this school" };
     }
 
     if (termWithData.isCurrent) {
@@ -293,10 +268,7 @@ export async function deleteTerm(id: string) {
 // Set current term
 export async function setCurrentTerm(termId: string, sessionId: string) {
   try {
-    const session = await auth();
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requirePermission("academics.manage");
 
     const targetTerm = await prisma.term.findFirst({
       where: {
@@ -314,19 +286,10 @@ export async function setCurrentTerm(termId: string, sessionId: string) {
       return { success: false, error: "Term not found for this session" };
     }
 
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      if (!admin?.schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-
-      if (admin.schoolId !== targetTerm.session.schoolId) {
-        return { success: false, error: "Unauthorized for this school" };
-      }
+    try {
+      assertSchoolAccess(actor, targetTerm.session.schoolId);
+    } catch {
+      return { success: false, error: "Unauthorized for this school" };
     }
 
     await prisma.$transaction(async (tx) => {
@@ -347,7 +310,7 @@ export async function setCurrentTerm(termId: string, sessionId: string) {
     });
 
     await recordAudit({
-      actor: await requireAdminScope(),
+      actor,
       action: "term.set_current",
       entityType: "Term",
       entityId: termId,
@@ -369,10 +332,7 @@ export async function setCurrentTerm(termId: string, sessionId: string) {
 // Get term details
 export async function getTerm(id: string) {
   try {
-    const session = await auth();
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requirePermission("academics.manage");
 
     const termData = await prisma.term.findUnique({
       where: { id },
@@ -400,12 +360,10 @@ export async function getTerm(id: string) {
       return { success: false, error: "Term not found" };
     }
 
-    if (session.user.role === "ADMIN") {
-      const schoolId = await getAdminSchoolId(session.user.id);
-
-      if (!schoolId || schoolId !== termData.session.schoolId) {
-        return { success: false, error: "Unauthorized for this school" };
-      }
+    try {
+      assertSchoolAccess(actor, termData.session.schoolId);
+    } catch {
+      return { success: false, error: "Unauthorized for this school" };
     }
 
     // Counted through ClassTerm — see deleteTerm above.
@@ -426,7 +384,7 @@ export async function getTerm(id: string) {
 // Get all terms with formatting
 export async function getTerms() {
   try {
-    const session = await auth();
+    const session = await authActive();
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" };
     }

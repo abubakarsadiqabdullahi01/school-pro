@@ -1,28 +1,12 @@
 "use server"
 
-import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
-import { redirect } from "next/navigation"
 import { TransitionType, ClassLevel } from "@prisma/client"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export async function getDashboardData() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      redirect("/auth/login")
-    }
-
-    // Get user's school
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-      include: { school: true },
-    })
-
-    if (!admin?.schoolId) {
-      throw new Error("Admin not associated with a school")
-    }
-
-    const schoolId = admin.schoolId
+    const { school, schoolId } = await requireAdminSchool()
 
     // Parallel data fetching for better performance
     const [
@@ -342,7 +326,7 @@ export async function getDashboardData() {
     return {
       success: true,
       data: {
-        school: admin.school,
+        school,
         stats: {
           studentsCount,
           teachersCount,
@@ -409,20 +393,7 @@ export async function getDashboardData() {
 
 export async function getSystemHealth() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      redirect("/auth/login")
-    }
-
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-    })
-
-    if (!admin?.schoolId) {
-      throw new Error("Admin not associated with a school")
-    }
-
-    const schoolId = admin.schoolId
+    const { schoolId } = await requireAdminSchool()
 
     // Get students from this school first, then count assessments
     const schoolStudents = await prisma.student.findMany({

@@ -1,16 +1,11 @@
-import { auth } from "@/auth";
-import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { ParentDetails } from "@/components/parent-managements/parent-details";
 import { getParentDetails } from "@/app/actions/parent-management";
+import { requireAdminSchool } from "@/lib/admin-page-context";
 
 export default async function AdminParentDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard");
-  }
+  await requireAdminSchool("parents.manage");
 
   const { id } = await params;
   const result = await getParentDetails(id);

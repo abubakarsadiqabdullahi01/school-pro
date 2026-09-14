@@ -1,8 +1,7 @@
 "use server";
 
-import { auth } from "@/auth";
-import type { Session } from "next-auth";
 import { prisma } from "@/lib/db";
+import { requirePermission, type Actor } from "@/lib/authz";
 import { toNumber } from "@/lib/money";
 import bcrypt from "bcryptjs";
 import { Gender, CredentialType } from "@prisma/client";
@@ -24,23 +23,27 @@ async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, salt);
 }
 
-type SessionUser = NonNullable<Session["user"]>;
-
 // Common authorization check
 async function checkAuthorization(
-  allowedRoles: string[]
-): Promise<{ success: true; user: SessionUser } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user || !allowedRoles.includes(session.user.role)) {
-    return { success: false, error: "Unauthorized" };
+  _allowedRoles: string[]
+): Promise<{ success: true; user: { id: string; role: string }; actor: Actor } | { success: false; error: string }> {
+  try {
+    const actor = await requirePermission("parents.manage");
+    return { success: true, user: { id: actor.userId, role: actor.role }, actor };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unauthorized" };
   }
-  return { success: true, user: session.user };
 }
 
 // Get school ID for admin or super admin
 async function getSchoolId(
   user: { id: string; role: string }
 ): Promise<{ success: true; schoolId: string } | { success: false; error: string }> {
+  const actor = await requirePermission("parents.manage");
+  if (actor.schoolId) {
+    return { success: true, schoolId: actor.schoolId };
+  }
+
   if (user.role === "ADMIN") {
     const admin = await prisma.admin.findUnique({
       where: { userId: user.id },
@@ -622,6 +625,18 @@ export async function linkStudentToParent(data: {
   
       if (student.parents.length > 0) {
         return { success: false, error: "Student is already linked to a parent" };
+      }
+  
+      // Both ends were checked against the caller, never against each other. An ADMIN is
+      // pinned to one school so they always matched, but a SUPER_ADMIN is scoped to none —
+      // and a parent holding another school's child sees that child's marks, attendance and
+      // fees on their portal. This is a data-integrity rule, not a permission one, so it
+      // applies to every role.
+      if (parent.schoolId !== student.schoolId) {
+        return {
+          success: false,
+          error: "Parent and student belong to different schools",
+        };
       }
   
       // Create the student-parent link

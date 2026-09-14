@@ -1,88 +1,35 @@
-import { PutObjectCommand } from "@aws-sdk/client-s3"
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { NextResponse } from "next/server"
-import { v4 as uuid } from "uuid"
-
-import { AuthorizationError, requireRole } from "@/lib/authz"
-import { S3 } from "@/lib/S3Client"
-
-/**
- * Presigned upload for an expense receipt.
- *
- * Separate from `app/api/s3/upload` on purpose. That route hardcodes a `school-logos/` key
- * prefix, caps uploads at 1MB, and accepts images only — none of which suits a scanned
- * invoice. It also performs no authorization, which this route must not copy.
- *
- * The flow: the client asks here for a presigned URL, PUTs the file straight to storage,
- * then calls `addExpenseAttachment` with the returned `publicUrl`. The file itself never
- * passes through the server.
- */
-
-/** A receipt is a photo or a scan. Anything else is not a receipt. */
-const ALLOWED_TYPES = [
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "application/pdf",
-]
-
-/** Large enough for a phone photo of an invoice, small enough to refuse a video. */
-const MAX_BYTES = 10 * 1024 * 1024
+import { AuthorizationError, requirePermission } from "@/lib/authz"
+import { getActiveSchool } from "@/lib/school-context.server"
+import { prisma } from "@/lib/db"
+import { storeUpload, deleteStoredFile, UploadError } from "@/lib/local-storage"
+import { addExpenseAttachment } from "@/app/actions/expenditure"
 
 export async function POST(request: Request) {
   try {
-    // Same tier that may record an expense. An upload URL is a write.
-    const actor = await requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
-
-    const bucket = process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES
-    const endpoint = process.env.AWS_ENDPOINT_URL_S3
-    if (!bucket || !endpoint) {
-      console.error("Receipt upload is not configured: missing NEXT_PUBLIC_S3_BUCKET_IMAGES or AWS_ENDPOINT_URL_S3")
-      return NextResponse.json({ success: false, error: "File storage is not configured" }, { status: 500 })
-    }
-
-    const body = await request.json()
-    const fileName = typeof body?.fileName === "string" ? body.fileName : ""
-    const contentType = typeof body?.contentType === "string" ? body.contentType : ""
-    const size = Number(body?.size)
-
-    if (!fileName || !contentType || !Number.isFinite(size) || size <= 0) {
-      return NextResponse.json({ success: false, error: "fileName, contentType and size are required" }, { status: 400 })
-    }
-    if (!ALLOWED_TYPES.includes(contentType)) {
-      return NextResponse.json(
-        { success: false, error: "A receipt must be an image or a PDF" },
-        { status: 400 },
-      )
-    }
-    if (size > MAX_BYTES) {
-      return NextResponse.json({ success: false, error: "Receipts are limited to 10MB" }, { status: 400 })
-    }
-
-    // Keyed by school so one tenant's receipts are not interleaved with another's, and the
-    // random name means an uploaded filename can never traverse or collide.
-    const extension = fileName.includes(".") ? fileName.split(".").pop() : "bin"
-    const key = `expense-receipts/${actor.schoolId ?? "platform"}/${uuid()}.${extension}`
-
-    const presignedUrl = await getSignedUrl(
-      S3,
-      new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType, ContentLength: size }),
-      { expiresIn: 600 },
-    )
-
-    const endpointUrl = new URL(endpoint)
-    const publicUrl = endpointUrl.host.includes("storage.dev")
-      ? `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}/${key}`
-      : `${endpoint}/${bucket}/${key}`
-
-    return NextResponse.json({ success: true, presignedUrl, key, publicUrl })
+    const actor = await requirePermission("expenditure.manage")
+    const schoolId = actor.schoolId || (actor.role === "SUPER_ADMIN" ? (await getActiveSchool())?.id : null)
+    if (!schoolId) throw new AuthorizationError("Select a school before uploading receipts")
+    const form = await request.formData()
+    const file = form.get("receipt")
+    const expenseId = form.get("expenseId")
+    if (!(file instanceof File) || typeof expenseId !== "string") return NextResponse.json({ error: "Receipt and expense are required" }, { status: 400 })
+    const expense = await prisma.expense.findFirst({ where: { id: expenseId, schoolId }, select: { status: true } })
+    if (!expense) return NextResponse.json({ error: "Expense not found" }, { status: 404 })
+    if (expense.status === "CANCELLED" || expense.status === "REJECTED") return NextResponse.json({ error: "This expense cannot accept receipts" }, { status: 400 })
+    const url = await storeUpload(file, "expense-receipts", schoolId)
+    try {
+      const result = await addExpenseAttachment({ expenseId, url, fileName: file.name, mimeType: file.type, sizeBytes: file.size })
+      if (!result.success) {
+        await deleteStoredFile(url)
+        return NextResponse.json({ error: result.error }, { status: 400 })
+      }
+      return NextResponse.json({ success: true, id: result.data.id })
+    } catch (error) { await deleteStoredFile(url); throw error }
   } catch (error) {
-    if (error instanceof AuthorizationError) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 403 })
-    }
-    console.error("Failed to presign an expense receipt upload", error)
-    return NextResponse.json({ success: false, error: "Could not start the upload" }, { status: 500 })
+    if (error instanceof AuthorizationError) return NextResponse.json({ error: error.message }, { status: 403 })
+    if (error instanceof UploadError) return NextResponse.json({ error: error.message }, { status: 400 })
+    console.error("Receipt upload failed")
+    return NextResponse.json({ error: "Could not upload receipt" }, { status: 500 })
   }
 }

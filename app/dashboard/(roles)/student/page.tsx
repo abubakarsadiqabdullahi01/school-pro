@@ -8,11 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { StatsCard } from "@/components/dashboard/stats-card"
 import { formatDate } from "@/lib/format"
-
-function average(values: number[]) {
-  if (values.length === 0) return 0
-  return values.reduce((sum, value) => sum + value, 0) / values.length
-}
+import { PUBLISHED_ONLY, averageScore } from "@/lib/results-visibility"
 
 export default async function StudentDashboardPage() {
   const session = await auth()
@@ -47,6 +43,9 @@ export default async function StudentDashboardPage() {
         },
       },
       assessments: {
+        // Drafts are staff-only. Without this a student read their exam mark the moment a
+        // teacher typed it, before the school released anything. See lib/results-visibility.
+        where: PUBLISHED_ONLY,
         orderBy: { updatedAt: "desc" },
         include: {
           subject: { select: { name: true, code: true } },
@@ -68,14 +67,11 @@ export default async function StudentDashboardPage() {
     student.classTerms.find((entry) => entry.classTerm.term.isCurrent) ?? student.classTerms[0]
   const currentSubjects = currentEnrollment?.classTerm.classSubjects ?? []
   const currentAssessments = student.assessments.filter((assessment) => assessment.term.isCurrent)
-  const scoredAssessments = currentAssessments
-    .map((assessment) => [assessment.ca1, assessment.ca2, assessment.ca3, assessment.exam])
-    .map((scores) => scores.reduce<number>((sum, score) => sum + (score ?? 0), 0))
-    .filter((score) => score > 0)
+  const average = averageScore(currentAssessments)
   const attendanceTotal = student.attendances.length
   const presentCount = student.attendances.filter((attendance) => attendance.status === "PRESENT").length
   const attendanceRate = attendanceTotal > 0 ? Math.round((presentCount / attendanceTotal) * 100) : 0
-  const averageScore = Math.round(average(scoredAssessments))
+
 
   return (
     <div className="space-y-6">
@@ -92,7 +88,7 @@ export default async function StudentDashboardPage() {
         <StatsCard title="Current Class" value={currentEnrollment?.classTerm.class.name ?? "Not assigned"} icon={BookOpen} />
         <StatsCard title="Subjects" value={String(currentSubjects.length)} icon={FileText} description="Current term" />
         <StatsCard title="Attendance" value={attendanceTotal ? `${attendanceRate}%` : "No records"} icon={CheckCircle} />
-        <StatsCard title="Average Score" value={scoredAssessments.length ? `${averageScore}%` : "No scores"} icon={Calendar} />
+        <StatsCard title="Average Score" value={average === null ? "Not released" : `${average}%`} icon={Calendar} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -170,7 +166,9 @@ export default async function StudentDashboardPage() {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No current-term results have been recorded yet.</p>
+            <p className="text-sm text-muted-foreground">
+              Results for this term have not been released yet.
+            </p>
           )}
         </CardContent>
       </Card>

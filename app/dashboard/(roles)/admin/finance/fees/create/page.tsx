@@ -1,4 +1,5 @@
 import { getFinanceSetupData } from "@/app/actions/finance"
+import { BackButton } from "@/components/back-button"
 import { FinanceFeeSetupForm } from "@/components/finance/finance-fee-setup-form"
 
 export default async function CreateFeePage() {
@@ -11,8 +12,11 @@ export default async function CreateFeePage() {
   return (
     <div className="space-y-6">
       <div>
+        <BackButton fallbackHref="/dashboard/admin/finance/fees" />
         <h1 className="text-3xl font-bold tracking-tight">Create Fee</h1>
-        <p className="text-muted-foreground">Create categories and fee schedules. Schedules automatically create student charges.</p>
+        <p className="text-muted-foreground">
+          Create the fee category first, then create the new fee schedule that bills the selected class.
+        </p>
       </div>
       <FinanceFeeSetupForm setup={setup.data} />
     </div>

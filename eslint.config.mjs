@@ -8,6 +8,11 @@ export default [
     ignores: [
       ".next/**",
       "node_modules/**",
+      // Build output, not source. deploy/ holds the minified standalone bundle
+      // and the compiled seed; linting it drowns real findings in thousands of
+      // errors from generated code.
+      "deploy/**",
+      "outputs/**",
       "dist/**",
       "build/**",
       "coverage/**",

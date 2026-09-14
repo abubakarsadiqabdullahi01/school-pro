@@ -79,7 +79,12 @@ export const StudentTransitionTable = memo(function StudentTransitionTable({
       return
     }
 
-    if (!toClassTermId) {
+    // A withdrawal ends the enrolment where it stands, so there is nowhere to send the
+    // student. The source class is passed through only so the audit record has a target.
+    const isWithdrawal = transitionType === "WITHDRAWAL"
+    const destination = isWithdrawal ? fromClassTermId : toClassTermId
+
+    if (!destination) {
       toast.info("No Destination Selected", {
         description: "Please select a destination class before executing the transition.",
       })
@@ -90,7 +95,7 @@ export const StudentTransitionTable = memo(function StudentTransitionTable({
     try {
       const result = await executeStudentTransitions({
         fromClassTermId,
-        toClassTermId,
+        toClassTermId: destination,
         studentIds: selectedStudents,
         transitionType: transitionType as "PROMOTION" | "TRANSFER" | "WITHDRAWAL",
         notes: `Bulk transition of ${selectedStudents.length} students`,
@@ -291,7 +296,11 @@ export const StudentTransitionTable = memo(function StudentTransitionTable({
             <Button
               size="sm"
               onClick={handleExecuteTransition}
-              disabled={!toClassTermId || selectedStudents.length === 0 || isExecuting}
+              disabled={
+                (transitionType !== "WITHDRAWAL" && !toClassTermId) ||
+                selectedStudents.length === 0 ||
+                isExecuting
+              }
               className="bg-green-600 hover:bg-green-700"
             >
               {isExecuting ? (
@@ -316,9 +325,11 @@ export const StudentTransitionTable = memo(function StudentTransitionTable({
               {selectedStudents.length} student{selectedStudents.length > 1 ? "s" : ""} selected for transition
             </h4>
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              {!toClassTermId
-                ? "Please select a destination class to proceed with the transition."
-                : "Click 'Execute Transition' to move the selected students to the destination class."}
+              {transitionType === "WITHDRAWAL"
+                ? "Withdrawing closes each selected student's enrolment. They are not moved to another class, and they stop appearing in class lists and fee billing."
+                : !toClassTermId
+                  ? "Please select a destination class to proceed with the transition."
+                  : "Click 'Execute Transition' to move the selected students to the destination class."}
             </p>
           </div>
         )}

@@ -1,16 +1,10 @@
 // scripts/seed-demo-data.ts
-import { PrismaClient, Role, CredentialType, Gender, ClassLevel, PaymentStatus, TransitionType, EnrollmentStatus } from "@prisma/client";
+import { Role, CredentialType, Gender, ClassLevel, PaymentStatus, TransitionType, EnrollmentStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { faker } from "@faker-js/faker";
+import { createPrismaClient } from "../lib/prisma-client";
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL,
-    },
-  },
-  log: ["error"],
-});
+const prisma = createPrismaClient({ log: ["error"] });
 
 // Configuration for scalability
 const CONFIG = {

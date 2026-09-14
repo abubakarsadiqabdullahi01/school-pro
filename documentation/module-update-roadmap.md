@@ -33,7 +33,9 @@ Needed cleanup before new modules:
 
 ## 3. Compiler Module Update
 
-Status: Existing module, needs expansion.
+Status: Compiler flow integrity completed. See `documentation/compiler-module-completion.md`.
+Foundation update started: flexible roles and Compiler V2 workflow/promotion policy
+foundation completed. See `documentation/roles-and-compiler-v2-foundation.md`.
 
 Add:
 - Cumulative result across First, Second, and Third Term.
@@ -60,6 +62,15 @@ Reuse existing:
 
 Avoid:
 - Creating a second result engine. Extend the existing shared result utilities in `lib/results`.
+
+Completed in the compiler integrity pass:
+- Active and completed class-term students stay visible in score entry, class results, and
+  report cards, so old term results do not disappear after promotion.
+- Dropped and transferred students are excluded from compiler reports, statistics, publish,
+  and unpublish flows.
+- Teacher/admin score saves validate the student and enrollment pair before accepting a mark.
+- Compiler integration tests cover score entry, reports, statistics, publish/unpublish, and
+  bad-payload guards.
 
 ## 4. Finance Module
 
@@ -158,7 +169,7 @@ Rules:
 
 ## 6. Human Resource And Payroll Module
 
-Status: Teacher records exist, but HR/payroll is missing.
+Status: Completed. See `documentation/hr-payroll-module-completion.md`.
 
 Existing foundation:
 - `User`

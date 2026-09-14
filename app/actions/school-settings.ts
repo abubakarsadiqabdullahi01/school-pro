@@ -1,51 +1,53 @@
 "use server"
 
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
+import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { schemeTotal } from "@/lib/assessment-scheme"
 import { revalidatePath } from "next/cache"
 
+async function requireSchoolSettingsAccess(requestedSchoolId?: string) {
+  const actor = await requirePermission("school.manage")
+
+  if (!actor.schoolId) {
+    throw new Error("School not associated with this account")
+  }
+
+  if (requestedSchoolId) {
+    assertSchoolAccess(actor, requestedSchoolId)
+  }
+
+  return actor.schoolId
+}
+
 export async function getSchoolSettingsData() {
   try {
-    const session = await auth()
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      redirect("/dashboard")
-    }
-
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-    })
-
-    if (!admin?.schoolId) {
-      throw new Error("Admin not associated with a school")
-    }
+    const schoolId = await requireSchoolSettingsAccess()
 
     const [school, assessmentScheme, gradingSystem, stats, currentSession, currentTerm] = await Promise.all([
       prisma.school.findUnique({
-        where: { id: admin.schoolId },
+        where: { id: schoolId },
       }),
       prisma.assessmentScheme.findUnique({
-        where: { schoolId: admin.schoolId },
+        where: { schoolId },
         select: { name: true, ca1Max: true, ca2Max: true, ca3Max: true, examMax: true },
       }),
       prisma.gradingSystem.findFirst({
-        where: { schoolId: admin.schoolId, isDefault: true },
+        where: { schoolId, isDefault: true },
         include: {
           levels: true,
         },
       }),
       Promise.all([
-        prisma.student.count({ where: { schoolId: admin.schoolId } }),
-        prisma.teacher.count({ where: { schoolId: admin.schoolId } }),
-        prisma.class.count({ where: { schoolId: admin.schoolId } }),
+        prisma.student.count({ where: { schoolId } }),
+        prisma.teacher.count({ where: { schoolId } }),
+        prisma.class.count({ where: { schoolId } }),
       ]),
       prisma.session.findFirst({
-        where: { schoolId: admin.schoolId, isCurrent: true },
+        where: { schoolId, isCurrent: true },
       }),
       prisma.term.findFirst({
         where: {
-          session: { schoolId: admin.schoolId },
+          session: { schoolId },
           isCurrent: true,
         },
       }),
@@ -94,25 +96,14 @@ export async function getSchoolSettingsData() {
 
 export async function getAdmissionSettingsData() {
   try {
-    const session = await auth()
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      redirect("/dashboard")
-    }
-
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-    })
-
-    if (!admin?.schoolId) {
-      throw new Error("Admin not associated with a school")
-    }
+    const schoolId = await requireSchoolSettingsAccess()
 
     const [school, sequences] = await Promise.all([
       prisma.school.findUnique({
-        where: { id: admin.schoolId },
+        where: { id: schoolId },
       }),
       prisma.admissionSequence.findMany({
-        where: { schoolId: admin.schoolId },
+        where: { schoolId },
         orderBy: { year: "desc" },
       }),
     ])
@@ -163,20 +154,8 @@ export async function updateAdmissionSettings({
   admissionSequenceStart: number
 }) {
   try {
-    const session = await auth()
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      throw new Error("Unauthorized - Only school admins can update admission settings")
-    }
+    await requireSchoolSettingsAccess(schoolId)
 
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-    })
-
-    if (!admin?.schoolId || admin.schoolId !== schoolId) {
-      throw new Error("You can only update admission settings for your assigned school")
-    }
-
-    // Admin CAN update admission settings for their school
     await prisma.school.update({
       where: { id: schoolId },
       data: {
@@ -208,18 +187,7 @@ export async function generateNextAdmissionNumber({
   year: number
 }) {
   try {
-    const session = await auth()
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      throw new Error("Unauthorized")
-    }
-
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-    })
-
-    if (!admin?.schoolId || admin.schoolId !== schoolId) {
-      throw new Error("You can only generate numbers for your assigned school")
-    }
+    await requireSchoolSettingsAccess(schoolId)
 
     // Get current sequence for the year
     const sequence = await prisma.admissionSequence.findUnique({
@@ -260,21 +228,7 @@ export async function createAdmissionNumber({
   year?: number
 }) {
   try {
-    const session = await auth()
-    if (!session?.user?.id || (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN")) {
-      throw new Error("Unauthorized")
-    }
-
-    // If admin, verify they can create for this school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-      })
-
-      if (!admin?.schoolId || admin.schoolId !== schoolId) {
-        throw new Error("You can only create admission numbers for your assigned school")
-      }
-    }
+    await requireSchoolSettingsAccess(schoolId)
 
     const school = await prisma.school.findUnique({
       where: { id: schoolId },
@@ -342,28 +296,17 @@ export async function createAdmissionNumber({
 
 export async function getSchoolInformationData() {
   try {
-    const session = await auth()
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      redirect("/dashboard")
-    }
-
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-    })
-
-    if (!admin?.schoolId) {
-      throw new Error("Admin not associated with a school")
-    }
+    const schoolId = await requireSchoolSettingsAccess()
 
     const [school, stats] = await Promise.all([
       prisma.school.findUnique({
-        where: { id: admin.schoolId },
+        where: { id: schoolId },
       }),
       Promise.all([
-        prisma.student.count({ where: { schoolId: admin.schoolId } }),
-        prisma.teacher.count({ where: { schoolId: admin.schoolId } }),
-        prisma.class.count({ where: { schoolId: admin.schoolId } }),
-        prisma.session.count({ where: { schoolId: admin.schoolId } }),
+        prisma.student.count({ where: { schoolId } }),
+        prisma.teacher.count({ where: { schoolId } }),
+        prisma.class.count({ where: { schoolId } }),
+        prisma.session.count({ where: { schoolId } }),
       ]),
     ])
 
@@ -409,18 +352,7 @@ export async function updateSchoolInformation({
   website?: string
 }) {
   try {
-    const session = await auth()
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      throw new Error("Unauthorized - Only admins can update school information")
-    }
-
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-    })
-
-    if (!admin?.schoolId || admin.schoolId !== schoolId) {
-      throw new Error("You can only update information for your assigned school")
-    }
+    await requireSchoolSettingsAccess(schoolId)
 
     // Admin can ONLY update these specific fields - no other fields allowed
     await prisma.school.update({
@@ -458,24 +390,7 @@ export async function createGradingSystem({
   passMark: number
 }) {
   try {
-    // Verify the current user is authorized
-    const session = await auth()
-
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      throw new Error("Unauthorized")
-    }
-
-    // Get admin's school if admin
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== schoolId) {
-        throw new Error("Admin not assigned to this school")
-      }
-    }
+    await requireSchoolSettingsAccess(schoolId)
 
     // Check if there are any existing grading systems for this school
     const existingCount = await prisma.gradingSystem.count({
@@ -517,13 +432,6 @@ export async function updateGradingSystem({
   passMark: number
 }) {
   try {
-    // Verify the current user is authorized
-    const session = await auth()
-
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      throw new Error("Unauthorized")
-    }
-
     // Get the grading system to verify it belongs to the admin's school
     const gradingSystem = await prisma.gradingSystem.findUnique({
       where: { id },
@@ -534,17 +442,7 @@ export async function updateGradingSystem({
       throw new Error("Grading system not found")
     }
 
-    // If admin, verify the grading system belongs to their school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== gradingSystem.schoolId) {
-        throw new Error("Admin not assigned to this school")
-      }
-    }
+    await requireSchoolSettingsAccess(gradingSystem.schoolId)
 
     // Update the grading system
     const updatedGradingSystem = await prisma.gradingSystem.update({
@@ -570,13 +468,6 @@ export async function updateGradingSystem({
 // Delete a grading system
 export async function deleteGradingSystem({ id }: { id: string }) {
   try {
-    // Verify the current user is authorized
-    const session = await auth()
-
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      throw new Error("Unauthorized")
-    }
-
     // Get the grading system to verify it belongs to the admin's school
     const gradingSystem = await prisma.gradingSystem.findUnique({
       where: { id },
@@ -587,17 +478,7 @@ export async function deleteGradingSystem({ id }: { id: string }) {
       throw new Error("Grading system not found")
     }
 
-    // If admin, verify the grading system belongs to their school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== gradingSystem.schoolId) {
-        throw new Error("Admin not assigned to this school")
-      }
-    }
+    await requireSchoolSettingsAccess(gradingSystem.schoolId)
 
     // Cannot delete the default grading system
     if (gradingSystem.isDefault) {
@@ -625,12 +506,7 @@ export async function deleteGradingSystem({ id }: { id: string }) {
 // Set a grading system as default
 export async function setDefaultGradingSystem({ id, schoolId }: { id: string; schoolId: string }) {
   try {
-    // Verify the current user is authorized
-    const session = await auth()
-
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      throw new Error("Unauthorized")
-    }
+    await requireSchoolSettingsAccess(schoolId)
 
     // Get the grading system to verify it belongs to the admin's school
     const gradingSystem = await prisma.gradingSystem.findUnique({
@@ -642,21 +518,16 @@ export async function setDefaultGradingSystem({ id, schoolId }: { id: string; sc
       throw new Error("Grading system not found")
     }
 
-    // If admin, verify the grading system belongs to their school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== gradingSystem.schoolId) {
-        throw new Error("Admin not assigned to this school")
-      }
+    if (gradingSystem.schoolId !== schoolId) {
+      throw new Error("Grading system not found for this school")
     }
 
-    // Reset all grading systems to non-default
+    // Scope the reset to the school on the record that was just verified, not to the
+    // schoolId the caller passed. Using the parameter let an admin pair a legitimate id of
+    // their own with another school's id and clear that school's default — leaving it with
+    // none, which makes every result there fall back to the built-in scale.
     await prisma.gradingSystem.updateMany({
-      where: { schoolId },
+      where: { schoolId: gradingSystem.schoolId },
       data: { isDefault: false },
     })
 
@@ -689,13 +560,6 @@ export async function addGradeLevel({
   remark: string
 }) {
   try {
-    // Verify the current user is authorized
-    const session = await auth()
-
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      throw new Error("Unauthorized")
-    }
-
     // Get the grading system to verify it belongs to the admin's school
     const gradingSystem = await prisma.gradingSystem.findUnique({
       where: { id: gradingSystemId },
@@ -706,17 +570,7 @@ export async function addGradeLevel({
       throw new Error("Grading system not found")
     }
 
-    // If admin, verify the grading system belongs to their school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== gradingSystem.schoolId) {
-        throw new Error("Admin not assigned to this school")
-      }
-    }
+    await requireSchoolSettingsAccess(gradingSystem.schoolId)
 
     // Validate score range
     if (minScore < 0 || minScore > 100 || maxScore < 0 || maxScore > 100) {
@@ -737,6 +591,24 @@ export async function addGradeLevel({
 
     if (existingGrade) {
       throw new Error(`Grade "${grade}" already exists in this grading system`)
+    }
+
+    // Bands must not overlap. Two bands covering the same score leave the result to
+    // whichever the ordering happens to surface first (loadGradingSystem sorts by minScore
+    // descending), so a mark silently lands in a band nobody chose.
+    const overlapping = await prisma.gradeLevel.findFirst({
+      where: {
+        gradingSystemId,
+        minScore: { lte: maxScore },
+        maxScore: { gte: minScore },
+      },
+      select: { grade: true, minScore: true, maxScore: true },
+    })
+
+    if (overlapping) {
+      throw new Error(
+        `Scores ${minScore}-${maxScore} overlap grade "${overlapping.grade}" (${overlapping.minScore}-${overlapping.maxScore})`,
+      )
     }
 
     // Create the grade level
@@ -773,13 +645,6 @@ export async function updateGradeLevel({
   remark: string
 }) {
   try {
-    // Verify the current user is authorized
-    const session = await auth()
-
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      throw new Error("Unauthorized")
-    }
-
     // Get the grade level to verify it belongs to the admin's school
     const gradeLevel = await prisma.gradeLevel.findUnique({
       where: { id },
@@ -794,17 +659,7 @@ export async function updateGradeLevel({
       throw new Error("Grade level not found")
     }
 
-    // If admin, verify the grade level belongs to their school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== gradeLevel.gradingSystem.schoolId) {
-        throw new Error("Admin not assigned to this school")
-      }
-    }
+    await requireSchoolSettingsAccess(gradeLevel.gradingSystem.schoolId)
 
     // Validate score range
     if (minScore < 0 || minScore > 100 || maxScore < 0 || maxScore > 100) {
@@ -826,6 +681,23 @@ export async function updateGradeLevel({
 
     if (existingGrade) {
       throw new Error(`Grade "${grade}" already exists in this grading system`)
+    }
+
+    // Same overlap rule as addGradeLevel, excluding the band being edited.
+    const overlapping = await prisma.gradeLevel.findFirst({
+      where: {
+        gradingSystemId: gradeLevel.gradingSystemId,
+        id: { not: id },
+        minScore: { lte: maxScore },
+        maxScore: { gte: minScore },
+      },
+      select: { grade: true, minScore: true, maxScore: true },
+    })
+
+    if (overlapping) {
+      throw new Error(
+        `Scores ${minScore}-${maxScore} overlap grade "${overlapping.grade}" (${overlapping.minScore}-${overlapping.maxScore})`,
+      )
     }
 
     // Update the grade level
@@ -850,13 +722,6 @@ export async function updateGradeLevel({
 // Delete a grade level
 export async function deleteGradeLevel({ id }: { id: string }) {
   try {
-    // Verify the current user is authorized
-    const session = await auth()
-
-    if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-      throw new Error("Unauthorized")
-    }
-
     // Get the grade level to verify it belongs to the admin's school
     const gradeLevel = await prisma.gradeLevel.findUnique({
       where: { id },
@@ -871,17 +736,7 @@ export async function deleteGradeLevel({ id }: { id: string }) {
       throw new Error("Grade level not found")
     }
 
-    // If admin, verify the grade level belongs to their school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== gradeLevel.gradingSystem.schoolId) {
-        throw new Error("Admin not assigned to this school")
-      }
-    }
+    await requireSchoolSettingsAccess(gradeLevel.gradingSystem.schoolId)
 
     // Delete the grade level
     await prisma.gradeLevel.delete({

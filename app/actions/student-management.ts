@@ -1,7 +1,7 @@
 "use server";
 
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { requirePermission } from "@/lib/authz";
 import { toNumber } from "@/lib/money";
 import bcrypt from "bcryptjs";
 import { Gender } from "@prisma/client";
@@ -11,22 +11,13 @@ import { revalidatePath } from "next/cache";
 // AUTHENTICATION HELPER
 // ============================================
 async function getAuthenticatedUser() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    throw new Error("Unauthorized: No authenticated user");
+  const actor = await requirePermission("students.manage");
+
+  if (!actor.schoolId) {
+    throw new Error("Unauthorized: select a school before managing students");
   }
 
-  // Get the admin's school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    select: { schoolId: true, userId: true },
-  });
-
-  if (!admin || !admin.schoolId) {
-    throw new Error("Unauthorized: Admin not assigned to a school");
-  }
-
-  return { userId: session.user.id, schoolId: admin.schoolId };
+  return { userId: actor.userId, schoolId: actor.schoolId };
 }
 
 // ============================================
@@ -72,6 +63,32 @@ export async function createStudent(data: {
     }
     const classId = data.classId;
     const termId = data.termId;
+
+    // Tenancy. The class, term and parent arrive as ids from the caller, and lib/authz.ts
+    // states the rule this has to follow: school scope comes from the session, never from a
+    // parameter. Without these checks an admin can enrol their student into another
+    // school's class or term — which also creates a ClassTerm inside that school's data —
+    // or attach another school's parent, who would then see this child on their dashboard.
+    //
+    // Checked before the admission sequence is touched, so a rejected request does not burn
+    // an admission number and leave a gap in the register.
+    const [ownedClass, ownedTerm, ownedParent] = await Promise.all([
+      prisma.class.findFirst({ where: { id: classId, schoolId }, select: { id: true } }),
+      prisma.term.findFirst({ where: { id: termId, session: { schoolId } }, select: { id: true } }),
+      data.parentId
+        ? prisma.parent.findFirst({ where: { id: data.parentId, schoolId }, select: { id: true } })
+        : Promise.resolve(null),
+    ]);
+
+    if (!ownedClass) {
+      return { success: false, error: "That class does not belong to this school" };
+    }
+    if (!ownedTerm) {
+      return { success: false, error: "That term does not belong to this school" };
+    }
+    if (data.parentId && !ownedParent) {
+      return { success: false, error: "That parent does not belong to this school" };
+    }
 
     // ============================================
     // GENERATE ADMISSION NUMBER (SAFE)
@@ -339,15 +356,28 @@ export async function updateStudent(input: {
 
       // Handle class change if classId and termId are provided
       if (data.classId && data.termId) {
-        // Get the new ClassTerm
+        // Scoped to the acting admin's school. Without it a student could be moved into
+        // another school's class term — the same hole creation had, reached through the
+        // edit form instead.
         const newClassTerm = await tx.classTerm.findFirst({
           where: {
             classId: data.classId,
             termId: data.termId,
+            class: { schoolId },
+            term: { session: { schoolId } },
           },
         });
 
-        if (newClassTerm) {
+        // Previously this fell through silently: no class term meant no move, and the
+        // caller was still told the update succeeded. The admin walked away believing the
+        // class had changed.
+        if (!newClassTerm) {
+          throw new Error(
+            "That class is not open for that term in this school, so the student cannot be moved into it",
+          );
+        }
+
+        {
           const currentEnrollment = existingStudent.classTerms[0];
 
           // Check if class is actually changing
@@ -458,6 +488,11 @@ export async function deleteStudent(studentId: string) {
         assessments: true,
         payments: true,
         attendances: true,
+        // Money owed counts as critical data. A student can be billed and never pay, so
+        // checking payments alone let a debtor be hard deleted — and StudentCharge cascades
+        // on the student, so their debt disappeared from the debtors report and the
+        // accumulated fund with nothing left to show it had ever been owed.
+        charges: true,
       },
     });
 
@@ -476,16 +511,16 @@ export async function deleteStudent(studentId: string) {
     // Check if student has critical data (assessments, payments)
     const hasAssessments = student.assessments.length > 0;
     const hasPayments = student.payments.length > 0;
+    const hasCharges = student.charges.length > 0;
 
-    if (hasAssessments || hasPayments) {
-      // Instead of hard delete, perform soft delete
+    if (hasAssessments || hasPayments || hasCharges) {
+      // Archive rather than delete. `isActive` alone carries the status: the previous
+      // version wrote `ARCHIVED_` into `state`, which holds the student's home state, so
+      // archiving corrupted an address field and archiving twice produced
+      // ARCHIVED_ARCHIVED_Kano with no way back.
       await prisma.user.update({
         where: { id: student.userId },
-        data: {
-          isActive: false,
-          // Mark as archived
-          state: `ARCHIVED_${student.user.state}`,
-        },
+        data: { isActive: false },
       });
 
       revalidatePath("/dashboard/admin/students");
@@ -1064,6 +1099,19 @@ export async function createParent(data: {
 }) {
   try {
     const { schoolId } = await getAuthenticatedUser();
+
+    // Credential values are unique across the whole platform, not per school, so a clash
+    // has to be caught here. Left to the database it surfaced as a raw Prisma error —
+    // "Invalid `tx.credential.create()`..." — in front of whoever was adding the parent.
+    if (data.email) {
+      const taken = await prisma.credential.findUnique({
+        where: { value: data.email },
+        select: { id: true },
+      });
+      if (taken) {
+        return { success: false, error: "That email is already in use by another account" };
+      }
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({

@@ -1,4 +1,3 @@
-import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { PageTransition } from "@/components/dashboard/page-transition";
@@ -6,18 +5,15 @@ import { TeacherCASheetComponent } from "@/components/teacher-compiler/teacher-c
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "lucide-react";
 import type { ClassLevel } from "@prisma/client";
+import { requireTeacher } from "@/lib/authz";
 
 export default async function TeacherCASheetPage() {
-  const session = await auth();
-
-  // Check if user is teacher
-  if (!session?.user || session.user.role !== "TEACHER") {
-    redirect("/dashboard");
-  }
+  const actor = await requireTeacher().catch(() => null);
+  if (!actor) redirect("/dashboard");
 
   // Get the teacher's information
   const teacher = await prisma.teacher.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: actor.userId },
     include: {
       school: {
         select: {

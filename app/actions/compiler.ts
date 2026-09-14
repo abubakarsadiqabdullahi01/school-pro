@@ -1,12 +1,13 @@
 "use server"
 import { prisma } from "@/lib/db"
 import { auth } from "@/auth"
-import { assertSchoolAccess, requireAdminScope } from "@/lib/authz"
+import { assertSchoolAccess, requireAdminScope, requirePermission } from "@/lib/authz"
 import { recordAudit } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 // import { z } from "zod"
-import type { ClassLevel } from "@prisma/client"
+import type { ClassLevel, ResultWorkflowStatus } from "@prisma/client"
 import { buildClassTermResults } from "@/lib/results/class-term-results"
+import { assertWorkflowTransition } from "@/lib/compiler-v2"
 
 
 // Authorize and get school ID
@@ -131,7 +132,9 @@ export async function getClassesForTerm(termId: string, level: ClassLevel) {
         },
         _count: {
           select: {
-            students: true
+            students: {
+              where: { status: { in: ["ACTIVE", "COMPLETED"] } },
+            }
           }
         }
       },
@@ -186,6 +189,7 @@ export async function getStudentsForClassTerm(classTermId: string) {
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: {
         classTermId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
         student: {
           user: {
             isActive: true, 
@@ -349,7 +353,7 @@ export async function getAssessmentsForClassTerm(classTermId: string) {
     })
 
     const studentClassTerms = await prisma.studentClassTerm.findMany({
-      where: { classTermId },
+      where: { classTermId, status: { in: ["ACTIVE", "COMPLETED"] } },
       include: {
         student: { select: { id: true } },
       },
@@ -440,7 +444,7 @@ export async function getClassTermResults(classTermId: string) {
     if (!gradingSystem) throw new Error("No default grading system found")
 
     const studentClassTerms = await prisma.studentClassTerm.findMany({
-      where: { classTermId },
+      where: { classTermId, status: { in: ["ACTIVE", "COMPLETED"] } },
       include: {
         student: {
           include: {
@@ -509,7 +513,7 @@ async function classTermIsComplete(classTermId: string, termId: string) {
   const [classSubjects, studentClassTerms] = await Promise.all([
     prisma.classSubject.findMany({ where: { classTermId }, select: { subjectId: true } }),
     prisma.studentClassTerm.findMany({
-      where: { classTermId, status: "ACTIVE" },
+      where: { classTermId, status: { in: ["ACTIVE", "COMPLETED"] } },
       select: { id: true, studentId: true },
     }),
   ])
@@ -547,6 +551,188 @@ async function classTermIsComplete(classTermId: string, termId: string) {
   }
 }
 
+async function loadClassTermForWorkflow(classTermId: string) {
+  const actor = await requirePermission("compiler.review_results")
+  const classTerm = await prisma.classTerm.findUnique({
+    where: { id: classTermId },
+    include: {
+      class: { select: { schoolId: true, name: true } },
+      term: { select: { name: true } },
+    },
+  })
+
+  if (!classTerm) throw new Error("Class term not found")
+  assertSchoolAccess(actor, classTerm.class.schoolId)
+
+  return { actor, classTerm }
+}
+
+async function ensureResultWorkflow(classTermId: string) {
+  return prisma.classTermResultWorkflow.upsert({
+    where: { classTermId },
+    create: { classTermId },
+    update: {},
+  })
+}
+
+async function writeWorkflowEvent(input: {
+  workflowId: string
+  action: string
+  fromStatus: ResultWorkflowStatus | null
+  toStatus: ResultWorkflowStatus
+  actor: Awaited<ReturnType<typeof requirePermission>>
+  note?: string | null
+}) {
+  await prisma.resultWorkflowEvent.create({
+    data: {
+      workflowId: input.workflowId,
+      action: input.action,
+      fromStatus: input.fromStatus,
+      toStatus: input.toStatus,
+      actorId: input.actor.userId,
+      actorName: input.actor.name,
+      actorRole: input.actor.role,
+      note: input.note?.trim() || null,
+    },
+  })
+}
+
+export async function getClassTermResultWorkflow(classTermId: string) {
+  try {
+    const { classTerm } = await loadClassTermForWorkflow(classTermId)
+    const workflow = await ensureResultWorkflow(classTermId)
+
+    return {
+      success: true,
+      data: {
+        id: workflow.id,
+        classTermId,
+        className: classTerm.class.name,
+        termName: classTerm.term.name,
+        status: workflow.status,
+        reviewedAt: workflow.reviewedAt,
+        publishedAt: workflow.publishedAt,
+        lockedAt: workflow.lockedAt,
+        withdrawnAt: workflow.withdrawnAt,
+        notes: workflow.notes,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load result workflow",
+    }
+  }
+}
+
+export async function reviewClassTermResults(classTermId: string, note?: string) {
+  try {
+    const { actor, classTerm } = await loadClassTermForWorkflow(classTermId)
+    const workflow = await ensureResultWorkflow(classTermId)
+
+    assertWorkflowTransition(
+      workflow.status,
+      "REVIEWED",
+      new Set(["compiler.review_results"]),
+      note,
+    )
+
+    const reviewedAt = new Date()
+    const updated = await prisma.classTermResultWorkflow.update({
+      where: { id: workflow.id },
+      data: {
+        status: "REVIEWED",
+        reviewedBy: actor.userId,
+        reviewedAt,
+        notes: note?.trim() || workflow.notes,
+      },
+    })
+
+    await writeWorkflowEvent({
+      workflowId: workflow.id,
+      action: "results.review",
+      fromStatus: workflow.status,
+      toStatus: updated.status,
+      actor,
+      note,
+    })
+
+    await recordAudit({
+      actor,
+      action: "results.review",
+      entityType: "ClassTerm",
+      entityId: classTermId,
+      schoolId: classTerm.class.schoolId,
+      summary: `Reviewed results for ${classTerm.class.name}, ${classTerm.term.name}`,
+      after: { classTermId, status: updated.status, reviewedAt: reviewedAt.toISOString() },
+    })
+
+    revalidatePath("/dashboard/admin/compiler/class-results")
+    return { success: true, message: "Results marked as reviewed." }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to review results",
+    }
+  }
+}
+
+export async function lockClassTermResults(classTermId: string, note?: string) {
+  try {
+    const actor = await requirePermission("compiler.lock_results")
+    const classTerm = await prisma.classTerm.findUnique({
+      where: { id: classTermId },
+      include: {
+        class: { select: { schoolId: true, name: true } },
+        term: { select: { name: true } },
+      },
+    })
+    if (!classTerm) throw new Error("Class term not found")
+    assertSchoolAccess(actor, classTerm.class.schoolId)
+
+    const workflow = await ensureResultWorkflow(classTermId)
+    assertWorkflowTransition(workflow.status, "LOCKED", new Set(["compiler.lock_results"]), note)
+
+    const lockedAt = new Date()
+    const updated = await prisma.classTermResultWorkflow.update({
+      where: { id: workflow.id },
+      data: {
+        status: "LOCKED",
+        lockedBy: actor.userId,
+        lockedAt,
+        notes: note?.trim() || workflow.notes,
+      },
+    })
+
+    await writeWorkflowEvent({
+      workflowId: workflow.id,
+      action: "results.lock",
+      fromStatus: workflow.status,
+      toStatus: updated.status,
+      actor,
+      note,
+    })
+
+    await recordAudit({
+      actor,
+      action: "results.lock",
+      entityType: "ClassTerm",
+      entityId: classTermId,
+      schoolId: classTerm.class.schoolId,
+      summary: `Locked results for ${classTerm.class.name}, ${classTerm.term.name}`,
+      after: { classTermId, status: updated.status, lockedAt: lockedAt.toISOString() },
+    })
+
+    revalidatePath("/dashboard/admin/compiler/class-results")
+    return { success: true, message: "Results locked." }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to lock results",
+    }
+  }
+}
+
 /**
  * Releases a class term's results to students and parents.
  *
@@ -556,7 +742,7 @@ async function classTermIsComplete(classTermId: string, termId: string) {
  */
 export async function publishClassTermResults(classTermId: string) {
   try {
-    const actor = await requireAdminScope()
+    const actor = await requirePermission("compiler.publish_results")
 
     const classTerm = await prisma.classTerm.findUnique({
       where: { id: classTermId },
@@ -568,6 +754,10 @@ export async function publishClassTermResults(classTermId: string) {
 
     if (!classTerm) throw new Error("Class term not found")
     assertSchoolAccess(actor, classTerm.class.schoolId)
+    const workflow = await ensureResultWorkflow(classTermId)
+    if (workflow.status === "LOCKED") {
+      return { success: false, message: "Locked results cannot be published again." }
+    }
 
     const completeness = await classTermIsComplete(classTermId, classTerm.termId)
 
@@ -590,6 +780,25 @@ export async function publishClassTermResults(classTermId: string) {
         isPublished: false,
       },
       data: { isPublished: true, publishedAt, publishedBy: actor.userId },
+    })
+
+    const updatedWorkflow = await prisma.classTermResultWorkflow.update({
+      where: { id: workflow.id },
+      data: {
+        status: "PUBLISHED",
+        publishedBy: actor.userId,
+        publishedAt,
+        withdrawnBy: null,
+        withdrawnAt: null,
+      },
+    })
+
+    await writeWorkflowEvent({
+      workflowId: workflow.id,
+      action: "results.publish",
+      fromStatus: workflow.status,
+      toStatus: updatedWorkflow.status,
+      actor,
     })
 
     await recordAudit({
@@ -629,7 +838,7 @@ export async function publishClassTermResults(classTermId: string) {
  */
 export async function unpublishClassTermResults(classTermId: string, reason: string) {
   try {
-    const actor = await requireAdminScope()
+    const actor = await requirePermission("compiler.publish_results")
 
     if (!reason?.trim()) {
       return { success: false, message: "Give a reason for withdrawing these results." }
@@ -645,9 +854,13 @@ export async function unpublishClassTermResults(classTermId: string, reason: str
 
     if (!classTerm) throw new Error("Class term not found")
     assertSchoolAccess(actor, classTerm.class.schoolId)
+    const workflow = await ensureResultWorkflow(classTermId)
+    if (workflow.status === "LOCKED") {
+      return { success: false, message: "Locked results cannot be withdrawn." }
+    }
 
     const studentClassTerms = await prisma.studentClassTerm.findMany({
-      where: { classTermId },
+      where: { classTermId, status: { in: ["ACTIVE", "COMPLETED"] } },
       select: { id: true },
     })
 
@@ -660,6 +873,25 @@ export async function unpublishClassTermResults(classTermId: string, reason: str
       // publishedAt and publishedBy are left in place on purpose: they record that a
       // release happened, which withdrawing it does not undo.
       data: { isPublished: false },
+    })
+
+    const updatedWorkflow = await prisma.classTermResultWorkflow.update({
+      where: { id: workflow.id },
+      data: {
+        status: "WITHDRAWN",
+        withdrawnBy: actor.userId,
+        withdrawnAt: new Date(),
+        notes: reason.trim(),
+      },
+    })
+
+    await writeWorkflowEvent({
+      workflowId: workflow.id,
+      action: "results.withdraw",
+      fromStatus: workflow.status,
+      toStatus: updatedWorkflow.status,
+      actor,
+      note: reason,
     })
 
     await recordAudit({

@@ -1,9 +1,9 @@
 // app/dashboard/(roles)/admin/students/[id]/edit/page.tsx
-import { auth } from "@/auth";
-import { redirect, notFound } from "next/navigation";
+import { notFound } from "next/navigation";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import StudentEditForm from "@/components/student-management/student-edit-form";
 import { BackButtonClient } from "./back-button-client"; // We'll create this
+import { requireAdminSchool } from "@/lib/admin-page-context";
 
 interface EditStudentPageProps {
   params: Promise<{
@@ -21,17 +21,7 @@ export default async function EditStudentPage({
     notFound();
   }
 
-  // Authenticate user
-  const session = await auth();
-
-  if (!session?.user) {
-    redirect("/auth/login");
-  }
-
-  // Authorize role
-  if (session.user.role !== "ADMIN") {
-    redirect("/dashboard");
-  }
+  await requireAdminSchool("students.manage");
 
   return (
     <PageTransition>

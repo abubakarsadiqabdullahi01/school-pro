@@ -1,8 +1,8 @@
-import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { TeacherCompilerInterface } from "@/components/teacher-compiler/TeacherCompilerInterface"
+import { requireTeacher } from "@/lib/authz"
 
 interface School {
   id: string
@@ -55,13 +55,10 @@ async function fetchTeacherData(userId: string): Promise<Teacher | null> {
 }
 
 export default async function TeacherCompilerPage() {
-  const session = await auth()
+  const actor = await requireTeacher().catch(() => null)
+  if (!actor) redirect("/dashboard?error=unauthorized")
 
-  if (!session?.user || session.user.role !== "TEACHER") {
-    redirect("/dashboard?error=unauthorized")
-  }
-
-  const teacher = await fetchTeacherData(session.user.id)
+  const teacher = await fetchTeacherData(actor.userId)
 
   if (!teacher) {
     redirect("/dashboard?error=teacher-profile-not-found")

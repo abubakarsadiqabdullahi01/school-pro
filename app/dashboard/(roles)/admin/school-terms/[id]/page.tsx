@@ -10,7 +10,7 @@ import Link from "next/link"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminTermDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { schoolId } = await requireAdminSchool()
+  const { schoolId } = await requireAdminSchool("academics.manage")
   const { id } = await params
 
   const termData = await prisma.term.findFirst({

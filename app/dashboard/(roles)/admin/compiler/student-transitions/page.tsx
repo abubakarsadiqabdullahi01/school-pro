@@ -1,42 +1,24 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
-import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { StudentTransitionsOverview } from "@/components/student-transitions/StudentTransitionsOverview"
+import { PromotionPolicyForm } from "@/components/student-transitions/PromotionPolicyForm"
+import { getTransitionPolicy } from "@/app/actions/student-transitions"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminStudentTransitionsPage() {
-  const session = await auth()
+  const { school } = await requireAdminSchool("compiler.configure_policy")
 
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  })
-
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error")
-  }
+  // The rules live next to the screen that applies them, so an admin can see why a
+  // promotion was refused and change the rule without hunting through settings.
+  const policy = await getTransitionPolicy()
 
   return (
     <PageTransition>
       <div className="space-y-6">
+        {policy.data && <PromotionPolicyForm policy={policy.data} />}
         <StudentTransitionsOverview
-          schoolId={admin.school.id}
-          schoolName={admin.school.name}
-          schoolCode={admin.school.code}
+          schoolId={school.id}
+          schoolName={school.name}
+          schoolCode={school.code}
         />
       </div>
     </PageTransition>

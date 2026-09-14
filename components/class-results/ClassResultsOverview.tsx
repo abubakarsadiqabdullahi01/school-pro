@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from "react"
 import { motion } from "framer-motion"
 import { useQuery } from "@tanstack/react-query"
-import { Download, FileText, Loader2, Search, BarChart4, AlertTriangle } from "lucide-react"
+import { Download, FileText, Loader2, Search, BarChart4, AlertTriangle, CheckCircle, Lock, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -26,7 +26,12 @@ import {
   getStudentsForClassTerm,
   getClassTermSubjects,
   getClassTermResults,
+  getClassTermResultWorkflow,
   getGradingSystem,
+  lockClassTermResults,
+  publishClassTermResults,
+  reviewClassTermResults,
+  unpublishClassTermResults,
 } from "@/app/actions/compiler"
 import { exportClassResultsPDF } from "@/lib/pdf/class-results-termly"
 import type { ClassLevel } from "@prisma/client"
@@ -152,6 +157,21 @@ export function ClassResultsOverview({
       if (!classTermId) return []
       const result = await getClassTermResults(classTermId)
       return result.success ? result.data : []
+    },
+    enabled: !!classTermId,
+  })
+
+  const {
+    data: workflow,
+    isLoading: isLoadingWorkflow,
+    refetch: refetchWorkflow,
+  } = useQuery({
+    queryKey: ["resultWorkflow", classTermId],
+    queryFn: async () => {
+      if (!classTermId) return null
+      const result = await getClassTermResultWorkflow(classTermId)
+      if (!result.success) throw new Error(result.error)
+      return result.data
     },
     enabled: !!classTermId,
   })
@@ -298,6 +318,39 @@ export function ClassResultsOverview({
   const togglePositions = useCallback(() => {
     setForm((prev) => ({ ...prev, showPositions: !prev.showPositions }))
   }, [])
+
+  const runWorkflowAction = useCallback(
+    async (action: "review" | "publish" | "withdraw" | "lock") => {
+      if (!classTermId) return
+
+      let result
+      if (action === "review") {
+        result = await reviewClassTermResults(classTermId)
+      } else if (action === "publish") {
+        result = await publishClassTermResults(classTermId)
+      } else if (action === "withdraw") {
+        const reason = window.prompt("Why are these results being withdrawn?")
+        if (reason === null) return
+        if (!reason.trim()) {
+          toast.error("A reason is required to withdraw results")
+          return
+        }
+        result = await unpublishClassTermResults(classTermId, reason)
+      } else {
+        const note = window.prompt("Add a lock note for this result set.")
+        result = await lockClassTermResults(classTermId, note ?? undefined)
+      }
+
+      if (!result.success) {
+        toast.error("Workflow not updated", { description: result.error || result.message })
+        return
+      }
+
+      toast.success(result.message)
+      await Promise.all([refetchWorkflow(), refetchResults()])
+    },
+    [classTermId, refetchResults, refetchWorkflow],
+  )
 
   // Export PDF
   const handleExportPDF = useCallback(async () => {
@@ -546,7 +599,19 @@ export function ClassResultsOverview({
           {/* Main Results */}
           <Card className="border shadow-md">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-2xl font-bold">Class Results</CardTitle>
+              <div className="space-y-1">
+                <CardTitle className="text-2xl font-bold">Class Results</CardTitle>
+                <div className="flex items-center gap-2">
+                  {isLoadingWorkflow ? (
+                    <Badge variant="outline">Loading workflow</Badge>
+                  ) : workflow ? (
+                    <Badge className={workflowStatusClass(workflow.status)}>
+                      {workflowStatusLabel(workflow.status)}
+                    </Badge>
+                  ) : null}
+                  {workflow?.notes && <span className="text-sm text-muted-foreground">{workflow.notes}</span>}
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <TooltipProvider>
                   <Tooltip>
@@ -585,6 +650,66 @@ export function ClassResultsOverview({
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Open print preview</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => runWorkflowAction("review")}
+                        disabled={isLoadingResults || isLoadingWorkflow || !filteredAndSortedResults.length}
+                      >
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Review
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Mark this class result set as reviewed</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => runWorkflowAction("publish")}
+                        disabled={isLoadingResults || isLoadingWorkflow || !filteredAndSortedResults.length}
+                      >
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Publish
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Make completed results visible to students and parents</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => runWorkflowAction("lock")}
+                        disabled={isLoadingResults || isLoadingWorkflow || !filteredAndSortedResults.length || workflow?.status === "LOCKED"}
+                      >
+                        <Lock className="mr-2 h-4 w-4" />
+                        Lock
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Freeze this result set against further score edits</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => runWorkflowAction("withdraw")}
+                        disabled={isLoadingResults || isLoadingWorkflow || !filteredAndSortedResults.length || workflow?.status === "LOCKED"}
+                      >
+                        <Undo2 className="mr-2 h-4 w-4" />
+                        Withdraw
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Hide published results again with an audit reason</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -726,4 +851,25 @@ export function ClassResultsOverview({
       ) : null}
     </motion.div>
   )
+}
+
+function workflowStatusLabel(status: string): string {
+  return status.charAt(0) + status.slice(1).toLowerCase()
+}
+
+function workflowStatusClass(status: string): string {
+  switch (status) {
+    case "DRAFT":
+      return "bg-slate-500/10 text-slate-700 dark:text-slate-300"
+    case "REVIEWED":
+      return "bg-blue-500/10 text-blue-700 dark:text-blue-300"
+    case "PUBLISHED":
+      return "bg-green-500/10 text-green-700 dark:text-green-300"
+    case "LOCKED":
+      return "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
+    case "WITHDRAWN":
+      return "bg-red-500/10 text-red-700 dark:text-red-300"
+    default:
+      return "bg-muted text-foreground"
+  }
 }

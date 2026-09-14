@@ -1,9 +1,9 @@
-import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { SubjectResultEntry } from "@/components/score-entry/SubjectResultEntry"
 import type { ClassLevel } from "@prisma/client"
+import { requirePermission } from "@/lib/authz"
 
 interface School {
   id: string
@@ -29,7 +29,7 @@ interface Admin {
 
 async function fetchPageData(
   userId: string,
-  role: string,
+  schoolId: string,
 ): Promise<{
   admin: Admin | null
   currentTerm: Term | null
@@ -50,19 +50,20 @@ async function fetchPageData(
       },
     })
 
-    if (!admin?.school) {
-      return { admin: null, currentTerm: null, terms: [] }
-    }
+    const school =
+      admin?.school ??
+      (await prisma.school.findUnique({
+        where: { id: schoolId },
+        select: { id: true, name: true, code: true, logoUrl: true },
+      }))
 
-    const schoolId = role === "ADMIN" ? admin.school.id : undefined
+    if (!school) return { admin: null, currentTerm: null, terms: [] }
 
     const [currentTerm, terms] = await Promise.all([
       prisma.term.findFirst({
         where: {
           isCurrent: true,
-          session: {
-            ...(schoolId ? { schoolId } : {}),
-          },
+          session: { schoolId },
         },
         include: {
           session: {
@@ -75,9 +76,7 @@ async function fetchPageData(
       }),
       prisma.term.findMany({
         where: {
-          session: {
-            ...(schoolId ? { schoolId } : {}),
-          },
+          session: { schoolId },
         },
         include: {
           session: {
@@ -94,8 +93,8 @@ async function fetchPageData(
 
     return {
       admin: {
-        school: admin.school,
-        schoolId: admin.school.id,
+        school,
+        schoolId: school.id,
       },
       currentTerm,
       terms,
@@ -107,9 +106,8 @@ async function fetchPageData(
 }
 
 export default async function AdminSubjectResultEntryPage() {
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN")) {
+  const actor = await requirePermission("compiler.enter_scores").catch(() => null)
+  if (!actor?.schoolId) {
     redirect("/dashboard?error=unauthorized")
   }
 
@@ -118,7 +116,7 @@ export default async function AdminSubjectResultEntryPage() {
   let terms: Term[]
 
   try {
-    ;({ admin, currentTerm, terms } = await fetchPageData(session.user.id, session.user.role))
+    ;({ admin, currentTerm, terms } = await fetchPageData(actor.userId, actor.schoolId))
   } catch (error) {
     console.error("Error in AdminSubjectResultEntryPage:", error)
     redirect("/dashboard?error=data-fetch-failed")

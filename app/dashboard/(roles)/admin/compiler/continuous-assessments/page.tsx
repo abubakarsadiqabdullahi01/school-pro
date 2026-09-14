@@ -1,21 +1,19 @@
-import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { CASheetComponent } from "@/components/compiler/ca-sheet"
 import { ClassLevel } from '@prisma/client';
+import { requirePermission } from "@/lib/authz"
 
 export default async function AdminCASheetPage() {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
+  const actor = await requirePermission("compiler.review_results").catch(() => null)
+  if (!actor?.schoolId) {
     redirect("/dashboard")
   }
 
   // Get the admin's assigned school
   const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: actor.userId },
     include: {
       school: {
         select: {
@@ -31,19 +29,23 @@ export default async function AdminCASheetPage() {
     },
   })
 
-  if (!admin || !admin.school) {
+  const school =
+    admin?.school ??
+    (await prisma.school.findUnique({
+      where: { id: actor.schoolId },
+      select: { id: true, name: true, code: true, logoUrl: true, address: true, phone: true, email: true },
+    }))
+
+  if (!school) {
     redirect("/dashboard/access-error")
   }
 
   // Get current term
-  if (!admin.schoolId) {
-    throw new Error("Admin does not have a valid schoolId.");
-  }
   const currentTerm = await prisma.term.findFirst({
     where: {
       isCurrent: true,
       session: {
-        schoolId: admin.schoolId,
+        schoolId: actor.schoolId,
       },
     },
     include: {
@@ -60,7 +62,7 @@ export default async function AdminCASheetPage() {
   const terms = await prisma.term.findMany({
     where: {
       session: {
-        schoolId: admin.schoolId,
+        schoolId: actor.schoolId,
       },
     },
     include: {
@@ -83,18 +85,18 @@ return (
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Continuous Assessment Sheet</h2>
           <p className="text-muted-foreground">
-            Manage and view continuous assessments for {admin.school.name} ({admin.school.code})
+            Manage and view continuous assessments for {school.name} ({school.code})
           </p>
         </div>
 
         <CASheetComponent
-          schoolId={admin.schoolId}
-          schoolName={admin.school.name}
-          schoolCode={admin.school.code}
-          schoolLogo={admin.school.logoUrl}
-          schoolAddress={admin.school.address}
-          schoolPhone={admin.school.phone}
-          schoolEmail={admin.school.email}
+          schoolId={actor.schoolId}
+          schoolName={school.name}
+          schoolCode={school.code}
+          schoolLogo={school.logoUrl}
+          schoolAddress={school.address}
+          schoolPhone={school.phone}
+          schoolEmail={school.email}
           terms={terms}
           currentTermId={currentTerm?.id}
           classLevels={classLevels}

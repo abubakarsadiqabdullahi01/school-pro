@@ -8,7 +8,7 @@ import { requireAdminSchool } from "@/lib/admin-page-context"
 import { loadAssessmentScheme } from "@/lib/assessment-scheme.server"
 
 export default async function AssessmentSchemePage() {
-  const { school, schoolId } = await requireAdminSchool()
+  const { school, schoolId } = await requireAdminSchool("school.manage")
   const scheme = await loadAssessmentScheme(schoolId)
 
   return (

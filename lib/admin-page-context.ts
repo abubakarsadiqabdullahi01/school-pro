@@ -1,16 +1,43 @@
-import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
+import { requirePermission } from "@/lib/authz"
+import type { PermissionKey } from "@/lib/permissions"
 import { redirect } from "next/navigation"
 
-export async function requireAdminSchool() {
-  const session = await auth()
+export const ADMIN_AREA_PERMISSIONS: PermissionKey[] = [
+  "school.manage",
+  "users.manage",
+  "students.manage",
+  "teachers.manage",
+  "parents.manage",
+  "academics.manage",
+  "compiler.enter_scores",
+  "compiler.review_results",
+  "compiler.publish_results",
+  "compiler.lock_results",
+  "finance.setup",
+  "finance.collect_payments",
+  "finance.view_reports",
+  "expenditure.manage",
+  "expenditure.approve",
+  "payroll.manage",
+  "payroll.pay",
+]
 
-  if (!session?.user || session.user.role !== "ADMIN") {
+export async function requireAdminSchool(permission: PermissionKey | PermissionKey[] = ADMIN_AREA_PERMISSIONS) {
+  const permissions = Array.isArray(permission) ? permission : [permission]
+  let actor = null
+
+  for (const requiredPermission of permissions) {
+    actor = await requirePermission(requiredPermission).catch(() => null)
+    if (actor) break
+  }
+
+  if (!actor?.schoolId) {
     redirect("/dashboard")
   }
 
   const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: actor.userId },
     select: {
       id: true,
       school: {
@@ -23,14 +50,25 @@ export async function requireAdminSchool() {
     },
   })
 
-  if (!admin?.school) {
+  const school =
+    admin?.school ??
+    (await prisma.school.findUnique({
+      where: { id: actor.schoolId },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+      },
+    }))
+
+  if (!school) {
     redirect("/dashboard/access-error")
   }
 
   return {
-    session,
-    adminId: admin.id,
-    school: admin.school,
-    schoolId: admin.school.id,
+    actor,
+    adminId: admin?.id ?? null,
+    school,
+    schoolId: school.id,
   }
 }

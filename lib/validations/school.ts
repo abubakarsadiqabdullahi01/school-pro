@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { isLogoReference } from "@/lib/file-reference"
 
 export const schoolFormSchema = z.object({
   name: z.string().min(2, {
@@ -33,10 +34,9 @@ export const schoolFormSchema = z.object({
     .or(z.literal("")),
   logoUrl: z
     .string()
-    .url({
+    .refine((value) => !value || isLogoReference(value), {
       message: "Please enter a valid URL for the logo.",
     })
-    .optional()
-    .or(z.literal("")),
+    .optional(),
   isActive: z.boolean().default(true),
 }) 

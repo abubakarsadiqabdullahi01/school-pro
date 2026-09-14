@@ -1,6 +1,8 @@
 import { getBudgetSummary, getExpenditureSetupData } from "@/app/actions/expenditure"
+import { BackButton } from "@/components/back-button"
+import { BrandedPrintHeader, BrandedReportExport } from "@/components/reports/branded"
 import { PeriodFilter } from "@/components/reports/period-filter"
-import { ReportExport, type ExportTable } from "@/components/reports/report-export"
+import type { ExportTable } from "@/components/reports/report-export"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
 
@@ -48,13 +50,15 @@ export async function BudgetSummaryView({ basePath, sessionId }: { basePath: str
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+      <BrandedPrintHeader title="Budget Summary" reference={scope} />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+          <BackButton fallbackHref={basePath} />
           <h1 className="text-3xl font-bold tracking-tight">Budget Summary</h1>
           <p className="text-muted-foreground">Income from fees, less what the school has spent.</p>
         </div>
-        <ReportExport title={`Budget Summary ${scope}`} subtitle={scope} table={exportTable} />
+        <BrandedReportExport title={`Budget Summary ${scope}`} subtitle={scope} table={exportTable} />
       </div>
 
       {setup.success && (

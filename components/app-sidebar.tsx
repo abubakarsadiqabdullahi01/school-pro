@@ -30,8 +30,12 @@ import {
   Wallet,
   ReceiptText,
   Scale,
+  Briefcase,
+  IdCard,
+  Wallet2,
   type LucideIcon,
 } from "lucide-react";
+import type { PermissionKey } from "@/lib/permissions";
 import {
   Sidebar,
   SidebarContent,
@@ -62,9 +66,10 @@ interface AppSidebarProps {
     code: string;
     logoUrl?: string | null;
   } | null;
+  permissions?: PermissionKey[];
 }
 
-export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
+export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSidebarProps) {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     overview: true,
@@ -77,6 +82,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
     resultsCompilation: true,
     finance: true,
     expenditure: true,
+    hr: true,
   });
 
   // Convert string role to the format used in component
@@ -87,6 +93,14 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
   };
 
   const roleString = getRoleString(userRole);
+  const permissionSet = new Set(permissions);
+  const can = (permission: PermissionKey) => permissionSet.has(permission);
+  const canAny = (...items: PermissionKey[]) => items.some((permission) => can(permission));
+  const canManageSchool = canAny("students.manage", "teachers.manage", "parents.manage", "academics.manage", "school.manage", "users.manage");
+  const canUseCompiler = canAny("compiler.enter_scores", "compiler.review_results", "compiler.publish_results", "compiler.lock_results", "reports.export");
+  const canUseFinance = canAny("finance.setup", "finance.collect_payments", "finance.view_reports");
+  const canUseExpenditure = canAny("expenditure.manage", "expenditure.approve");
+  const canUsePayroll = canAny("payroll.manage", "payroll.pay");
 
   const toggleGroup = (group: string) => {
     setOpenGroups((prev) => ({
@@ -276,6 +290,13 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                       links={expenditureLinks("/dashboard/admin/expenditure", true)}
                     />
 
+                    <MoneyNavGroup
+                      pathname={pathname}
+                      label="HR & Payroll"
+                      icon={Briefcase}
+                      links={hrLinks("/dashboard/admin/hr", true)}
+                    />
+
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -437,7 +458,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
           </Collapsible>
         )}
 
-        {roleString === "admin" && (
+        {(roleString === "admin" || (roleString === "teacher" && (canManageSchool || canUseCompiler || canUseFinance || canUseExpenditure || canUsePayroll))) && (
           <Collapsible
             open={openGroups.schoolManagement}
             onOpenChange={() => toggleGroup("schoolManagement")}
@@ -454,6 +475,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
+                    {can("academics.manage") && (
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/admin/calendar"
@@ -463,7 +485,9 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <span>Calendar</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+                    )}
 
+                    {can("teachers.manage") && (
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -505,6 +529,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+                    )}
 
                     <Collapsible>
                       <SidebarMenuItem>
@@ -716,6 +741,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                       </SidebarMenuItem>
                     </Collapsible>
 
+                    {can("academics.manage") && (
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -757,6 +783,8 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+                    )}
+                    {can("academics.manage") && (
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -799,7 +827,9 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+                    )}
 
+                    {can("parents.manage") && (
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -841,21 +871,48 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+                    )}
 
+                    {canUseFinance && (
                     <MoneyNavGroup
                       pathname={pathname}
                       label="Finance"
                       icon={DollarSign}
-                      links={financeLinks("/dashboard/admin/finance", true)}
+                      links={financeLinks("/dashboard/admin/finance", can("finance.setup"))}
                     />
+                    )}
 
+                    {canUseExpenditure && (
                     <MoneyNavGroup
                       pathname={pathname}
                       label="Expenditure"
                       icon={Banknote}
-                      links={expenditureLinks("/dashboard/admin/expenditure", true)}
+                      links={expenditureLinks("/dashboard/admin/expenditure", can("expenditure.manage"))}
                     />
+                    )}
 
+                    {canUsePayroll && (
+                    <MoneyNavGroup
+                      pathname={pathname}
+                      label="HR & Payroll"
+                      icon={Briefcase}
+                      links={hrLinks("/dashboard/admin/hr", can("payroll.manage"))}
+                    />
+                    )}
+
+                    {can("users.manage") && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/admin/permissions"
+                        isActive={pathname.startsWith("/dashboard/admin/permissions")}
+                      >
+                        <UserCog className="h-4 w-4" />
+                        <span>Permissions</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    )}
+
+                    {can("school.manage") && (
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/admin/school-settings"
@@ -867,6 +924,7 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         <span>School Settings</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+                    )}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -947,6 +1005,42 @@ export function AppSidebar({ userRole, schoolInfo }: AppSidebarProps) {
                         </SidebarMenuItem>
                       ),
                     )}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {roleString === "accountant" && (
+          <Collapsible open={openGroups.hr} onOpenChange={() => toggleGroup("hr")}>
+            <SidebarGroup>
+              <CollapsibleTrigger asChild>
+                <SidebarGroupLabel className="flex justify-between cursor-pointer">
+                  HR &amp; Payroll
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${openGroups.hr ? "rotate-180" : ""}`}
+                  />
+                </SidebarGroupLabel>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {hrLinks("/dashboard/accountant/hr", false).map((link) => (
+                      <SidebarMenuItem key={link.href}>
+                        <SidebarMenuButton
+                          href={link.href}
+                          isActive={
+                            link.exact
+                              ? pathname === link.href
+                              : pathname.startsWith(link.href)
+                          }
+                        >
+                          <link.icon className="h-4 w-4" />
+                          <span>{link.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -1177,6 +1271,7 @@ function financeLinks(basePath: string, canManageFees: boolean): FinanceLink[] {
       icon: CreditCard,
       exact: true,
     },
+    { href: `${basePath}/receipts`, label: "Receipts", icon: Receipt, exact: false },
     { href: `${basePath}/debtors`, label: "Debtors", icon: Users, exact: true },
     {
       href: `${basePath}/class-summary`,
@@ -1221,6 +1316,30 @@ function expenditureLinks(basePath: string, canManage: boolean): FinanceLink[] {
     { href: `${basePath}/reports/termly`, label: "Termly Report", icon: BarChart3, exact: true },
     { href: `${basePath}/reports/session`, label: "Session Report", icon: BarChart3, exact: true },
     { href: `${basePath}/budget-summary`, label: "Budget Summary", icon: Scale, exact: true },
+  ];
+}
+
+/**
+ * The HR and payroll menu.
+ *
+ * `canManage` drops staff creation and the whole configuration surface — settings, scales,
+ * allowances, deductions — which belong to the admin. An accountant generates and pays
+ * payroll and reads everything, but must not be able to change what anybody earns.
+ */
+function hrLinks(basePath: string, canManage: boolean): FinanceLink[] {
+  return [
+    { href: basePath, label: "Dashboard", icon: LayoutDashboard, exact: true },
+    { href: `${basePath}/staff`, label: "Staff", icon: IdCard, exact: false },
+    ...(canManage
+      ? [
+          { href: `${basePath}/salary-scales`, label: "Salary Scales", icon: Scale, exact: true },
+          { href: `${basePath}/allowances`, label: "Allowances", icon: Wallet2, exact: true },
+          { href: `${basePath}/deductions`, label: "Deductions", icon: Percent, exact: true },
+        ]
+      : []),
+    { href: `${basePath}/payroll`, label: "Payroll", icon: Banknote, exact: false },
+    { href: `${basePath}/reports`, label: "HR Reports", icon: BarChart3, exact: true },
+    ...(canManage ? [{ href: `${basePath}/config`, label: "HR Settings", icon: Settings, exact: true }] : []),
   ];
 }
 

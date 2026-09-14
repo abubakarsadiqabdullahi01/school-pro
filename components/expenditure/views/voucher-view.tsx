@@ -2,7 +2,9 @@ import { notFound } from "next/navigation"
 
 import { getExpense } from "@/app/actions/expenditure"
 import { ExpenseStatusBadge } from "@/components/expenditure/expense-status-badge"
-import { DocumentDownload, type PrintableDocument } from "@/components/reports/document-download"
+import { BackButton } from "@/components/back-button"
+import { BrandedDocumentDownload, BrandedPrintHeader } from "@/components/reports/branded"
+import type { PrintableDocument } from "@/components/reports/document-download"
 import { PrintButton } from "@/components/reports/print-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain } from "@/lib/money"
@@ -14,7 +16,7 @@ import { formatNaira, formatNairaPlain } from "@/lib/money"
  * the system already knows who did each part, and a printed voucher that says so is harder
  * to quietly alter than one signed after the fact.
  */
-export async function VoucherView({ expenseId }: { expenseId: string }) {
+export async function VoucherView({ basePath, expenseId }: { basePath: string; expenseId: string }) {
   const result = await getExpense(expenseId)
   if (!result.success) notFound()
 
@@ -51,26 +53,32 @@ export async function VoucherView({ expenseId }: { expenseId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div
+      className="mx-auto max-w-3xl space-y-6 print:mx-0 print:max-w-none print:space-y-0"
+      data-print-page
+    >
       <div className="flex items-start justify-between gap-4 print:hidden">
         <div>
+          <BackButton fallbackHref={`${basePath}/transactions`} />
           <h1 className="text-3xl font-bold tracking-tight">Payment Voucher</h1>
           <p className="text-muted-foreground">{expense.voucherNo}</p>
         </div>
         <div className="flex gap-2">
           <PrintButton label="Print Voucher" />
-          <DocumentDownload document={document} label="Download PDF" />
+          <BrandedDocumentDownload document={document} label="Download PDF" />
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="border-b">
+      <Card data-print-document className="print:rounded-none print:border-0 print:shadow-none">
+        <BrandedPrintHeader title="Payment Voucher" reference={expense.voucherNo} />
+        <CardHeader className="border-b print:px-0 print:pb-4">
           <div className="flex items-start justify-between gap-4">
-            <div>
+            {/* Suppressed on paper: BrandedPrintHeader above carries the letterhead there. */}
+            <div className="print:hidden">
               <CardTitle>{expense.school.name}</CardTitle>
               <p className="text-sm text-muted-foreground">{expense.school.code}</p>
             </div>
-            <div className="text-right">
+            <div className="text-right print:w-full">
               <p className="text-sm text-muted-foreground">Amount</p>
               <p className="text-2xl font-bold">{formatNaira(expense.amount)}</p>
               <div className="mt-1 flex justify-end"><ExpenseStatusBadge status={expense.status} /></div>

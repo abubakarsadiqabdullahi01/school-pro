@@ -15,7 +15,12 @@ import { ActionButtons } from "./ActionButtons"
 import { AssessmentStatusCard } from "./AssessmentStatusCard"
 import { useAssessmentState } from "../../hooks/use-assessment-state"
 import type { FormState, Student, Subject, ScoreEntry } from "./types"
-import { getClassesForTerm, getStudentsForClassTerm, getSubjectsForClassTerm } from "@/app/actions/compiler"
+import {
+  getClassesForTerm,
+  getClassTermResultWorkflow,
+  getStudentsForClassTerm,
+  getSubjectsForClassTerm,
+} from "@/app/actions/compiler"
 import { getAssessmentsWithStatus, saveAssessments, checkTeacherAssignment } from "@/app/actions/compiler-improved"
 import type { ClassLevel } from "@prisma/client"
 import { queryKeys, queryTiming } from "@/lib/query-keys"
@@ -143,6 +148,20 @@ export function SubjectResultEntry({
     enabled: !!form.subjectId && !!classTermId,
     staleTime: queryTiming.stable,
   })
+
+  const { data: workflow } = useQuery({
+    queryKey: ["resultWorkflow", classTermId],
+    queryFn: async () => {
+      if (!classTermId) return null
+      const result = await getClassTermResultWorkflow(classTermId)
+      if (!result.success) throw new Error(result.error)
+      return result.data
+    },
+    enabled: !!classTermId,
+    staleTime: queryTiming.interactive,
+  })
+
+  const isLocked = workflow?.status === "LOCKED"
 
   // NEW: Fetch assessments with enhanced status information
   const {
@@ -359,8 +378,14 @@ export function SubjectResultEntry({
 
   // Save assessments
   const handleSave = useCallback(async () => {
+    if (isLocked) {
+      toast.error("Scores are locked", {
+        description: "This class result set has been locked and cannot be edited.",
+      })
+      return
+    }
     saveMutation.mutate()
-  }, [saveMutation])
+  }, [isLocked, saveMutation])
 
   // Handle query errors
   useEffect(() => {
@@ -492,13 +517,27 @@ export function SubjectResultEntry({
                   </Badge>
                 )}
               </div>
+              <div>
+                <span className="font-medium">Workflow:</span>{" "}
+                <Badge variant={isLocked ? "default" : "outline"} className="ml-1">
+                  {workflow?.status ? workflow.status.charAt(0) + workflow.status.slice(1).toLowerCase() : "Draft"}
+                </Badge>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            {isLocked && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  These results are locked. Score fields remain visible for review, but saving changes is blocked.
+                </AlertDescription>
+              </Alert>
+            )}
             <ActionButtons
               hasChanges={hasChanges}
               errorCount={errorCount}
-              isSaving={saveMutation.isPending}
+              isSaving={saveMutation.isPending || isLocked}
               saveProgress={saveProgress}
               onSave={handleSave}
               onReset={handleReset}

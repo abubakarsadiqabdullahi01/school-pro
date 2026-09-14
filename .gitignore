@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+
+# Upload bundle produced by `npm run build:deploy` (see DEPLOYMENT.md).
+/deploy/
 /out/
 
 # production
@@ -44,7 +47,16 @@ next-env.d.ts
 # Database dumps written by scripts/backup-database.ts. Never commit these —
 # they contain every student record in the system.
 /backups/
+/storage/
 *.sql.gz
+
+# Generated release archives and their split parts. A deploy bundle is ~82 MB
+# and is rebuilt from the tagged source, so there is nothing to gain from
+# versioning them; the directory currently holds 343 MB of them.
+/outputs/
+
+# Scratch space for one-off scripts. Nothing here is part of the app.
+/tmp/
 
 # JetBrains project files. workspace.xml carries per-developer window layout and
 # recent-file history, so this is local state rather than project configuration.

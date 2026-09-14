@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
+import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 
 // Create a new subject
 export async function createSubject({
@@ -15,24 +15,11 @@ export async function createSubject({
   schoolId: string
 }) {
   // Verify the current user is authorized to create subjects
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // If admin, verify they are creating a subject for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== schoolId) {
-        throw new Error("You can only create subjects for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, schoolId)
 
     // Check if subject code already exists for this school
     const existingSubject = await prisma.subject.findFirst({
@@ -77,11 +64,7 @@ export async function updateSubject({
   code: string
 }) {
   // Verify the current user is authorized to update subjects
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Get the subject to update
@@ -95,16 +78,7 @@ export async function updateSubject({
     }
 
     // If admin, verify they are updating a subject for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== subjectToUpdate.schoolId) {
-        throw new Error("You can only update subjects for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, subjectToUpdate.schoolId)
 
     // Check if the code is being changed and if it already exists
     if (code !== subjectToUpdate.code) {
@@ -145,11 +119,7 @@ export async function updateSubject({
 // Delete a subject
 export async function deleteSubject(id: string) {
   // Verify the current user is authorized to delete subjects
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Check if subject exists
@@ -168,20 +138,22 @@ export async function deleteSubject(id: string) {
     }
 
     // If admin, verify they are deleting a subject for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== subjectToDelete.schoolId) {
-        throw new Error("You can only delete subjects for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, subjectToDelete.schoolId)
 
     // Check if subject is in use
     if (subjectToDelete.classSubjects.length > 0) {
       throw new Error("Cannot delete subject as it is assigned to one or more classes")
+    }
+
+    // `classSubjects` is the *current* timetable and says nothing about marks already
+    // recorded. A subject dropped from the curriculum has no class assignment and still
+    // holds every score ever entered against it — and assessments.subjectId is CASCADE.
+    const assessmentCount = await prisma.assessment.count({ where: { subjectId: id } })
+
+    if (assessmentCount > 0) {
+      throw new Error(
+        `Cannot delete this subject: ${assessmentCount} recorded result(s) belong to it.`,
+      )
     }
 
     // Delete all related data
@@ -216,11 +188,7 @@ export async function assignTeachersToSubject({
   teacherIds: string[]
 }) {
   // Verify the current user is authorized to assign teachers
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Get the subject
@@ -242,16 +210,7 @@ export async function assignTeachersToSubject({
     }
 
     // If admin, verify they are managing a subject for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== subjectData.schoolId) {
-        throw new Error("You can only manage subjects for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, subjectData.schoolId)
 
     // Get currently assigned teacher IDs
     const currentTeacherIds = subjectData.teacherSubjects.map((ts) => ts.teacherId)

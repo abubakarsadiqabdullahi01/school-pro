@@ -1,5 +1,8 @@
 import { getAccumulatedFundReport, getFinanceSetupData } from "@/app/actions/finance"
-import { ReportExport, type ExportTable } from "@/components/reports/report-export"
+import { BackButton } from "@/components/back-button"
+import { BrandedPrintHeader, BrandedReportExport } from "@/components/reports/branded"
+import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
+import type { ExportTable } from "@/components/reports/report-export"
 import { PeriodFilter } from "@/components/reports/period-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
@@ -66,17 +69,59 @@ export async function AccumulatedFundView({ basePath, sessionId }: { basePath: s
     ],
   }
 
+  const columns: DataTableColumn[] = [
+    { label: "Term" },
+    { label: "Scheduled", align: "right" },
+    { label: "Discounts", align: "right" },
+    { label: "Exemptions", align: "right" },
+    { label: "Net Expected", align: "right" },
+    { label: "Paid", align: "right" },
+    { label: "Outstanding", align: "right" },
+  ]
+
+  const rows: DataTableRow[] = report.data.terms.map((row) => ({
+    id: row.termId,
+    search: `${row.termName} ${row.sessionName}`,
+    cells: [
+      <>
+        <div className="font-medium">{row.termName}</div>
+        <div className="text-muted-foreground">{row.sessionName}</div>
+      </>,
+      formatNaira(row.scheduledFees),
+      formatNaira(row.discounts),
+      formatNaira(row.exemptions),
+      formatNaira(row.netExpected),
+      formatNaira(row.paid),
+      formatNaira(row.outstanding),
+    ],
+  }))
+
+  const footerCells = [
+    "SESSION TOTAL",
+    formatNaira(totals.scheduledFees),
+    formatNaira(totals.discounts),
+    formatNaira(totals.exemptions),
+    formatNaira(totals.netExpected),
+    formatNaira(totals.paid),
+    formatNaira(totals.outstanding),
+  ]
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+      <BrandedPrintHeader title="Accumulated Fund" reference={sessionName} />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+          <BackButton fallbackHref={basePath} />
           <h1 className="text-3xl font-bold tracking-tight">Accumulated Fund</h1>
-          <p className="text-muted-foreground">Term and session income totals before expenditure is introduced.</p>
+          <p className="text-muted-foreground">
+            Term and session income totals before expenditure is introduced into the finance report.
+          </p>
         </div>
-        <ReportExport
+        <BrandedReportExport
           title={sessionName ? `Accumulated Fund ${sessionName}` : "Accumulated Fund"}
           subtitle={sessionName ? `Session: ${sessionName}` : "All sessions"}
           table={exportTable}
+          orientation="landscape"
         />
       </div>
       {setup.success && (
@@ -103,39 +148,20 @@ export async function AccumulatedFundView({ basePath, sessionId }: { basePath: s
       <Card>
         <CardHeader>
           <CardTitle>Income Foundation</CardTitle>
-          <CardDescription>This becomes the income side of the later budget and expenditure report.</CardDescription>
+          <CardDescription>
+            This becomes the income side of the later budget and expenditure report. Search by term or session; the
+            session total stays on every page.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4 font-medium">Term</th>
-                <th className="py-2 pr-4 font-medium">Scheduled</th>
-                <th className="py-2 pr-4 font-medium">Discounts</th>
-                <th className="py-2 pr-4 font-medium">Exemptions</th>
-                <th className="py-2 pr-4 font-medium">Net Expected</th>
-                <th className="py-2 pr-4 font-medium">Paid</th>
-                <th className="py-2 pr-4 font-medium">Outstanding</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.data.terms.map((row) => (
-                <tr key={row.termId} className="border-b last:border-0">
-                  <td className="py-3 pr-4">
-                    <div className="font-medium">{row.termName}</div>
-                    <div className="text-muted-foreground">{row.sessionName}</div>
-                  </td>
-                  <td className="py-3 pr-4">{formatNaira(row.scheduledFees)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.discounts)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.exemptions)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.netExpected)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.paid)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.outstanding)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {report.data.terms.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No charge data found.</p>}
+        <CardContent>
+          <DataTable
+            columns={columns}
+            rows={rows}
+            unit="terms"
+            searchPlaceholder="Search by term or session"
+            emptyMessage="No charge data found."
+            footer={footerCells}
+          />
         </CardContent>
       </Card>
     </div>

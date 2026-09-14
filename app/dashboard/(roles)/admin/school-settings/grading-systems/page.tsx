@@ -7,7 +7,7 @@ import { ArrowLeft } from "lucide-react"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function GradingSystemsPage() {
-  const { school, schoolId } = await requireAdminSchool()
+  const { school, schoolId } = await requireAdminSchool("school.manage")
 
   const gradingSystems = await prisma.gradingSystem.findMany({
     where: {

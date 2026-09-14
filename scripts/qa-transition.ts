@@ -4,9 +4,10 @@
  *
  * Run:  npx tsx scripts/qa-transition.ts
  */
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { createPrismaClient } from "../lib/prisma-client";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 const ROLLBACK = "__INTENTIONAL_ROLLBACK__";
 
 async function inRollback<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {

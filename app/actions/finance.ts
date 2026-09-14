@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { prisma } from "@/lib/db"
-import { AuthorizationError, requireRole, type Actor } from "@/lib/authz"
+import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
 import { getActiveSchool } from "@/lib/school-context.server"
 
 const moneySchema = z.coerce.number().positive().max(9999999999)
@@ -90,15 +90,15 @@ async function actorSchool(actor: Actor): Promise<string> {
 }
 
 async function requireFinanceViewer(): Promise<Actor> {
-  return requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+  return requirePermission("finance.view_reports")
 }
 
 async function requireFinanceManager(): Promise<Actor> {
-  return requireRole("SUPER_ADMIN", "ADMIN")
+  return requirePermission("finance.setup")
 }
 
 async function requirePaymentRecorder(): Promise<Actor> {
-  return requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+  return requirePermission("finance.collect_payments")
 }
 
 /**
@@ -241,6 +241,7 @@ function calculateAdjustmentAmount(input: {
 }
 
 export async function getFinanceOverview(): Promise<ActionResult<{
+  school: { name: string; code: string }
   currentSession: { id: string; name: string } | null
   currentTerm: { id: string; name: string } | null
   totals: {
@@ -287,7 +288,11 @@ export async function getFinanceOverview(): Promise<ActionResult<{
       ...(currentTerm ? { termId: currentTerm.id } : currentSession ? { sessionId: currentSession.id } : {}),
     }
 
-    const [chargeTotals, paymentTotals, statusCounts, recentPayments] = await Promise.all([
+    const [school, chargeTotals, paymentTotals, statusCounts, recentPayments] = await Promise.all([
+      prisma.school.findUniqueOrThrow({
+        where: { id: schoolId },
+        select: { name: true, code: true },
+      }),
       prisma.studentCharge.aggregate({
         where: chargeWhere,
         _sum: {
@@ -335,6 +340,7 @@ export async function getFinanceOverview(): Promise<ActionResult<{
     return {
       success: true,
       data: {
+        school,
         currentSession,
         currentTerm,
         totals: {
@@ -468,12 +474,16 @@ export async function createFeeSchedule(input: unknown): Promise<ActionResult<{ 
     if (!category) throw new Error("Fee category not found")
 
     const effectiveTermId = data.termId ?? classTerm?.termId ?? null
+    // Only bill students who are still active. An enrolment row stays ACTIVE when a student
+    // is deactivated or archived — those are recorded on the user — so filtering on the
+    // enrolment alone kept generating charges for people who had left.
+    const activeStudent = { student: { user: { isActive: true } } };
     const enrolledStudents = await prisma.studentClassTerm.findMany({
       where: data.classTermId
-        ? { classTermId: data.classTermId, status: "ACTIVE" }
+        ? { classTermId: data.classTermId, status: "ACTIVE", ...activeStudent }
         : effectiveTermId
-          ? { termId: effectiveTermId, status: "ACTIVE", student: { schoolId } }
-          : { student: { schoolId }, status: "ACTIVE" },
+          ? { termId: effectiveTermId, status: "ACTIVE", student: { schoolId, user: { isActive: true } } }
+          : { student: { schoolId, user: { isActive: true } }, status: "ACTIVE" },
       select: {
         studentId: true,
         classTermId: true,
@@ -563,7 +573,7 @@ export async function searchFinanceStudents(query: string): Promise<ActionResult
             ]
           : undefined,
       },
-      take: 15,
+      take: 60,
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -596,7 +606,7 @@ export async function searchFinanceStudents(query: string): Promise<ActionResult
 
 export async function getStudentStatement(studentId: string): Promise<ActionResult<{
   school: { name: string; code: string }
-  student: { id: string; admissionNo: string; name: string }
+  student: { id: string; admissionNo: string; name: string; currentClass: string | null; currentTerm: string | null }
   totals: { charged: string; paid: string; discounts: string; exemptions: string; balance: string }
   charges: Array<{ id: string; termId: string | null; description: string; amount: string; paid: string; balance: string; status: string }>
   payments: Array<{ id: string; receiptNo: string; amount: string; paymentDate: string; method: string; status: string }>
@@ -613,6 +623,19 @@ export async function getStudentStatement(studentId: string): Promise<ActionResu
         // Named on the printed statement, which is handed to a parent.
         school: { select: { name: true, code: true } },
         user: { select: { firstName: true, lastName: true } },
+        classTerms: {
+          where: { status: "ACTIVE" },
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: {
+            classTerm: {
+              select: {
+                class: { select: { name: true } },
+                term: { select: { name: true } },
+              },
+            },
+          },
+        },
         charges: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -655,6 +678,8 @@ export async function getStudentStatement(studentId: string): Promise<ActionResu
           id: student.id,
           admissionNo: student.admissionNo,
           name: `${student.user.firstName} ${student.user.lastName}`,
+          currentClass: student.classTerms[0]?.classTerm.class.name ?? null,
+          currentTerm: student.classTerms[0]?.classTerm.term.name ?? null,
         },
         totals: {
           charged: moneyString(totals.charged),
@@ -925,7 +950,7 @@ export async function recordStudentPayment(input: unknown): Promise<ActionResult
           paymentDate: data.paymentDate,
           receiptNo,
           paymentMethod: data.paymentMethod,
-          referenceNo: data.referenceNo || null,
+          referenceNo: data.referenceNo || receiptNo,
           receivedBy: actor.userId,
           notes: data.notes || null,
           status: "COMPLETED",
@@ -1360,7 +1385,7 @@ export async function getReceipt(paymentId: string): Promise<ActionResult<{
   paymentMethod: string
   referenceNo: string | null
   receivedBy: string | null
-  student: { name: string; admissionNo: string }
+  student: { name: string; admissionNo: string; currentClass: string | null }
   school: { name: string; code: string; logoUrl: string | null }
   term: { name: string; sessionName: string }
   allocations: Array<{ description: string; amount: string }>
@@ -1385,6 +1410,12 @@ export async function getReceipt(paymentId: string): Promise<ActionResult<{
             admissionNo: true,
             user: { select: { firstName: true, lastName: true } },
             charges: { select: { balance: true } },
+            classTerms: {
+              where: { status: "ACTIVE" },
+              take: 1,
+              orderBy: { createdAt: "desc" },
+              select: { classTerm: { select: { class: { select: { name: true } } } } },
+            },
           },
         },
         school: { select: { name: true, code: true, logoUrl: true } },
@@ -1415,6 +1446,7 @@ export async function getReceipt(paymentId: string): Promise<ActionResult<{
         student: {
           name: `${payment.student.user.firstName} ${payment.student.user.lastName}`,
           admissionNo: payment.student.admissionNo,
+          currentClass: payment.student.classTerms[0]?.classTerm.class.name ?? null,
         },
         school: payment.school,
         term: { name: payment.term.name, sessionName: payment.term.session.name },
@@ -1585,5 +1617,96 @@ export async function setFinanceOfficerActive(input: unknown): Promise<ActionRes
     return { success: true, data: { isActive: data.isActive } }
   } catch (error) {
     return toError(error, "Failed to update finance staff")
+  }
+}
+
+/**
+ * The receipt register: every receipt raised, newest first.
+ *
+ * Added because a receipt was previously only reachable if you already knew which payment
+ * it belonged to — there was no way to answer "find me receipt RCPT-2026-00007".
+ */
+export async function getReceiptRegister(filters?: { termId?: string | null; search?: string | null }): Promise<
+  ActionResult<Array<{
+    id: string
+    receiptNo: string
+    studentId: string
+    studentName: string
+    admissionNo: string
+    className: string | null
+    amount: string
+    paymentDate: string
+    method: string
+    status: string
+    receivedByName: string | null
+  }>>
+> {
+  try {
+    const actor = await requireFinanceViewer()
+    const schoolId = await actorSchool(actor)
+    const search = filters?.search?.trim()
+
+    const payments = await prisma.payment.findMany({
+      where: {
+        schoolId,
+        ...(filters?.termId ? { termId: filters.termId } : {}),
+        ...(search
+          ? {
+              OR: [
+                { receiptNo: { contains: search } },
+                { referenceNo: { contains: search } },
+                { student: { admissionNo: { contains: search } } },
+                { student: { user: { firstName: { contains: search } } } },
+                { student: { user: { lastName: { contains: search } } } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { paymentDate: "desc" },
+      take: 500,
+      select: {
+        id: true,
+        receiptNo: true,
+        amount: true,
+        paymentDate: true,
+        paymentMethod: true,
+        status: true,
+        student: {
+          select: {
+            id: true,
+            admissionNo: true,
+            user: { select: { firstName: true, lastName: true } },
+            classTerms: {
+              where: { status: "ACTIVE" },
+              take: 1,
+              orderBy: { createdAt: "desc" },
+              select: { classTerm: { select: { class: { select: { name: true } } } } },
+            },
+          },
+        },
+        receivedByUser: { select: { firstName: true, lastName: true } },
+      },
+    })
+
+    return {
+      success: true,
+      data: payments.map((payment) => ({
+        id: payment.id,
+        receiptNo: payment.receiptNo,
+        studentId: payment.student.id,
+        studentName: `${payment.student.user.firstName} ${payment.student.user.lastName}`,
+        admissionNo: payment.student.admissionNo,
+        className: payment.student.classTerms[0]?.classTerm.class.name ?? null,
+        amount: moneyString(payment.amount),
+        paymentDate: payment.paymentDate.toISOString(),
+        method: payment.paymentMethod,
+        status: payment.status,
+        receivedByName: payment.receivedByUser
+          ? `${payment.receivedByUser.firstName} ${payment.receivedByUser.lastName}`
+          : null,
+      })),
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the receipt register")
   }
 }

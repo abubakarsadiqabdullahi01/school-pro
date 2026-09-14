@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { StatsCard } from "@/components/dashboard/stats-card"
 import { formatDate } from "@/lib/format"
 import { formatNaira, sumAmounts } from "@/lib/money"
+import { PUBLISHED_ONLY, averageScore } from "@/lib/results-visibility"
 
 export default async function ParentDashboardPage() {
   const session = await auth()
@@ -38,6 +39,9 @@ export default async function ParentDashboardPage() {
                 },
               },
               assessments: {
+                // Published results only. A parent seeing a half-entered mark cannot tell
+                // it from a final one. See lib/results-visibility.
+                where: PUBLISHED_ONLY,
                 include: {
                   term: { select: { isCurrent: true } },
                   subject: { select: { name: true } },
@@ -104,13 +108,7 @@ export default async function ParentDashboardPage() {
             const enrollment =
               child.classTerms.find((entry) => entry.classTerm.term.isCurrent) ?? child.classTerms[0]
             const currentAssessments = child.assessments.filter((assessment) => assessment.term.isCurrent)
-            const scoreTotals = currentAssessments
-              .map((assessment) => (assessment.ca1 ?? 0) + (assessment.ca2 ?? 0) + (assessment.ca3 ?? 0) + (assessment.exam ?? 0))
-              .filter((score) => score > 0)
-            const averageScore =
-              scoreTotals.length > 0
-                ? Math.round(scoreTotals.reduce((sum, score) => sum + score, 0) / scoreTotals.length)
-                : null
+            const average = averageScore(currentAssessments)
 
             return (
               <Card key={child.id}>
@@ -130,7 +128,7 @@ export default async function ParentDashboardPage() {
                     </div>
                     <div className="rounded-md border p-3">
                       <div className="text-xs text-muted-foreground">Average</div>
-                      <div className="font-medium">{averageScore === null ? "Pending" : `${averageScore}%`}</div>
+                      <div className="font-medium">{average === null ? "Not released" : `${average}%`}</div>
                     </div>
                     <div className="rounded-md border p-3">
                       <div className="text-xs text-muted-foreground">Fee Records</div>

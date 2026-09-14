@@ -3,7 +3,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminCreateSessionPage() {
-  const { school, schoolId } = await requireAdminSchool()
+  const { school, schoolId } = await requireAdminSchool("academics.manage")
 
   return (
     <PageTransition>

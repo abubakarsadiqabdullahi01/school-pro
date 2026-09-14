@@ -5,7 +5,7 @@ import { notFound } from "next/navigation"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminEditSessionPage({ params }: { params: Promise<{ id: string }> }) {
-  const { schoolId } = await requireAdminSchool()
+  const { schoolId } = await requireAdminSchool("academics.manage")
   const { id } = await params
 
   const sessionData = await prisma.session.findFirst({

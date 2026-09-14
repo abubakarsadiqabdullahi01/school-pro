@@ -1,10 +1,10 @@
 // app/api/upload/school-logo/route.ts
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { assertSchoolAccess, AuthorizationError, requireRole } from "@/lib/authz";
 import { prisma } from "@/lib/db";
-import { S3 } from "@/lib/S3Client";
-import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { v4 as uuidv4 } from "uuid";
+import { storeUpload, deleteStoredFile, UploadError } from "@/lib/local-storage";
+
+
 
 // Allowed image types and max size
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
@@ -12,24 +12,21 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // Same tier as `app/api/s3/delete`: whoever may remove a logo may replace one.
+    const actor = await requireRole("SUPER_ADMIN", "ADMIN");
 
     const formData = await request.formData();
     const file = formData.get("logo") as File;
     const schoolId = formData.get("schoolId") as string;
 
-    if (!file || !schoolId) {
+    if (!(file instanceof File) || typeof schoolId !== "string" || !schoolId) {
       return NextResponse.json({ error: "Missing file or school ID" }, { status: 400 });
     }
 
-    // Verify admin can upload for this school
-    const admin = await prisma.admin.findUnique({ where: { userId: session.user.id } });
-    if (!admin?.schoolId || admin.schoolId !== schoolId) {
-      return NextResponse.json({ error: "You can only upload logos for your assigned school" }, { status: 403 });
-    }
+    // Scope is checked against the school record itself, not against the id in the form.
+    const school = await prisma.school.findUnique({ where: { id: schoolId }, select: { id: true, logoUrl: true } });
+    if (!school) return NextResponse.json({ error: "School not found" }, { status: 404 });
+    assertSchoolAccess(actor, school.id);
 
     // Validate file type
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
@@ -45,39 +42,17 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Generate unique key
-    const fileExtension = file.name.split('.').pop() || 'bin';
-    const key = `school-logos/${schoolId}-${uuidv4()}.${fileExtension}`;
+    const logoUrl = await storeUpload(file, "school-logos", school.id);
 
-    // Upload to S3
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    
-    const command = new PutObjectCommand({
-      Bucket: process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES!,
-      Key: key,
-      Body: buffer,
-      ContentType: file.type,
-    });
-    
-    await S3.send(command);
+    try {
+      await prisma.school.update({ where: { id: school.id }, data: { logoUrl } });
+    } catch (error) { await deleteStoredFile(logoUrl); throw error; }
 
-    // Public URL
-     const endpointUrl = new URL(process.env.AWS_ENDPOINT_URL_S3!);
-    const logoUrl = endpointUrl.host.includes("storage.dev")
-      ? `${endpointUrl.protocol}//${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}.${endpointUrl.host}/${key}`
-      : `${process.env.AWS_ENDPOINT_URL_S3}/${process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES}/${key}`;
-
-    const old = await prisma.school.findUnique({ where: { id: schoolId }, select: { logoUrl: true } });
-    await prisma.school.update({ where: { id: schoolId }, data: { logoUrl } });
-
-    if (old?.logoUrl) {
+    if (school.logoUrl) {
       try {
-        const oldUrl = new URL(old.logoUrl);
-        const oldKey = oldUrl.pathname.substring(1);
-        await S3.send(new DeleteObjectCommand({ Bucket: process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES!, Key: oldKey }));
+        await deleteStoredFile(school.logoUrl);
       } catch (err) {
-        console.error("Failed to delete old logo from S3:", err);
+        console.error("Failed to delete old locally stored logo:", err);
       }
     }
 
@@ -86,7 +61,11 @@ export async function POST(request: NextRequest) {
       logoUrl,
       message: "Logo uploaded successfully",
     });
-  } catch (error: any) {
+  } catch (error) {
+    if (error instanceof UploadError) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     console.error("Logo upload error:", error);
     return NextResponse.json({ error: "Failed to upload logo" }, { status: 500 });
   }

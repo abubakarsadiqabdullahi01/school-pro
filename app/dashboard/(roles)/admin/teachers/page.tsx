@@ -4,7 +4,7 @@ import { getTeachers } from "@/app/actions/teacher-management"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminTeachersPage() {
-  const { school } = await requireAdminSchool()
+  const { school } = await requireAdminSchool("teachers.manage")
 
   const teachersResult = await getTeachers()
   const teachers = teachersResult.success && teachersResult.data ? teachersResult.data : []

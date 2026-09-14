@@ -4,7 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminSchoolSessionsPage() {
-  const { school, schoolId } = await requireAdminSchool()
+  const { school, schoolId } = await requireAdminSchool("academics.manage")
 
   const sessions = await prisma.session.findMany({
     where: { schoolId },

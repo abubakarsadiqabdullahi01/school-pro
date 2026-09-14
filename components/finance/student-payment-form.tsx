@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { toast } from "sonner"
 
 import { getStudentStatement, recordStudentPayment, searchFinanceStudents } from "@/app/actions/finance"
+import { BackButton } from "@/components/back-button"
+import { StudentSearchResults, type FinanceStudentSearchRow } from "@/components/finance/student-search-results"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -12,16 +14,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { formatNaira } from "@/lib/money"
 
-type StudentSearchRow = {
-  id: string
-  admissionNo: string
-  name: string
-  currentClass: string | null
-  outstanding: string
-}
+type StudentSearchRow = FinanceStudentSearchRow
 
 type Statement = {
-  student: { id: string; admissionNo: string; name: string }
+  student: { id: string; admissionNo: string; name: string; currentClass: string | null; currentTerm: string | null }
   totals: { charged: string; paid: string; discounts: string; exemptions: string; balance: string }
   charges: Array<{ id: string; termId: string | null; description: string; amount: string; paid: string; balance: string; status: string }>
 }
@@ -33,6 +29,7 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
   const [statement, setStatement] = useState<Statement | null>(null)
   const [selectedChargeIds, setSelectedChargeIds] = useState<Set<string>>(new Set())
   const [paymentMethod, setPaymentMethod] = useState("CASH")
+  const [lastReceipt, setLastReceipt] = useState<{ id: string; receiptNo: string } | null>(null)
 
   const selectedCharges = useMemo(
     () => statement?.charges.filter((charge) => selectedChargeIds.has(charge.id)) ?? [],
@@ -40,7 +37,7 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
   )
   const total = selectedCharges.reduce((sum, charge) => sum + Number(charge.balance), 0)
 
-  function search() {
+  const search = useCallback(() => {
     startTransition(async () => {
       const result = await searchFinanceStudents(query)
       if (result.success) {
@@ -49,7 +46,15 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
         toast.error("Search failed", { description: result.error })
       }
     })
-  }
+  }, [query])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      search()
+    }, 300)
+
+    return () => window.clearTimeout(handle)
+  }, [query, search])
 
   const loadStudent = useCallback((studentId: string) => {
     startTransition(async () => {
@@ -101,6 +106,7 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
       })
 
       if (result.success) {
+        setLastReceipt(result.data)
         toast.success("Payment recorded", { description: `Receipt ${result.data.receiptNo}` })
         loadStudent(statement.student.id)
       } else {
@@ -110,7 +116,9 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+    <div className="space-y-4">
+      <BackButton fallbackHref={basePath} />
+      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <Card>
         <CardHeader>
           <CardTitle>Find Student</CardTitle>
@@ -119,23 +127,15 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Student name or admission no" />
-            <Button type="button" onClick={search} disabled={isPending}>Search</Button>
           </div>
-          <div className="space-y-2">
-            {students.map((student) => (
-              <button
-                key={student.id}
-                type="button"
-                onClick={() => loadStudent(student.id)}
-                className="w-full rounded-md border p-3 text-left hover:bg-muted"
-              >
-                <div className="font-medium">{student.name}</div>
-                <div className="text-sm text-muted-foreground">
-                  {student.admissionNo} · {student.currentClass ?? "No class"} · Owes {formatNaira(student.outstanding)}
-                </div>
-              </button>
-            ))}
-          </div>
+          <p className="text-xs text-muted-foreground">Results update as you type.</p>
+          <StudentSearchResults
+            students={students}
+            onSelect={(student) => {
+              setLastReceipt(null)
+              loadStudent(student.id)
+            }}
+          />
         </CardContent>
       </Card>
 
@@ -143,12 +143,24 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
         <CardHeader>
           <CardTitle>{statement ? statement.student.name : "Outstanding Charges"}</CardTitle>
           <CardDescription>
-            {statement ? `${statement.student.admissionNo} · Balance ${formatNaira(statement.totals.balance)}` : "Select a student to record payment."}
+            {statement
+              ? `${statement.student.admissionNo} · ${statement.student.currentClass ?? "No class"} · ${statement.student.currentTerm ?? "No term"} · Balance ${formatNaira(statement.totals.balance)}`
+              : "Select a student to record payment."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {statement ? (
             <>
+              {lastReceipt && (
+                <div className="flex flex-col gap-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                    Payment saved: {lastReceipt.receiptNo}
+                  </span>
+                  <Button size="sm" asChild>
+                    <Link href={`${basePath}/receipts/${lastReceipt.id}`}>View Receipt</Link>
+                  </Button>
+                </div>
+              )}
               <div className="space-y-2">
                 {statement.charges.filter((charge) => Number(charge.balance) > 0).map((charge) => (
                   <label key={charge.id} className="flex items-center justify-between rounded-md border p-3">
@@ -173,7 +185,7 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
                 <div className="space-y-2">
                   <Label>Payment Method</Label>
                   <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="CASH">Cash</SelectItem>
                       <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
@@ -188,8 +200,12 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
                   <Input id="payment-date" name="paymentDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reference">Reference</Label>
-                  <Input id="reference" name="referenceNo" placeholder="Bank/POS reference" />
+                  <Label htmlFor="reference">Bank / POS Reference <span className="text-muted-foreground">(optional)</span></Label>
+                  <Input id="reference" name="referenceNo" placeholder="Auto receipt no. if blank" />
+                  <p className="text-xs text-muted-foreground">
+                    Enter the bank transfer, POS, cheque, or online transaction ID when available.
+                    If left blank, the generated receipt number is saved as the reference.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notes">Notes</Label>
@@ -211,6 +227,7 @@ export function StudentPaymentForm({ basePath, initialStudentId }: { basePath: s
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }

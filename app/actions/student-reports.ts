@@ -66,6 +66,7 @@ export async function getStudentReportData(studentId: string, termId: string) {
     const studentClassTerm = await prisma.studentClassTerm.findFirst({
       where: {
         studentId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
         classTerm: {
           termId,
         },
@@ -155,6 +156,7 @@ export async function getStudentReportData(studentId: string, termId: string) {
         termId,
         studentClassTerm: {
           classTermId: studentClassTerm.classTerm.id,
+          status: { in: ["ACTIVE", "COMPLETED"] },
         },
       },
       include: {
@@ -380,6 +382,7 @@ async function calculateStudentPosition(studentId: string, termId: string): Prom
     const studentClassTerm = await prisma.studentClassTerm.findFirst({
       where: {
         student: { id: studentId },
+        status: { in: ["ACTIVE", "COMPLETED"] },
         classTerm: {
           termId,
         },
@@ -401,6 +404,7 @@ async function calculateStudentPosition(studentId: string, termId: string): Prom
     const classStudents = await prisma.studentClassTerm.findMany({
       where: {
         classTermId: studentClassTerm.classTerm.id,
+        status: { in: ["ACTIVE", "COMPLETED"] },
       },
       include: {
         assessments: {
@@ -490,6 +494,7 @@ export async function getClassStatistics(classTermId: string) {
         termId: classTerm.term.id,
         studentClassTerm: {
           classTermId,
+          status: { in: ["ACTIVE", "COMPLETED"] },
         },
       },
       include: {

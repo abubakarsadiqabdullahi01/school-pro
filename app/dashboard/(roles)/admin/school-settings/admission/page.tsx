@@ -8,7 +8,7 @@ import Link from "next/link"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdmissionSettingsPage() {
-  await requireAdminSchool()
+  await requireAdminSchool("school.manage")
 
   return (
     <div className="space-y-6">

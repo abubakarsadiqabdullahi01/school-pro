@@ -6,9 +6,10 @@ import { z } from "zod"
 
 import { getAccumulatedFundReport } from "@/app/actions/finance"
 import { recordAudit } from "@/lib/audit"
-import { AuthorizationError, requireRole, type Actor } from "@/lib/authz"
+import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { getActiveSchool } from "@/lib/school-context.server"
+import { localFileKey, readStoredFile } from "@/lib/local-storage"
 
 /**
  * Expenditure — the spending side of the ledger.
@@ -81,7 +82,7 @@ const paySchema = z.object({
 
 const attachmentSchema = z.object({
   expenseId: z.string().min(1),
-  url: z.string().trim().url().max(1000),
+  url: z.string().trim().max(1000).refine(value => localFileKey(value)?.startsWith("expense-receipts/"), "Upload a receipt first"),
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.string().trim().min(3).max(120),
   sizeBytes: z.coerce.number().int().positive().max(25 * 1024 * 1024),
@@ -121,17 +122,17 @@ async function actorSchool(actor: Actor): Promise<string> {
 
 /** Read any expenditure record or report. */
 async function requireExpenditureViewer(): Promise<Actor> {
-  return requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+  return requirePermission("expenditure.manage")
 }
 
 /** Configure categories and accounts, approve, reject, cancel. The admin's authority. */
 async function requireExpenditureManager(): Promise<Actor> {
-  return requireRole("SUPER_ADMIN", "ADMIN")
+  return requirePermission("expenditure.approve")
 }
 
 /** Record an expense, attach a receipt, release payment on an approved one. */
 async function requireExpenditureRecorder(): Promise<Actor> {
-  return requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+  return requirePermission("expenditure.manage")
 }
 
 /**
@@ -801,6 +802,10 @@ export async function addExpenseAttachment(input: unknown): Promise<ActionResult
     const actor = await requireExpenditureRecorder()
     const schoolId = await actorSchool(actor)
     const data = attachmentSchema.parse(input)
+
+    const key = localFileKey(data.url)
+    if (!key || key.split("/")[1] !== schoolId) throw new AuthorizationError("Receipt belongs to another school")
+    await readStoredFile(key)
 
     const expense = await scopedExpense(data.expenseId, schoolId)
     // Receipts can be added at any point, including after payment — the paper often arrives

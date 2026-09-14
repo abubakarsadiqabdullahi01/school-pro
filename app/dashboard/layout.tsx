@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client"
 import { getActiveSchool, getSchoolOptions } from "@/lib/school-context.server"
+import { getEffectivePermissionsForCurrentUser } from "@/lib/authz"
 
 export const metadata = {
   title: "Dashboard | DigiSchool-Pro",
@@ -25,9 +26,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // A super admin browses every school, so they get a switcher instead of a fixed school.
   // Everyone else is pinned to the school on their own record.
   const isSuperAdmin = session.user.role === "SUPER_ADMIN"
-  const [schoolOptions, activeSchool] = isSuperAdmin
-    ? await Promise.all([getSchoolOptions(), getActiveSchool()])
-    : [[], null]
+  const [schoolOptions, activeSchool, permissions] = isSuperAdmin
+    ? await Promise.all([getSchoolOptions(), getActiveSchool(), getEffectivePermissionsForCurrentUser()])
+    : [[], null, await getEffectivePermissionsForCurrentUser()]
 
   // Fetch school information for non-super-admin users
   let schoolInfo = null
@@ -103,6 +104,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       schoolInfo={schoolInfo}
       schoolOptions={schoolOptions}
       activeSchool={activeSchool}
+      permissions={permissions}
     >
       {children}
     </DashboardLayoutClient>

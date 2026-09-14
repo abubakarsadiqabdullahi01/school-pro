@@ -1,27 +1,11 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { notFound } from "next/navigation"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { ClassTermSubjectsForm } from "@/components/class-term-management/class-term-subjects-form"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminClassTermSubjectsPage({ params }: { params: { id: string } }) {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    select: { schoolId: true },
-  })
-
-  if (!admin) {
-    redirect("/dashboard/access-error")
-  }
+  const { schoolId } = await requireAdminSchool("academics.manage")
 
   // Ensure params is properly awaited
   const id = (await params)?.id
@@ -60,14 +44,14 @@ export default async function AdminClassTermSubjectsPage({ params }: { params: {
     },
   })
 
-  if (!classTerm || classTerm.class.schoolId !== admin.schoolId) {
+  if (!classTerm || classTerm.class.schoolId !== schoolId) {
     notFound()
   }
 
   // Get all subjects for the school
   const subjects = await prisma.subject.findMany({
     where: {
-      schoolId: admin.schoolId,
+      schoolId,
     },
     orderBy: { name: "asc" },
   })

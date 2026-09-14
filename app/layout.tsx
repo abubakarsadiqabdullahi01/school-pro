@@ -28,18 +28,26 @@ export const metadata: Metadata = {
     "The comprehensive platform that helps schools manage students, teachers, classes, and administrative tasks efficiently.",
 };
 
-// Validate environment variables
+// Environment validation runs at request time, never while building.
+//
+// This module is evaluated during prerendering as well as at runtime, so a
+// failure here used to be frozen into the HTML of every statically prerendered
+// page — the landing page and /auth/login among them. A deploy built on a
+// machine without the production variables then served the maintenance page
+// forever, and no correction on the server could clear it, because the server
+// never re-runs this code for those pages. `next build` sets NEXT_PHASE; the
+// standalone server does not, so this check only ever sees the real
+// environment. Statically prerendered pages are consequently not gated at all;
+// instrumentation.ts logs the failure at startup and /api/health reports it.
 let envValid = true;
-let envError: Error | null = null;
 
-try {
-  if (process.env.NODE_ENV !== 'test') {
+if (process.env.NEXT_PHASE !== 'phase-production-build' && process.env.NODE_ENV !== 'test') {
+  try {
     validateEnvForProduction();
+  } catch (error) {
+    console.error('❌ Environment validation failed:', error);
+    envValid = false;
   }
-} catch (error) {
-  console.error('❌ Environment validation failed:', error);
-  envValid = false;
-  envError = error as Error;
 }
 
 export default function RootLayout({

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
+import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 
 // Assign a class to a term
 export async function assignClassToTerm({
@@ -13,11 +13,7 @@ export async function assignClassToTerm({
   termId: string
 }) {
   // Verify the current user is authorized
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Get the class
@@ -47,21 +43,8 @@ export async function assignClassToTerm({
     }
 
     // If admin, verify they are managing a class for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== classData.schoolId) {
-        throw new Error("You can only manage classes for your assigned school")
-      }
-
-      // Verify the term belongs to the same school
-      if (term.session.schoolId !== admin.schoolId) {
-        throw new Error("The term does not belong to your school")
-      }
-    }
+    assertSchoolAccess(actor, classData.schoolId)
+    assertSchoolAccess(actor, term.session.schoolId)
 
     // Check if the class is already assigned to this term
     const existingClassTerm = await prisma.classTerm.findFirst({
@@ -94,11 +77,7 @@ export async function assignClassToTerm({
 // Remove a class from a term
 export async function removeClassFromTerm(classTermId: string) {
   // Verify the current user is authorized
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Get the class term
@@ -118,16 +97,7 @@ export async function removeClassFromTerm(classTermId: string) {
     }
 
     // If admin, verify they are managing a class for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== classTerm.class.schoolId) {
-        throw new Error("You can only manage classes for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, classTerm.class.schoolId)
 
     // Check if there are any class subjects
     const classSubjects = await prisma.classSubject.findMany({
@@ -179,11 +149,7 @@ export async function assignSubjectsToClassTerm({
   subjectIds: string[]
 }) {
   // Verify the current user is authorized
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Get the class term
@@ -209,16 +175,7 @@ export async function assignSubjectsToClassTerm({
     }
 
     // If admin, verify they are managing a class for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== classTerm.class.schoolId) {
-        throw new Error("You can only manage classes for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, classTerm.class.schoolId)
 
     // Get currently assigned subject IDs
     const currentSubjectIds = classTerm.classSubjects.map((cs) => cs.subjectId)

@@ -8,7 +8,7 @@ export default async function AdminCreateTermPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const { school, schoolId } = await requireAdminSchool()
+  const { school, schoolId } = await requireAdminSchool("academics.manage")
 
   const params = await searchParams
   const rawSessionId = params.sessionId

@@ -1,17 +1,8 @@
-import { redirect } from "next/navigation"
-import { auth } from "@/auth"
 import { AdminDashboardClient } from "@/components/admin-dashboard/admin-dashboard-client"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminDashboardPage() {
-  const session = await auth()
-
-  if (!session?.user) {
-    redirect("/auth/login")
-  }
-
-  if (session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
+  await requireAdminSchool()
 
   return <AdminDashboardClient />
 }

@@ -3,8 +3,17 @@
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { requireAdminScope } from "@/lib/authz";
+import { revalidatePath } from "next/cache";
+
 import { calculateGrade } from "@/lib/grading";
 import type { GradingSystem } from "@/lib/grading";
+import type { PromotionEvaluationScope } from "@prisma/client";
+import {
+  DEFAULT_PROMOTION_POLICY,
+  splitByEligibility,
+  type PromotionPolicy,
+  type StudentResultSummary,
+} from "@/lib/promotion";
 
 // Enhanced authorization function
 // Delegates to the shared boundary in lib/authz.ts. `undefined` still means "super
@@ -276,10 +285,12 @@ export async function getStudentsForTransition(classTermId: string) {
           passMark: 40,
         };
 
-    // Get all students in the class with their assessments
+    // Get active students in the class with their assessments. Historical rows are kept
+    // for audit, but they must not be offered for another transition.
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: {
         classTermId,
+        status: "ACTIVE",
       },
       include: {
         student: {
@@ -500,6 +511,11 @@ export async function executeStudentTransitions(transitions: {
   studentIds: string[];
   transitionType: "PROMOTION" | "TRANSFER" | "WITHDRAWAL";
   notes?: string;
+  /**
+   * Promote students the policy would block anyway. A deliberate act by an admin who has
+   * seen the reasons, recorded in the transition notes so the override is visible later.
+   */
+  overrideIneligible?: boolean;
 }) {
   try {
     const schoolId = await authorizeAndGetSchoolId();
@@ -509,6 +525,7 @@ export async function executeStudentTransitions(transitions: {
       studentIds,
       transitionType,
       notes,
+      overrideIneligible = false,
     } = transitions;
 
     // Verify access to both class terms
@@ -549,6 +566,52 @@ export async function executeStudentTransitions(transitions: {
       throw new Error("User ID not found");
     }
 
+    // The promotion policy only governs promotion. A transfer moves a student sideways and
+    // a withdrawal ends their enrolment; neither is a judgement on their results.
+    let overriddenNames: string[] = [];
+    if (transitionType === "PROMOTION") {
+      const policyResult = await getTransitionPolicy();
+      const policy: PromotionPolicy = policyResult.data ?? DEFAULT_PROMOTION_POLICY;
+
+      if (policy.requireResultsPublished || policy.usePromotionCriteria) {
+        const gradingSystem = await prisma.gradingSystem.findFirst({
+          where: schoolId ? { schoolId } : {},
+          select: { passMark: true },
+        });
+
+        const summaries = await summariseResults(
+          fromClassTermId,
+          fromClassTerm.termId,
+          studentIds,
+          gradingSystem?.passMark ?? 40,
+        );
+        const { ineligible } = splitByEligibility(summaries, policy);
+
+        if (ineligible.length > 0) {
+          if (!overrideIneligible || !policy.allowManualOverride) {
+            // Named, with every reason, so the admin can fix the cause or knowingly override
+            // rather than being told only that something failed.
+            const detail = ineligible
+              .map((verdict) => `${verdict.name}: ${verdict.reasons.join("; ")}`)
+              .join(" | ");
+            return {
+              success: false,
+              error:
+                `${ineligible.length} student${ineligible.length === 1 ? " does" : "s do"} not meet ` +
+                `the promotion policy — ${detail}.` +
+                (policy.allowManualOverride ? " Override if you intend to promote them anyway." : ""),
+              ineligible,
+            };
+          }
+          overriddenNames = ineligible.map((verdict) => verdict.name);
+        }
+      }
+    }
+
+    const overrideNote = overriddenNames.length
+      ? ` [policy overridden for: ${overriddenNames.join(", ")}]`
+      : "";
+
     // Execute transitions in a transaction
     const result = await prisma.$transaction(async (tx) => {
       const transitionRecords = [];
@@ -559,6 +622,7 @@ export async function executeStudentTransitions(transitions: {
           where: {
             studentId,
             classTermId: fromClassTermId,
+            status: "ACTIVE",
           },
         });
 
@@ -566,26 +630,68 @@ export async function executeStudentTransitions(transitions: {
           throw new Error(`Student ${studentId} not found in source class`);
         }
 
-        // Check if student already exists in destination class term
-        const existingRecord = await tx.studentClassTerm.findFirst({
-          where: {
-            studentId,
-            classTermId: toClassTermId,
-          },
-        });
+        // Only a move needs a free destination. A withdrawal ends the enrolment where
+        // it stands, so there is nothing to collide with.
+        if (transitionType !== "WITHDRAWAL") {
+          const existingRecord = await tx.studentClassTerm.findFirst({
+            where: {
+              studentId,
+              classTermId: toClassTermId,
+            },
+          });
 
-        if (existingRecord) {
-          throw new Error(
-            `Student ${studentId} already exists in destination class`,
-          );
+          if (existingRecord) {
+            throw new Error(
+              `Student ${studentId} already exists in destination class`,
+            );
+          }
         }
 
-        // Create new student class term record
-        const newStudentClassTerm = await tx.studentClassTerm.create({
+        const completedStatus =
+          transitionType === "PROMOTION"
+            ? "COMPLETED"
+            : transitionType === "WITHDRAWAL"
+              ? "DROPPED"
+              : "TRANSFERRED";
+        const historyAction =
+          transitionType === "PROMOTION"
+            ? "PROMOTED"
+            : transitionType === "WITHDRAWAL"
+              ? "WITHDRAWN"
+              : "TRANSFERRED";
+
+        await tx.studentClassTerm.update({
+          where: { id: currentStudentClassTerm.id },
+          data: { status: completedStatus },
+        });
+
+        // A promotion or transfer moves the student into a new ACTIVE enrolment. A
+        // withdrawal does not: the student has left, so creating an ACTIVE row here would
+        // keep them on class lists and — the part that costs money — inside fee billing,
+        // which selects enrolments on status ACTIVE.
+        const isWithdrawal = transitionType === "WITHDRAWAL";
+
+        const newStudentClassTerm = isWithdrawal
+          ? null
+          : await tx.studentClassTerm.create({
+              data: {
+                studentId,
+                classTermId: toClassTermId,
+                termId: toClassTerm.termId,
+                status: "ACTIVE",
+              },
+            });
+
+        await tx.studentEnrollmentHistory.create({
           data: {
             studentId,
-            classTermId: toClassTermId,
-            termId: toClassTerm.termId, // Add required termId field
+            // A withdrawal is recorded against the class they left, not one they never joined.
+            classTermId: isWithdrawal ? fromClassTermId : toClassTermId,
+            termId: isWithdrawal ? currentStudentClassTerm.termId : toClassTerm.termId,
+            action: historyAction,
+            previousClassTermId: fromClassTermId,
+            reason: notes || `Student ${transitionType.toLowerCase()}`,
+            createdBy: userId,
           },
         });
 
@@ -597,7 +703,7 @@ export async function executeStudentTransitions(transitions: {
             toClassTermId,
             transitionType,
             transitionDate: new Date(),
-            notes: notes || "",
+            notes: `${notes || ""}${overrideNote}`.trim(),
             createdBy: userId,
           },
         });
@@ -605,7 +711,8 @@ export async function executeStudentTransitions(transitions: {
         transitionRecords.push({
           studentId,
           transitionId: transitionRecord.id,
-          newStudentClassTermId: newStudentClassTerm.id,
+          // Null for a withdrawal: there is no onward enrolment.
+          newStudentClassTermId: newStudentClassTerm?.id ?? null,
         });
       }
 
@@ -780,4 +887,199 @@ export async function getTransitionStatistics(termId: string) {
         error instanceof Error ? error.message : "An unexpected error occurred",
     };
   }
+}
+
+// ============================================
+// PROMOTION POLICY
+// ============================================
+
+/**
+ * The school's promotion policy, falling back to both rules off.
+ *
+ * Off is the right default: a school that has never configured this must keep behaving
+ * exactly as it did before the feature existed.
+ */
+export async function getTransitionPolicy(): Promise<{
+  success: boolean;
+  data?: PromotionPolicy;
+  error?: string;
+}> {
+  try {
+    const schoolId = await authorizeAndGetSchoolId();
+    if (!schoolId) return { success: true, data: DEFAULT_PROMOTION_POLICY };
+
+    const stored = await prisma.transitionPolicy.findUnique({ where: { schoolId } });
+    if (!stored) return { success: true, data: DEFAULT_PROMOTION_POLICY };
+
+    return {
+      success: true,
+      data: {
+        requireResultsPublished: stored.requireResultsPublished,
+        usePromotionCriteria: stored.usePromotionCriteria,
+        minAverage: stored.promotionMinAverage ? Number(stored.promotionMinAverage) : null,
+        minSubjectsPassed: stored.minSubjectsPassed,
+        evaluationScope: stored.evaluationScope,
+        requiredSubjectIds: Array.isArray(stored.requiredSubjectIds)
+          ? stored.requiredSubjectIds.map(String)
+          : [],
+        minCoreSubjectsPassed: stored.minCoreSubjectsPassed,
+        requireAllSubjectsEntered: stored.requireAllSubjectsEntered,
+        allowManualOverride: stored.allowManualOverride,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load the promotion policy",
+    };
+  }
+}
+
+export async function saveTransitionPolicy(input: {
+  requireResultsPublished: boolean;
+  usePromotionCriteria: boolean;
+  minAverage?: number | null;
+  minSubjectsPassed?: number | null;
+  evaluationScope?: "TERM" | "SESSION_AVERAGE";
+  requiredSubjectIds?: string[];
+  minCoreSubjectsPassed?: number | null;
+  requireAllSubjectsEntered?: boolean;
+  allowManualOverride?: boolean;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const schoolId = await authorizeAndGetSchoolId();
+    if (!schoolId) throw new Error("Select a school before setting a promotion policy");
+
+    const minAverage =
+      input.minAverage != null && Number.isFinite(input.minAverage) ? input.minAverage : null;
+    const minSubjectsPassed =
+      input.minSubjectsPassed != null && Number.isFinite(input.minSubjectsPassed)
+        ? Math.trunc(input.minSubjectsPassed)
+        : null;
+    const minCoreSubjectsPassed =
+      input.minCoreSubjectsPassed != null && Number.isFinite(input.minCoreSubjectsPassed)
+        ? Math.trunc(input.minCoreSubjectsPassed)
+        : null;
+    const requiredSubjectIds = Array.isArray(input.requiredSubjectIds)
+      ? [...new Set(input.requiredSubjectIds.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))]
+      : [];
+    const evaluationScope: PromotionEvaluationScope =
+      input.evaluationScope === "SESSION_AVERAGE" ? "SESSION_AVERAGE" : "TERM";
+
+    if (minAverage != null && (minAverage < 0 || minAverage > 100)) {
+      throw new Error("The minimum average must be between 0 and 100");
+    }
+    if (minSubjectsPassed != null && minSubjectsPassed < 0) {
+      throw new Error("The minimum number of subjects passed cannot be negative");
+    }
+    if (minCoreSubjectsPassed != null && minCoreSubjectsPassed < 0) {
+      throw new Error("The minimum number of core subjects passed cannot be negative");
+    }
+    if (minCoreSubjectsPassed != null && requiredSubjectIds.length === 0) {
+      throw new Error("Choose the required/core subjects before setting a core-subject pass rule");
+    }
+    // A bar with nothing set would silently pass everyone, which is not what switching it
+    // on is meant to mean.
+    if (
+      input.usePromotionCriteria &&
+      minAverage == null &&
+      minSubjectsPassed == null &&
+      minCoreSubjectsPassed == null &&
+      !input.requireAllSubjectsEntered
+    ) {
+      throw new Error(
+        "Set a minimum average, subjects passed, core subjects, or missing-subject rule before turning the criteria on",
+      );
+    }
+
+    const data = {
+      requireResultsPublished: input.requireResultsPublished,
+      usePromotionCriteria: input.usePromotionCriteria,
+      promotionMinAverage: minAverage,
+      minSubjectsPassed,
+      evaluationScope,
+      requiredSubjectIds,
+      minCoreSubjectsPassed,
+      requireAllSubjectsEntered: Boolean(input.requireAllSubjectsEntered),
+      allowManualOverride: input.allowManualOverride !== false,
+    };
+
+    await prisma.transitionPolicy.upsert({
+      where: { schoolId },
+      create: { schoolId, ...data },
+      update: data,
+    });
+
+    revalidatePath("/dashboard/admin/compiler/student-transitions");
+    revalidatePath("/dashboard/admin/school-settings");
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to save the promotion policy",
+    };
+  }
+}
+
+/**
+ * Result summaries for a set of students in one class term, in the shape the policy needs.
+ *
+ * Absent and exempt entries are excluded from the average, matching how the transition
+ * picker already reports performance — so the figure an admin sees on screen is the figure
+ * the rule is applied to.
+ */
+async function summariseResults(
+  classTermId: string,
+  termId: string,
+  studentIds: string[],
+  passMark: number,
+): Promise<StudentResultSummary[]> {
+  const rows = await prisma.studentClassTerm.findMany({
+    where: { classTermId, studentId: { in: studentIds } },
+    select: {
+      studentId: true,
+      student: { select: { user: { select: { firstName: true, lastName: true } } } },
+      assessments: {
+        where: { termId },
+        select: {
+          ca1: true,
+          ca2: true,
+          ca3: true,
+          exam: true,
+          isAbsent: true,
+          isExempt: true,
+          isPublished: true,
+        },
+      },
+    },
+  });
+
+  return rows.map((row) => {
+    let total = 0;
+    let counted = 0;
+    let passed = 0;
+    let hasUnpublished = false;
+
+    for (const assessment of row.assessments) {
+      // Publication is about the record existing for the term, so an absent or exempt entry
+      // still counts towards whether the term has been released.
+      if (!assessment.isPublished) hasUnpublished = true;
+      if (assessment.isAbsent || assessment.isExempt) continue;
+
+      const score =
+        (assessment.ca1 || 0) + (assessment.ca2 || 0) + (assessment.ca3 || 0) + (assessment.exam || 0);
+      total += score;
+      counted += 1;
+      if (score >= passMark) passed += 1;
+    }
+
+    return {
+      studentId: row.studentId,
+      name: `${row.student.user.firstName} ${row.student.user.lastName}`,
+      subjectCount: counted,
+      averageScore: counted > 0 ? total / counted : 0,
+      passedSubjects: passed,
+      hasUnpublishedResults: hasUnpublished,
+    };
+  });
 }

@@ -1,5 +1,6 @@
 "use client"
 
+import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
@@ -59,6 +60,28 @@ export function FinanceStaffForm({ officers }: { officers: Officer[] }) {
     })
   }
 
+  const officerColumns: DataTableColumn[] = [
+    { label: "Name" },
+    { label: "Email" },
+    { label: "Phone" },
+    { label: "Status" },
+    { label: "Action" },
+  ]
+
+  const officerRows: DataTableRow[] = officers.map((officer) => ({
+    id: officer.userId,
+    search: [officer.name, officer.email ?? "", officer.phone ?? ""].join(" "),
+    cells: [
+      <span className="font-medium">{officer.name}</span>,
+      officer.email ?? "-",
+      officer.phone ?? "-",
+      officer.isActive ? "Active" : "Revoked",
+      <Button variant="outline" size="sm" disabled={isPending} onClick={() => toggle(officer.userId, !officer.isActive)}>
+        {officer.isActive ? "Revoke Access" : "Restore Access"}
+      </Button>,
+    ],
+  }))
+
   return (
     <div className="space-y-6">
       <Card>
@@ -112,43 +135,15 @@ export function FinanceStaffForm({ officers }: { officers: Officer[] }) {
           <CardTitle>Current Finance Staff</CardTitle>
           <CardDescription>Revoking access keeps their name on past receipts and approvals.</CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4 font-medium">Name</th>
-                <th className="py-2 pr-4 font-medium">Email</th>
-                <th className="py-2 pr-4 font-medium">Phone</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {officers.map((officer) => (
-                <tr key={officer.userId} className="border-b last:border-0">
-                  <td className="py-3 pr-4 font-medium">{officer.name}</td>
-                  <td className="py-3 pr-4">{officer.email ?? "-"}</td>
-                  <td className="py-3 pr-4">{officer.phone ?? "-"}</td>
-                  <td className="py-3 pr-4">{officer.isActive ? "Active" : "Revoked"}</td>
-                  <td className="py-3 pr-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isPending}
-                      onClick={() => toggle(officer.userId, !officer.isActive)}
-                    >
-                      {officer.isActive ? "Revoke Access" : "Restore Access"}
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {officers.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No finance staff assigned. Until someone is, finance stays with the admin.
-            </p>
-          )}
+        <CardContent>
+          <DataTable
+            columns={officerColumns}
+            rows={officerRows}
+            pageSize={10}
+            unit="officers"
+            searchPlaceholder="Search name, email or phone"
+            emptyMessage="No finance staff assigned. Until someone is, finance stays with the admin."
+          />
         </CardContent>
       </Card>
     </div>

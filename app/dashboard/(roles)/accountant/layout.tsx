@@ -1,6 +1,17 @@
 import type React from "react"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { getEffectivePermissionsForCurrentUser } from "@/lib/authz"
+
+const ACCOUNTANT_AREA_PERMISSIONS = [
+  "finance.setup",
+  "finance.collect_payments",
+  "finance.view_reports",
+  "expenditure.manage",
+  "expenditure.approve",
+  "payroll.manage",
+  "payroll.pay",
+] as const
 
 // Guards the whole /dashboard/accountant subtree. The shared dashboard layout only checks
 // that a session exists, so without this any signed-in user could reach student balances
@@ -19,7 +30,8 @@ export default async function AccountantSectionLayout({ children }: { children: 
     redirect("/auth/login")
   }
 
-  if (session.user.role !== "ACCOUNTANT") {
+  const permissions = await getEffectivePermissionsForCurrentUser()
+  if (!ACCOUNTANT_AREA_PERMISSIONS.some((permission) => permissions.includes(permission))) {
     redirect("/dashboard/access-error")
   }
 

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "../lib/prisma-client";
 
 type CheckResult = {
   name: string;
@@ -51,7 +51,7 @@ async function checkRoute(name: string, path: string, expectedStatuses: number[]
 }
 
 async function checkDatabase() {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   try {
     await prisma.$queryRaw`SELECT 1`;
     const [schools, teachers, students, classes, subjects, assessments] =

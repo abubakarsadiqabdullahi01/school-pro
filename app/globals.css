@@ -44,6 +44,16 @@
 }
 
 @media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  @page finance-landscape {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
   body {
     background: white;
   }
@@ -56,6 +66,53 @@
 
   main {
     padding: 0 !important;
+  }
+
+  body:has([data-print-document]) {
+    background: white !important;
+  }
+
+  body:has([data-print-document]) * {
+    visibility: hidden;
+  }
+
+  body:has([data-print-document]) [data-print-document],
+  body:has([data-print-document]) [data-print-document] * {
+    visibility: visible;
+  }
+
+  body:has([data-print-document]) [data-print-page] {
+    display: block !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  body:has([data-print-document]) [data-print-document] {
+    break-inside: avoid;
+    color: black !important;
+    margin: 0 auto !important;
+    max-width: 190mm !important;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100% !important;
+  }
+
+  body:has([data-print-landscape]) [data-print-landscape] {
+    page: finance-landscape;
+  }
+
+  body:has([data-print-report]) [data-print-document] {
+    max-width: none !important;
+    position: static !important;
+  }
+
+  body:has([data-print-report]) [data-print-document] .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  body:has([data-print-report]) [data-print-document] table {
+    width: 100% !important;
   }
 }
 

@@ -1,6 +1,9 @@
 import { getExpenditureSetupData, getSessionExpenditureReport } from "@/app/actions/expenditure"
+import { BackButton } from "@/components/back-button"
+import { BrandedPrintHeader, BrandedReportExport } from "@/components/reports/branded"
+import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
 import { PeriodFilter } from "@/components/reports/period-filter"
-import { ReportExport, type ExportTable } from "@/components/reports/report-export"
+import type { ExportTable } from "@/components/reports/report-export"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
 
@@ -59,14 +62,44 @@ export async function SessionExpenditureReportView({
     ],
   }
 
+  const termColumns: DataTableColumn[] = [
+    { label: "Term" },
+    { label: "Paid", align: "right" },
+    { label: "Committed", align: "right" },
+    { label: "Awaiting Approval", align: "right" },
+    { label: "Transactions", align: "right" },
+  ]
+
+  const termRows: DataTableRow[] = data.terms.map((row) => ({
+    id: row.termId,
+    search: row.termName,
+    cells: [
+      <span className="font-medium">{row.termName}</span>,
+      formatNaira(row.paid),
+      formatNaira(row.committed),
+      formatNaira(row.pending),
+      row.count,
+    ],
+  }))
+
+  const termFooter = [
+    "Session total",
+    formatNaira(totals.paid),
+    formatNaira(totals.committed),
+    formatNaira(totals.pending),
+    totals.count,
+  ]
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+      <BrandedPrintHeader title="Session Expenditure" reference={scope} />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+          <BackButton fallbackHref={basePath} />
           <h1 className="text-3xl font-bold tracking-tight">Session Expenditure</h1>
           <p className="text-muted-foreground">Term by term across the whole session, with the category breakdown.</p>
         </div>
-        <ReportExport title={`Session Expenditure ${scope}`} subtitle={scope} table={exportTable} />
+        <BrandedReportExport title={`Session Expenditure ${scope}`} subtitle={scope} table={exportTable} />
       </div>
 
       {setup.success && (
@@ -88,41 +121,15 @@ export async function SessionExpenditureReportView({
           <CardTitle>Term by Term</CardTitle>
           <CardDescription>{scope}</CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4 font-medium">Term</th>
-                <th className="py-2 pr-4 font-medium">Paid</th>
-                <th className="py-2 pr-4 font-medium">Committed</th>
-                <th className="py-2 pr-4 font-medium">Awaiting Approval</th>
-                <th className="py-2 pr-4 font-medium">Transactions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.terms.map((row) => (
-                <tr key={row.termId} className="border-b last:border-0">
-                  <td className="py-3 pr-4 font-medium">{row.termName}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.paid)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.committed)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.pending)}</td>
-                  <td className="py-3 pr-4">{row.count}</td>
-                </tr>
-              ))}
-              {data.terms.length > 0 && (
-                <tr className="border-t-2 font-semibold">
-                  <td className="py-3 pr-4">Session total</td>
-                  <td className="py-3 pr-4">{formatNaira(totals.paid)}</td>
-                  <td className="py-3 pr-4">{formatNaira(totals.committed)}</td>
-                  <td className="py-3 pr-4">{formatNaira(totals.pending)}</td>
-                  <td className="py-3 pr-4">{totals.count}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          {data.terms.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">No terms found for this session.</p>
-          )}
+        <CardContent>
+          <DataTable
+            columns={termColumns}
+            rows={termRows}
+            unit="terms"
+            searchPlaceholder="Search by term"
+            emptyMessage="No terms found for this session."
+            footer={termFooter}
+          />
         </CardContent>
       </Card>
 
@@ -152,34 +159,33 @@ function BreakdownTable({
   description: string
   rows: Array<{ id: string; name: string; amount: string; count: number }>
 }) {
+  const columns: DataTableColumn[] = [
+    { label: "Name" },
+    { label: "Paid", align: "right" },
+    { label: "Count", align: "right" },
+  ]
+
+  const tableRows: DataTableRow[] = rows.map((row) => ({
+    id: row.id,
+    search: row.name,
+    cells: [<span className="font-medium">{row.name}</span>, formatNaira(row.amount), row.count],
+  }))
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-left">
-              <th className="py-2 pr-4 font-medium">Name</th>
-              <th className="py-2 pr-4 font-medium">Paid</th>
-              <th className="py-2 pr-4 font-medium">Count</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className="border-b last:border-0">
-                <td className="py-3 pr-4 font-medium">{row.name}</td>
-                <td className="py-3 pr-4">{formatNaira(row.amount)}</td>
-                <td className="py-3 pr-4">{row.count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && (
-          <p className="py-6 text-center text-sm text-muted-foreground">Nothing paid out this session.</p>
-        )}
+      <CardContent>
+        <DataTable
+          columns={columns}
+          rows={tableRows}
+          pageSize={8}
+          unit="entries"
+          searchPlaceholder="Search by name"
+          emptyMessage="Nothing paid out this session."
+        />
       </CardContent>
     </Card>
   )

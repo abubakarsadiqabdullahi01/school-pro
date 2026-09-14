@@ -1,3 +1,4 @@
+import { BackButton } from "@/components/back-button"
 import { getFinanceOfficers } from "@/app/actions/finance"
 import { FinanceStaffForm } from "@/components/finance/finance-staff-form"
 
@@ -13,6 +14,7 @@ export default async function FinanceStaffPage() {
   return (
     <div className="space-y-6">
       <div>
+        <BackButton fallbackHref="/dashboard/admin/finance" />
         <h1 className="text-3xl font-bold tracking-tight">Finance Staff</h1>
         <p className="text-muted-foreground">Assign an accountant to run fee collection on the school&apos;s behalf.</p>
       </div>

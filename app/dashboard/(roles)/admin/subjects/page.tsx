@@ -1,39 +1,15 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { AllSubjectsTable } from "@/components/subject-management/admin-all-subjects"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminSubjectsPage() {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  })
-
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error")
-  }
+  const { school, schoolId } = await requireAdminSchool("academics.manage")
 
   // Fetch all subjects for the admin's school with detailed relations
   const subjects = await prisma.subject.findMany({
     where: {
-      schoolId: admin.school.id,
+      schoolId,
     },
     include: {
       classSubjects: {
@@ -78,9 +54,9 @@ export default async function AdminSubjectsPage() {
     id: subject.id,
     name: subject.name,
     code: subject.code,
-    schoolId: admin.school!.id,
-    schoolName: admin.school!.name,
-    schoolCode: admin.school!.code,
+    schoolId,
+    schoolName: school.name,
+    schoolCode: school.code,
     classes: subject.classSubjects.map(cs => ({
       id: cs.id,
       className: cs.classTerm.class.name,
@@ -100,7 +76,7 @@ export default async function AdminSubjectsPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Subject Management</h2>
           <p className="text-muted-foreground">
-            Manage all subjects for {admin.school.name} ({admin.school.code})
+            Manage all subjects for {school.name} ({school.code})
           </p>
         </div>
 

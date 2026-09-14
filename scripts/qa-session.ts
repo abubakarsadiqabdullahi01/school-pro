@@ -8,10 +8,11 @@
  *
  * Prints the Cookie header value to stdout. Dev only.
  */
-import { PrismaClient, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { encode } from "@auth/core/jwt";
+import { createPrismaClient } from "../lib/prisma-client";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const COOKIE_NAME = "authjs.session-token";
 

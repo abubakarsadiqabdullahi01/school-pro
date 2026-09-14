@@ -22,9 +22,9 @@ import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { createGzip } from "node:zlib";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "../lib/prisma-client";
 
-const prisma = new PrismaClient({ log: ["error"] });
+const prisma = createPrismaClient({ log: ["error"] });
 
 const BACKUP_DIR = process.env.BACKUP_DIR ?? path.join(process.cwd(), "backups");
 const RETENTION_DAYS = Number(process.env.BACKUP_RETENTION_DAYS ?? 14);

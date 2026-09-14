@@ -11,6 +11,7 @@ import { LoadingOverlay } from "@/components/dashboard/loading-overlay"
 import { useLoading } from "@/contexts/loading-context"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { Role } from "@prisma/client"
+import type { PermissionKey } from "@/lib/permissions"
 
 // Create a QueryClient instance
 const queryClient = new QueryClient()
@@ -37,6 +38,7 @@ interface DashboardLayoutClientProps {
   schoolOptions?: SchoolOption[]
   /** Super admin only — the school currently in focus, or null for all schools. */
   activeSchool?: SchoolOption | null
+  permissions?: PermissionKey[]
 }
 
 export function DashboardLayoutClient({
@@ -47,6 +49,7 @@ export function DashboardLayoutClient({
   schoolInfo,
   schoolOptions = [],
   activeSchool = null,
+  permissions = [],
 }: DashboardLayoutClientProps) {
   const pathname = usePathname()
   const { setLoading } = useLoading()
@@ -61,7 +64,7 @@ export function DashboardLayoutClient({
       <SidebarProvider>
         <NavigationProgress />
         <LoadingOverlay />
-        <AppSidebar userRole={userRole} schoolInfo={schoolInfo} />
+        <AppSidebar userRole={userRole} schoolInfo={schoolInfo} permissions={permissions} />
         <SidebarInset>
           <div className="flex flex-col min-h-screen">
             <DashboardHeader

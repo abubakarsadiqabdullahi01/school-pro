@@ -1,39 +1,15 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { AllClassesTable } from "@/components/class-management/admin-all-classes"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminClassesPage() {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  })
-
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error")
-  }
+  const { school, schoolId } = await requireAdminSchool("academics.manage")
 
   // Fetch all classes for the admin's school along with terms
   const classes = await prisma.class.findMany({
     where: {
-      schoolId: admin.school.id,
+      schoolId,
     },
     include: {
       classTerms: {
@@ -71,9 +47,9 @@ export default async function AdminClassesPage() {
     id: cls.id,
     name: cls.name,
     level: cls.level,
-    schoolId: admin.school!.id,
-    schoolName: admin.school!.name,
-    schoolCode: admin.school!.code,
+    schoolId,
+    schoolName: school.name,
+    schoolCode: school.code,
     subjectsCount: cls.subjects.length,
     termsCount: cls.classTerms.length,
     terms: cls.classTerms.length > 0 
@@ -91,7 +67,7 @@ export default async function AdminClassesPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Classes</h2>
           <p className="text-muted-foreground">
-            Manage classes for {admin.school.name} ({admin.school.code})
+            Manage classes for {school.name} ({school.code})
           </p>
         </div>
 

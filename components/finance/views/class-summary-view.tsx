@@ -1,5 +1,8 @@
 import { getClassPaymentSummary, getFinanceSetupData } from "@/app/actions/finance"
-import { ReportExport, type ExportTable } from "@/components/reports/report-export"
+import { BackButton } from "@/components/back-button"
+import { BrandedPrintHeader, BrandedReportExport } from "@/components/reports/branded"
+import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
+import type { ExportTable } from "@/components/reports/report-export"
 import { PeriodFilter } from "@/components/reports/period-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
@@ -43,17 +46,49 @@ export async function ClassSummaryView({ basePath, termId }: { basePath: string;
     ]),
   }
 
+  const columns: DataTableColumn[] = [
+    { label: "Class" },
+    { label: "Students", align: "right" },
+    { label: "Expected", align: "right" },
+    { label: "Paid", align: "right" },
+    { label: "Outstanding", align: "right" },
+    { label: "Status Count" },
+    { label: "Collection", align: "right" },
+  ]
+
+  const rows: DataTableRow[] = summary.data.map((row) => ({
+    id: row.classTermId,
+    search: `${row.className} ${row.termName}`,
+    cells: [
+      <>
+        <div className="font-medium">{row.className}</div>
+        <div className="text-muted-foreground">{row.termName}</div>
+      </>,
+      row.students,
+      formatNaira(row.expected),
+      formatNaira(row.paid),
+      formatNaira(row.outstanding),
+      `${row.paidCount} paid · ${row.partialCount} partial · ${row.unpaidCount} unpaid`,
+      <span className="font-medium">{row.collectionRate}%</span>,
+    ],
+  }))
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+      <BrandedPrintHeader title="Class Payment Summary" reference={termName} />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+          <BackButton fallbackHref={basePath} />
           <h1 className="text-3xl font-bold tracking-tight">Class Payment Summary</h1>
-          <p className="text-muted-foreground">Expected, paid, outstanding, and collection percentage by class.</p>
+          <p className="text-muted-foreground">
+            Expected, paid, outstanding, and collection percentage by class for school finance review.
+          </p>
         </div>
-        <ReportExport
+        <BrandedReportExport
           title={termName ? `Class Payment Summary ${termName}` : "Class Payment Summary"}
           subtitle={termName ? `Term: ${termName}` : "All terms"}
           table={exportTable}
+          orientation="landscape"
         />
       </div>
       {setup.success && (
@@ -62,41 +97,19 @@ export async function ClassSummaryView({ basePath, termId }: { basePath: string;
       <Card>
         <CardHeader>
           <CardTitle>Class Summary</CardTitle>
-          <CardDescription>Aggregated from fee schedules and student charges.</CardDescription>
+          <CardDescription>
+            Aggregated from fee schedules and student charges. Search by class or term; the printed copy carries every
+            matching row.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4 font-medium">Class</th>
-                <th className="py-2 pr-4 font-medium">Students</th>
-                <th className="py-2 pr-4 font-medium">Expected</th>
-                <th className="py-2 pr-4 font-medium">Paid</th>
-                <th className="py-2 pr-4 font-medium">Outstanding</th>
-                <th className="py-2 pr-4 font-medium">Status Count</th>
-                <th className="py-2 pr-4 font-medium">Collection</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.data.map((row) => (
-                <tr key={row.classTermId} className="border-b last:border-0">
-                  <td className="py-3 pr-4">
-                    <div className="font-medium">{row.className}</div>
-                    <div className="text-muted-foreground">{row.termName}</div>
-                  </td>
-                  <td className="py-3 pr-4">{row.students}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.expected)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.paid)}</td>
-                  <td className="py-3 pr-4">{formatNaira(row.outstanding)}</td>
-                  <td className="py-3 pr-4">
-                    {row.paidCount} paid · {row.partialCount} partial · {row.unpaidCount} unpaid
-                  </td>
-                  <td className="py-3 pr-4 font-medium">{row.collectionRate}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {summary.data.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No class charges found.</p>}
+        <CardContent>
+          <DataTable
+            columns={columns}
+            rows={rows}
+            unit="classes"
+            searchPlaceholder="Search by class or term"
+            emptyMessage="No class charges found."
+          />
         </CardContent>
       </Card>
     </div>

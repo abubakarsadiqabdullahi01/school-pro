@@ -11,9 +11,9 @@
  * resolved first. Anything reported as BLOCKING here must be cleared before migrating.
  */
 
-import { PrismaClient } from "@prisma/client"
+import { createPrismaClient } from "../lib/prisma-client"
 
-const prisma = new PrismaClient()
+const prisma = createPrismaClient()
 
 type Row = Record<string, unknown>
 

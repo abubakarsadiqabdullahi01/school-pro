@@ -1,6 +1,6 @@
 "use server"
 
-import { auth } from "@/auth"
+import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 
@@ -18,7 +18,7 @@ export async function createSchool(data: {
   admissionSequenceStart?: number
 }) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -113,7 +113,7 @@ export async function updateSchool(id: string, data: {
   admissionSequenceStart?: number
 }) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -188,7 +188,7 @@ export async function updateSchool(id: string, data: {
 // Toggle school status
 export async function toggleSchoolStatus(id: string) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -227,7 +227,7 @@ export async function toggleSchoolStatus(id: string) {
 // Get school details
 export async function getSchool(id: string) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -285,7 +285,7 @@ export async function getSchool(id: string) {
 // Delete school (soft delete by deactivating)
 export async function deleteSchool(id: string) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }

@@ -1,12 +1,22 @@
 import { notFound } from "next/navigation"
+import Link from "next/link"
 
 import { getStudentStatement } from "@/app/actions/finance"
-import { DocumentDownload, type PrintableDocument } from "@/components/reports/document-download"
+import { BackButton } from "@/components/back-button"
+import { BrandedDocumentDownload, BrandedPrintHeader } from "@/components/reports/branded"
+import type { PrintableDocument } from "@/components/reports/document-download"
 import { PrintButton } from "@/components/reports/print-button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain } from "@/lib/money"
 
-export async function StudentStatementView({ studentId }: { studentId: string }) {
+export async function StudentStatementView({
+  basePath,
+  studentId,
+}: {
+  /** Which finance tree this is rendered under, so receipt links stay inside it. */
+  basePath: string
+  studentId: string
+}) {
   const statement = await getStudentStatement(studentId)
 
   if (!statement.success) notFound()
@@ -22,6 +32,8 @@ export async function StudentStatementView({ studentId }: { studentId: string })
     fields: [
       { label: "Student", value: student.name },
       { label: "Admission No", value: student.admissionNo },
+      { label: "Class / Section", value: student.currentClass ?? "-" },
+      { label: "Term", value: student.currentTerm ?? "-" },
       { label: "Total Charged", value: formatNairaPlain(totals.charged) },
       { label: "Total Paid", value: formatNairaPlain(totals.paid) },
     ],
@@ -43,15 +55,22 @@ export async function StudentStatementView({ studentId }: { studentId: string })
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-6" data-print-document data-print-report>
+      <BrandedPrintHeader
+        title="Statement of Account"
+        reference={`${student.name} · ${student.admissionNo}`}
+      />
+      <div className="flex items-start justify-between gap-4 print:hidden">
         <div>
+          <BackButton fallbackHref={basePath} />
           <h1 className="text-3xl font-bold tracking-tight">Statement of Account</h1>
-          <p className="text-muted-foreground">{student.name} · {student.admissionNo}</p>
+          <p className="text-muted-foreground">
+            {student.name} · {student.admissionNo} · {student.currentClass ?? "No class"} · {student.currentTerm ?? "No term"}
+          </p>
         </div>
         <div className="flex gap-2 print:hidden">
           <PrintButton label="Print Statement" />
-          <DocumentDownload document={document} label="Download PDF" />
+          <BrandedDocumentDownload document={document} label="Download PDF" />
         </div>
       </div>
 
@@ -61,6 +80,20 @@ export async function StudentStatementView({ studentId }: { studentId: string })
         <Summary label="Adjustments" value={adjustments} />
         <Summary label="Balance" value={totals.balance} />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Student Details</CardTitle>
+          <CardDescription>Class, section, and term context for this statement.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-3">
+          <Detail label="Student" value={student.name} />
+          <Detail label="Admission No" value={student.admissionNo} />
+          <Detail label="Class / Section" value={student.currentClass ?? "-"} />
+          <Detail label="Term" value={student.currentTerm ?? "-"} />
+          <Detail label="School" value={`${school.name} (${school.code})`} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -116,7 +149,14 @@ export async function StudentStatementView({ studentId }: { studentId: string })
               {payments.map((payment) => (
                 <tr key={payment.id} className="border-b last:border-0">
                   <td className="py-3 pr-4">{new Date(payment.paymentDate).toLocaleDateString()}</td>
-                  <td className="py-3 pr-4 font-medium">{payment.receiptNo}</td>
+                  <td className="py-3 pr-4 font-medium">
+                    <Link
+                      className="text-primary underline-offset-4 hover:underline print:text-inherit"
+                      href={`${basePath}/receipts/${payment.id}`}
+                    >
+                      {payment.receiptNo}
+                    </Link>
+                  </td>
                   <td className="py-3 pr-4">{payment.method.replace("_", " ")}</td>
                   <td className="py-3 pr-4">{payment.status}</td>
                   <td className="py-3 pr-4">{formatNaira(payment.amount)}</td>
@@ -129,6 +169,15 @@ export async function StudentStatementView({ studentId }: { studentId: string })
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="font-medium">{value}</p>
     </div>
   )
 }

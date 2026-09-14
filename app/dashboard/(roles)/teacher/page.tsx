@@ -1,20 +1,16 @@
-import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { TeacherDashboardOverview } from "@/components/teacher/teacher-dashboard-overview";
+import { requireTeacher } from "@/lib/authz";
 
 export default async function TeacherDashboardPage() {
-  const session = await auth();
-
-  // Check if user is teacher
-  if (!session?.user || session.user.role !== "TEACHER") {
-    redirect("/dashboard");
-  }
+  const actor = await requireTeacher().catch(() => null);
+  if (!actor) redirect("/dashboard");
 
   // Get the teacher's information
   const teacher = await prisma.teacher.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: actor.userId },
     include: {
       school: {
         select: {

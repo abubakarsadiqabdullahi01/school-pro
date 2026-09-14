@@ -1,34 +1,9 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
-import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { ParentCreateForm } from "@/components/parent-managements/parent-create-form"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminCreateParentPage() {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  })
-
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error")
-  }
+  const { school } = await requireAdminSchool("parents.manage")
 
   return (
     <PageTransition>
@@ -36,11 +11,11 @@ export default async function AdminCreateParentPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Create New Parent</h2>
           <p className="text-muted-foreground">
-            Add a new parent to {admin.school.name} ({admin.school.code})
+            Add a new parent to {school.name} ({school.code})
           </p>
         </div>
 
-        <ParentCreateForm schoolId={admin.school.id} schoolName={admin.school.name} />
+        <ParentCreateForm schoolId={school.id} schoolName={school.name} />
       </div>
     </PageTransition>
   )

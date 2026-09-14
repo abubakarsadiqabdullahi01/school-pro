@@ -1,33 +1,30 @@
 // app/api/s3/delete/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { S3 } from "@/lib/S3Client";
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { auth } from "@/auth";
+import { deleteStoredFile } from "@/lib/local-storage";
+
+import { assertSchoolAccess, AuthorizationError, requireRole } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // A super admin spans every school; an admin is confined to their own by the
+    // assertSchoolAccess below. Both arrive through the one authorization boundary, so a
+    // deactivated account or a revoked session is refused before anything is deleted.
+    const actor = await requireRole("SUPER_ADMIN", "ADMIN");
 
     const { schoolId } = await request.json();
     if (!schoolId) return NextResponse.json({ error: "Missing school ID" }, { status: 400 });
 
-    const admin = await prisma.admin.findUnique({ where: { userId: session.user.id } });
-    if (!admin?.schoolId || admin.schoolId !== schoolId) {
-      return NextResponse.json({ error: "You can only manage logos for your assigned school" }, { status: 403 });
-    }
+    // Scope is checked against the school record itself, not against the id in the body.
+    const school = await prisma.school.findUnique({ where: { id: schoolId }, select: { id: true, logoUrl: true } });
+    if (!school) return NextResponse.json({ error: "School not found" }, { status: 404 });
+    assertSchoolAccess(actor, school.id);
 
-    const school = await prisma.school.findUnique({ where: { id: schoolId }, select: { logoUrl: true } });
-    await prisma.school.update({ where: { id: schoolId }, data: { logoUrl: null } });
+    await prisma.school.update({ where: { id: school.id }, data: { logoUrl: null } });
 
-    if (school?.logoUrl) {
+    if (school.logoUrl) {
       try {
-        const oldUrl = new URL(school.logoUrl);
-        const key = oldUrl.pathname.substring(1);
-        await S3.send(new DeleteObjectCommand({ Bucket: process.env.NEXT_PUBLIC_S3_BUCKET_IMAGES!, Key: key }));
+        await deleteStoredFile(school.logoUrl);
       } catch (err) {
         console.error("Failed to delete logo from S3:", err);
       }
@@ -35,6 +32,9 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true, message: "Logo removed successfully" });
   } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     console.error("Logo deletion error:", error);
     return NextResponse.json({ error: "Failed to remove logo" }, { status: 500 });
   }

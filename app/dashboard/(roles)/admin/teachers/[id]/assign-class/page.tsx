@@ -1,40 +1,15 @@
-import { auth } from "@/auth";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { AssignClassesForm } from "@/components/teacher-management/assign-classes-form";
+import { requireAdminSchool } from "@/lib/admin-page-context";
 
 export default async function AdminAssignClassesPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const session = await auth();
-
-  // Check if user is admin
-  if (
-    !session?.user ||
-    (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-  ) {
-    redirect("/dashboard");
-  }
-
-  // Get the admin's assigned school
-  let schoolId: string | undefined;
-
-  if (session.user.role === "ADMIN") {
-    const admin = await prisma.admin.findUnique({
-      where: { userId: session.user.id },
-      select: { schoolId: true },
-    });
-
-    schoolId = admin?.schoolId ?? undefined;
-
-    if (!schoolId) {
-      redirect("/dashboard/access-error");
-    }
-  }
+  const { schoolId } = await requireAdminSchool("teachers.manage");
 
   // Ensure params is properly awaited
   const id = (await params)?.id;
@@ -69,7 +44,7 @@ export default async function AdminAssignClassesPage({
     notFound();
   }
 
-  if (session.user.role === "ADMIN" && teacher.school.id !== schoolId) {
+  if (teacher.school.id !== schoolId) {
     notFound();
   }
 

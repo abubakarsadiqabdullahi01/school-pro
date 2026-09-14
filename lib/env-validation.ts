@@ -1,10 +1,8 @@
 // lib/env-validation.ts
+import path from 'node:path';
+
 export function validateEnv() {
   const requiredEnvVars = [
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_ENDPOINT_URL_S3',
-    'NEXT_PUBLIC_S3_BUCKET_IMAGES',
     'DATABASE_URL',
     'NEXTAUTH_SECRET',
     'NEXTAUTH_URL'
@@ -31,6 +29,18 @@ export function validateEnvForProduction() {
     
     if (!process.env.NEXTAUTH_SECRET || process.env.NEXTAUTH_SECRET.length < 32) {
       throw new Error('NEXTAUTH_SECRET must be at least 32 characters long in production');
+    }
+
+    // Uploads live on disk now (lib/local-storage.ts), outside the web root.
+    // That module already refuses to run without an absolute UPLOAD_DIR, but it
+    // only finds out when someone uploads a file; checking here means a bad
+    // deploy shows up on the first page load instead of weeks later.
+    const uploadDir = process.env.UPLOAD_DIR;
+    if (!uploadDir) {
+      throw new Error('UPLOAD_DIR is required in production — an absolute path outside the web root');
+    }
+    if (!path.isAbsolute(uploadDir)) {
+      throw new Error('UPLOAD_DIR must be an absolute path');
     }
   }
 }

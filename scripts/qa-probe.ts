@@ -1,8 +1,8 @@
 // Read-only inventory of the target database.
 // Run:  npx tsx scripts/qa-probe.ts
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "../lib/prisma-client";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 (async () => {
   const [target] = await prisma.$queryRawUnsafe<any[]>(

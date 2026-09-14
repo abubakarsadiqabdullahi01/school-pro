@@ -1,41 +1,17 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { ClassTermsTable } from "@/components/class-term-management/class-terms-table"
+import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminClassTermsPage() {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard")
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  })
-
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error")
-  }
+  const { schoolId } = await requireAdminSchool("academics.manage")
 
   // Get current terms for the school
   const currentTerms = await prisma.term.findMany({
     where: {
       isCurrent: true,
       session: {
-        schoolId: admin.schoolId!,
+        schoolId,
       },
     },
     include: {
@@ -52,7 +28,7 @@ export default async function AdminClassTermsPage() {
   // Get all classes for the school
   const classes = await prisma.class.findMany({
     where: {
-      schoolId: admin.schoolId!,
+      schoolId,
     },
     orderBy: {
       name: "asc",

@@ -3,7 +3,7 @@ import { TeacherCreateForm } from "@/components/teacher-management/teacher-creat
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminCreateTeacherPage() {
-  const { school, schoolId } = await requireAdminSchool()
+  const { school, schoolId } = await requireAdminSchool("teachers.manage")
 
   return (
     <PageTransition>

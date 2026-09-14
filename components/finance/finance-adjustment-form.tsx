@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useCallback, useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import {
@@ -9,6 +9,7 @@ import {
   getStudentStatement,
   searchFinanceStudents,
 } from "@/app/actions/finance"
+import { StudentSearchResults, type FinanceStudentSearchRow } from "@/components/finance/student-search-results"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -19,13 +20,7 @@ import { formatNaira } from "@/lib/money"
 
 type Mode = "discount" | "exemption"
 
-type StudentSearchRow = {
-  id: string
-  admissionNo: string
-  name: string
-  currentClass: string | null
-  outstanding: string
-}
+type StudentSearchRow = FinanceStudentSearchRow
 
 type Charge = {
   id: string
@@ -49,13 +44,21 @@ export function FinanceAdjustmentForm({ mode }: { mode: Mode }) {
   const title = mode === "discount" ? "Apply Discount" : "Apply Exemption"
   const action = mode === "discount" ? applyChargeDiscount : applyChargeExemption
 
-  function search() {
+  const search = useCallback(() => {
     startTransition(async () => {
       const result = await searchFinanceStudents(query)
       if (result.success) setStudents(result.data)
       else toast.error("Search failed", { description: result.error })
     })
-  }
+  }, [query])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      search()
+    }, 300)
+
+    return () => window.clearTimeout(handle)
+  }, [query, search])
 
   function selectStudent(nextStudent: StudentSearchRow) {
     startTransition(async () => {
@@ -103,23 +106,9 @@ export function FinanceAdjustmentForm({ mode }: { mode: Mode }) {
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Student name or admission no" />
-            <Button type="button" onClick={search} disabled={isPending}>Search</Button>
           </div>
-          <div className="space-y-2">
-            {students.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => selectStudent(row)}
-                className="w-full rounded-md border p-3 text-left hover:bg-muted"
-              >
-                <div className="font-medium">{row.name}</div>
-                <div className="text-sm text-muted-foreground">
-                  {row.admissionNo} · {row.currentClass ?? "No class"} · Balance {formatNaira(row.outstanding)}
-                </div>
-              </button>
-            ))}
-          </div>
+          <p className="text-xs text-muted-foreground">Results update as you type and are paginated to keep the form steady.</p>
+          <StudentSearchResults students={students} onSelect={selectStudent} />
         </CardContent>
       </Card>
 

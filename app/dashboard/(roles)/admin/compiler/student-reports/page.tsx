@@ -1,21 +1,19 @@
-import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { StudentReportsOverview } from "@/components/student-reports/StudentReportsOverview"
 import type { ClassLevel } from "@prisma/client"
+import { requirePermission } from "@/lib/authz"
 
 export default async function AdminStudentReportsPage() {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
+  const actor = await requirePermission("compiler.review_results").catch(() => null)
+  if (!actor?.schoolId) {
     redirect("/dashboard")
   }
 
   // Get the admin's assigned school
   const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: actor.userId },
     include: {
       school: {
         select: {
@@ -31,20 +29,23 @@ export default async function AdminStudentReportsPage() {
     },
   })
 
-  if (!admin || !admin.school) {
+  const school =
+    admin?.school ??
+    (await prisma.school.findUnique({
+      where: { id: actor.schoolId },
+      select: { id: true, name: true, code: true, logoUrl: true, address: true, phone: true, email: true },
+    }))
+
+  if (!school) {
     redirect("/dashboard/access-error")
   }
 
   // Get current term
-  if (!admin.schoolId) {
-    throw new Error("Admin does not have a valid schoolId.")
-  }
-
   const currentTerm = await prisma.term.findFirst({
     where: {
       isCurrent: true,
       session: {
-        schoolId: admin.schoolId,
+        schoolId: actor.schoolId,
       },
     },
     include: {
@@ -63,7 +64,7 @@ export default async function AdminStudentReportsPage() {
   const terms = await prisma.term.findMany({
     where: {
       session: {
-        schoolId: admin.schoolId,
+        schoolId: actor.schoolId,
       },
     },
     include: {
@@ -88,18 +89,18 @@ export default async function AdminStudentReportsPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Student Report Cards</h2>
           <p className="text-muted-foreground">
-            Generate and manage individual student report cards for {admin.school.name} ({admin.school.code})
+            Generate and manage individual student report cards for {school.name} ({school.code})
           </p>
         </div>
 
         <StudentReportsOverview
-          schoolId={admin.schoolId}
-          schoolName={admin.school.name}
-          schoolCode={admin.school.code}
-          schoolAddress={admin.school.address}
-          schoolPhone={admin.school.phone}
-          schoolEmail={admin.school.email}
-          schoolLogo={admin.school.logoUrl}
+          schoolId={actor.schoolId}
+          schoolName={school.name}
+          schoolCode={school.code}
+          schoolAddress={school.address}
+          schoolPhone={school.phone}
+          schoolEmail={school.email}
+          schoolLogo={school.logoUrl}
           terms={terms}
           currentTermId={currentTerm?.id}
           classLevels={classLevels}

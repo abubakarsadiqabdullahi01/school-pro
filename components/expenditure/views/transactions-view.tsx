@@ -7,7 +7,10 @@ import {
 } from "@/app/actions/expenditure"
 import { ExpenditureFilter, type ExpenditureFilterValues } from "@/components/expenditure/expenditure-filter"
 import { ExpenseStatusBadge, expenseStatusLabel } from "@/components/expenditure/expense-status-badge"
-import { ReportExport, type ExportTable } from "@/components/reports/report-export"
+import { BackButton } from "@/components/back-button"
+import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
+import { BrandedPrintHeader, BrandedReportExport } from "@/components/reports/branded"
+import type { ExportTable } from "@/components/reports/report-export"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
@@ -103,15 +106,66 @@ export async function ExpenditureTransactionsView({
     ]),
   }
 
+  const columns: DataTableColumn[] = [
+    { label: "Date" },
+    { label: "Voucher" },
+    { label: "Payee" },
+    { label: "Category" },
+    { label: "Paid From" },
+    { label: "Amount", align: "right" },
+    { label: "Status" },
+    { label: "Recorded By" },
+    { label: "Actions", printHidden: true },
+  ]
+
+  const tableRows: DataTableRow[] = rows.map((row) => ({
+    id: row.id,
+    search: [
+      row.voucherNo,
+      row.payeeName,
+      row.description,
+      row.categoryName,
+      row.accountName,
+      expenseStatusLabel(row.status),
+      row.recordedByName,
+      row.referenceNo ?? "",
+    ].join(" "),
+    cells: [
+      <span className="whitespace-nowrap">{formatDate(row.expenseDate)}</span>,
+      <span className="font-medium">{row.voucherNo}</span>,
+      <>
+        <div className="font-medium">{row.payeeName}</div>
+        <div className="text-muted-foreground">{row.description}</div>
+      </>,
+      row.categoryName,
+      row.accountName,
+      <span className="font-semibold whitespace-nowrap">{formatNaira(row.amount)}</span>,
+      <ExpenseStatusBadge status={row.status} />,
+      row.recordedByName,
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`${basePath}/transactions/${row.id}`}>View</Link>
+        </Button>
+        {row.status === "PAID" && (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`${basePath}/vouchers/${row.id}`}>Voucher</Link>
+          </Button>
+        )}
+      </div>,
+    ],
+  }))
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+      <BrandedPrintHeader title="Expenditure Transactions" />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+          <BackButton fallbackHref={basePath} />
           <h1 className="text-3xl font-bold tracking-tight">Transactions</h1>
           <p className="text-muted-foreground">Every expenditure record, filtered however the question needs.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <ReportExport title="Expenditure Transactions" subtitle="Filtered transaction list" table={exportTable} />
+          <BrandedReportExport title="Expenditure Transactions" subtitle="Filtered transaction list" table={exportTable} />
           <Button size="sm" asChild>
             <Link href={`${basePath}/new`}>Record Expenditure</Link>
           </Button>
@@ -143,54 +197,14 @@ export async function ExpenditureTransactionsView({
             {rows.length === 2000 ? " (showing the most recent 2000 — narrow the filters to see the rest)" : ""}
           </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4 font-medium">Date</th>
-                <th className="py-2 pr-4 font-medium">Voucher</th>
-                <th className="py-2 pr-4 font-medium">Payee</th>
-                <th className="py-2 pr-4 font-medium">Category</th>
-                <th className="py-2 pr-4 font-medium">Paid From</th>
-                <th className="py-2 pr-4 font-medium">Amount</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Recorded By</th>
-                <th className="py-2 pr-4 font-medium print:hidden">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b last:border-0">
-                  <td className="py-3 pr-4 whitespace-nowrap">{formatDate(row.expenseDate)}</td>
-                  <td className="py-3 pr-4 font-medium">{row.voucherNo}</td>
-                  <td className="py-3 pr-4">
-                    <div className="font-medium">{row.payeeName}</div>
-                    <div className="text-muted-foreground">{row.description}</div>
-                  </td>
-                  <td className="py-3 pr-4">{row.categoryName}</td>
-                  <td className="py-3 pr-4">{row.accountName}</td>
-                  <td className="py-3 pr-4 font-semibold whitespace-nowrap">{formatNaira(row.amount)}</td>
-                  <td className="py-3 pr-4"><ExpenseStatusBadge status={row.status} /></td>
-                  <td className="py-3 pr-4">{row.recordedByName}</td>
-                  <td className="py-3 pr-4 print:hidden">
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={`${basePath}/transactions/${row.id}`}>View</Link>
-                      </Button>
-                      {row.status === "PAID" && (
-                        <Button variant="outline" size="sm" asChild>
-                          <Link href={`${basePath}/vouchers/${row.id}`}>Voucher</Link>
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rows.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">No expenditure matches these filters.</p>
-          )}
+        <CardContent>
+          <DataTable
+            columns={columns}
+            rows={tableRows}
+            unit="records"
+            searchPlaceholder="Search voucher, payee, category or description"
+            emptyMessage="No expenditure matches these filters."
+          />
         </CardContent>
       </Card>
     </div>

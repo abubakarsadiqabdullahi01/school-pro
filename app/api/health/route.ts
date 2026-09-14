@@ -1,12 +1,13 @@
 // app/api/health/route.ts
 import { NextResponse } from "next/server";
-import { validateEnv } from "@/lib/env-validation";
+import { validateEnvForProduction } from "@/lib/env-validation";
 import { prisma } from "@/lib/db";
 
 export async function GET() {
   try {
-    // Validate environment
-    validateEnv();
+    // The full production contract — the three required variables plus the
+    // production-only checks (secret length, absolute UPLOAD_DIR).
+    validateEnvForProduction();
     
     // Test database connection
     await prisma.$queryRaw`SELECT 1`;

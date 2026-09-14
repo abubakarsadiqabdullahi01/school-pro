@@ -1,3 +1,4 @@
+import { BackButton } from "@/components/back-button"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
@@ -30,6 +31,7 @@ export async function ExpenseFormView({
   if (categories.length === 0 || accounts.length === 0) {
     return (
       <div className="space-y-4">
+        <BackButton fallbackHref={`${basePath}/transactions`} />
         <h1 className="text-3xl font-bold tracking-tight">Record Expenditure</h1>
         <div className="rounded-md border border-dashed p-6">
           <p className="font-medium">Expenditure needs a category and an account first.</p>
@@ -63,6 +65,7 @@ export async function ExpenseFormView({
     if (existing.data.status !== "DRAFT" && existing.data.status !== "PENDING_APPROVAL") {
       return (
         <div className="space-y-4">
+          <BackButton fallbackHref={`${basePath}/transactions`} />
           <h1 className="text-3xl font-bold tracking-tight">{existing.data.voucherNo}</h1>
           <div className="rounded-md border border-dashed p-6">
             <p className="font-medium">This expense can no longer be edited.</p>
@@ -97,6 +100,7 @@ export async function ExpenseFormView({
   return (
     <div className="space-y-6">
       <div>
+        <BackButton fallbackHref={`${basePath}/transactions`} />
         <h1 className="text-3xl font-bold tracking-tight">
           {expenseId ? "Edit Expenditure" : "Record Expenditure"}
         </h1>

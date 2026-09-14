@@ -1,39 +1,30 @@
 "use server";
 
-import { auth } from "@/auth";
+import { assertSchoolAccess, authActive, requirePermission, requireTeacher } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import type { Gender, CredentialType } from "@prisma/client";
 
+async function requireTeacherManager(schoolId?: string | null) {
+  const actor = await requirePermission("teachers.manage");
+
+  if (schoolId) {
+    assertSchoolAccess(actor, schoolId);
+    return { actor, schoolId };
+  }
+
+  if (!actor.schoolId) {
+    return { actor, schoolId: undefined };
+  }
+
+  return { actor, schoolId: actor.schoolId };
+}
+
 // Search for teachers
 export async function searchTeachers(query = "") {
   try {
-    // Get the current user session
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    // Get the admin's school ID if applicable
-    let schoolId: string | undefined;
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      schoolId = admin?.schoolId ?? undefined;
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-    }
+    const { schoolId } = await requireTeacherManager();
 
     // Search for teachers based on the query
     const teachers = await prisma.teacher.findMany({
@@ -150,45 +141,12 @@ export async function createTeacher(data: {
   }>;
 }) {
   try {
-    // Get the current user session
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
+    if (!data.schoolId) {
+      return { success: false, error: "School is required to create a teacher" };
     }
-
-    // Get the admin's school ID
-    let schoolId: string;
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      if (!admin?.schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-
-      schoolId = admin.schoolId;
-    } else {
-      if (!data.schoolId) {
-        return { success: false, error: "School is required to create a teacher" };
-      }
-
-      const school = await prisma.school.findUnique({
-        where: { id: data.schoolId },
-        select: { id: true },
-      });
-
-      if (!school) {
-        return { success: false, error: "Selected school was not found" };
-      }
-
-      schoolId = school.id;
+    const { schoolId } = await requireTeacherManager(data.schoolId);
+    if (!schoolId) {
+      return { success: false, error: "School is required to create a teacher" };
     }
 
     // Check if staffId already exists
@@ -322,31 +280,7 @@ export async function createTeacher(data: {
 // Get all teachers
 export async function getTeachers() {
   try {
-    // Get the current user session
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    // Get the admin's school ID if applicable
-    let schoolId: string | undefined;
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      schoolId = admin?.schoolId ?? undefined;
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-    }
+    const { schoolId } = await requireTeacherManager();
 
     // Get all teachers for the school
     const teachers = await prisma.teacher.findMany({
@@ -362,6 +296,7 @@ export async function getTeachers() {
             gender: true,
             dateOfBirth: true,
             createdAt: true,
+            isActive: true,
             credentials: {
               where: { type: "EMAIL" },
               select: { value: true },
@@ -429,6 +364,19 @@ export async function getTeachers() {
       },
     });
 
+    // A teacher who also exists in HR as staff is archived rather than removed, so the
+    // delete dialog needs to know before it promises an outcome.
+    const staffUserIds = new Set(
+      (
+        await prisma.staff.findMany({
+          where: { userId: { in: teachers.map((t) => t.userId) } },
+          select: { userId: true },
+        })
+      )
+        .map((staff) => staff.userId)
+        .filter((id): id is string => id !== null),
+    );
+
     // Format the teachers for the response
     const formattedTeachers = teachers.map((teacher) => ({
       id: teacher.id,
@@ -458,6 +406,10 @@ export async function getTeachers() {
       classesCount: teacher.teacherClassTerms.length,
       subjectsCount: teacher.teacherSubjects.length,
       assessmentsCount: teacher.assessments.length,
+      hasStaffRecord: staffUserIds.has(teacher.userId),
+      // Archiving a teacher sets this false. Without it on the payload an archived teacher
+      // stayed in the list looking exactly like an active one.
+      isActive: teacher.user.isActive,
       classes: teacher.teacherClassTerms.map((tct) => ({
         id: tct.id,
         className: tct.classTerm.class.name,
@@ -495,30 +447,7 @@ export async function getTeachers() {
 
 export async function getTeacher(id: string) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    // Get the admin's school ID if applicable
-    let schoolId: string | undefined;
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      schoolId = admin?.schoolId ?? undefined;
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-    }
+    const { actor } = await requireTeacherManager();
 
     // Get the teacher details
     const teacher = await prisma.teacher.findUnique({
@@ -598,8 +527,9 @@ export async function getTeacher(id: string) {
       return { success: false, error: "Teacher not found" };
     }
 
-    // Ensure the teacher belongs to the admin's school if admin
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
+    try {
+      assertSchoolAccess(actor, teacher.schoolId);
+    } catch {
       return { success: false, error: "Unauthorized to view this teacher" };
     }
 
@@ -683,31 +613,7 @@ export async function updateTeacher(data: {
   address?: string;
 }) {
   try {
-    // Get the current user session
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    // Get the admin's school ID if applicable
-    let schoolId: string | undefined;
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      schoolId = admin?.schoolId ?? undefined;
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-    }
+    const { actor } = await requireTeacherManager();
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -719,7 +625,9 @@ export async function updateTeacher(data: {
       return { success: false, error: "Teacher not found" };
     }
 
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
+    try {
+      assertSchoolAccess(actor, teacher.schoolId);
+    } catch {
       return { success: false, error: "Unauthorized to update this teacher" };
     }
 
@@ -842,31 +750,7 @@ export async function updateTeacher(data: {
 // Delete a teacher
 export async function deleteTeacher(teacherId: string) {
   try {
-    // Get the current user session
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    // Get the admin's school ID if applicable
-    let schoolId: string | undefined;
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      schoolId = admin?.schoolId ?? undefined;
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-    }
+    const { actor } = await requireTeacherManager();
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -874,6 +758,10 @@ export async function deleteTeacher(teacherId: string) {
       include: {
         teacherClassTerms: true,
         teacherSubjects: true,
+        // Scores the teacher entered belong to the student, not to the teacher, and the
+        // payroll record belongs to HR. Both are counted before deciding whether this
+        // teacher can be removed at all.
+        assessments: { select: { id: true }, take: 1 },
       },
     });
 
@@ -881,8 +769,40 @@ export async function deleteTeacher(teacherId: string) {
       return { success: false, error: "Teacher not found" };
     }
 
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
+    try {
+      assertSchoolAccess(actor, teacher.schoolId);
+    } catch {
       return { success: false, error: "Unauthorized to delete this teacher" };
+    }
+
+    // The same human can exist twice: once as a Teacher (a login and a timetable) and once
+    // as Staff (a salary). Staff.userId is ON DELETE SET NULL, so deleting the login left
+    // the staff member on the payroll with their name and salary intact and no way to tell
+    // they had ever had an account.
+    const staffRecord = await prisma.staff.findFirst({
+      where: { userId: teacher.userId },
+      select: { id: true, employmentStatus: true },
+    });
+
+    const hasAssessments = teacher.assessments.length > 0;
+
+    if (hasAssessments || staffRecord) {
+      // Archive rather than delete, the same way a student with academic or payment records
+      // is archived. `isActive` alone carries the status.
+      await prisma.user.update({
+        where: { id: teacher.userId },
+        data: { isActive: false },
+      });
+
+      revalidatePath("/dashboard/admin/teachers");
+
+      return {
+        success: true,
+        message: hasAssessments
+          ? "Teacher archived (has entered assessment records)"
+          : "Teacher archived (has an HR staff record)",
+        isArchived: true,
+      };
     }
 
     // Start a transaction
@@ -934,14 +854,10 @@ export async function deleteTeacher(teacherId: string) {
 // Get teacher's dashboard data
 export async function getTeacherDashboardData() {
   try {
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== "TEACHER") {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requireTeacher();
 
     const teacher = await prisma.teacher.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: actor.userId },
       include: {
         school: true,
         teacherClassTerms: {
@@ -985,14 +901,10 @@ export async function getTeacherDashboardData() {
 // Get teacher's classes with students
 export async function getTeacherClasses(termId?: string) {
   try {
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== "TEACHER") {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requireTeacher();
 
     const teacher = await prisma.teacher.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: actor.userId },
     });
 
     if (!teacher) {
@@ -1043,14 +955,10 @@ export async function getTeacherClasses(termId?: string) {
 // Get teacher's subjects with class information
 export async function getTeacherSubjects(termId?: string) {
   try {
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== "TEACHER") {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requireTeacher();
 
     const teacher = await prisma.teacher.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: actor.userId },
     });
 
     if (!teacher) {
@@ -1113,14 +1021,10 @@ export async function getSubjectAssessments(
   termId: string,
 ) {
   try {
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== "TEACHER") {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requireTeacher();
 
     const teacher = await prisma.teacher.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: actor.userId },
     });
 
     if (!teacher) {
@@ -1193,14 +1097,10 @@ export async function updateAssessment(data: {
   isExempt?: boolean;
 }) {
   try {
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== "TEACHER") {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requireTeacher();
 
     const teacher = await prisma.teacher.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: actor.userId },
     });
 
     if (!teacher) {
@@ -1240,7 +1140,7 @@ export async function updateAssessment(data: {
         exam: data.exam,
         isAbsent: data.isAbsent || false,
         isExempt: data.isExempt || false,
-        editedBy: session.user.id,
+        editedBy: actor.userId,
         teacherId: teacher.id,
       },
       create: {
@@ -1254,8 +1154,8 @@ export async function updateAssessment(data: {
         exam: data.exam,
         isAbsent: data.isAbsent || false,
         isExempt: data.isExempt || false,
-        editedBy: session.user.id,
-        createdBy: session.user.id,
+        editedBy: actor.userId,
+        createdBy: actor.userId,
         teacherId: teacher.id,
       },
     });
@@ -1276,11 +1176,7 @@ export async function markAttendance(data: {
   status: "PRESENT" | "ABSENT" | "LATE";
 }) {
   try {
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== "TEACHER") {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requireTeacher();
 
     const targetDate = new Date(data.date);
     if (Number.isNaN(targetDate.getTime())) {
@@ -1292,7 +1188,7 @@ export async function markAttendance(data: {
     }
 
     const teacher = await prisma.teacher.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: actor.userId },
       select: { id: true },
     });
 
@@ -1375,14 +1271,10 @@ export async function markAttendance(data: {
 // Get attendance for a class
 export async function getClassAttendance(classTermId: string, date?: string) {
   try {
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== "TEACHER") {
-      return { success: false, error: "Unauthorized" };
-    }
+    const actor = await requireTeacher();
 
     const teacher = await prisma.teacher.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: actor.userId },
     });
 
     if (!teacher) {
@@ -1451,31 +1343,7 @@ export async function getClassAttendance(classTermId: string, date?: string) {
 
 export async function resetTeacherPassword(teacherId: string) {
   try {
-    // Get the current user session
-    const session = await auth();
-
-    if (
-      !session?.user ||
-      (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")
-    ) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    // Get the admin's school ID if applicable
-    let schoolId: string | undefined;
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      });
-
-      schoolId = admin?.schoolId ?? undefined;
-
-      if (!schoolId) {
-        return { success: false, error: "Admin not associated with a school" };
-      }
-    }
+    const { actor } = await requireTeacherManager();
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -1487,7 +1355,9 @@ export async function resetTeacherPassword(teacherId: string) {
       return { success: false, error: "Teacher not found" };
     }
 
-    if (session.user.role === "ADMIN" && teacher.schoolId !== schoolId) {
+    try {
+      assertSchoolAccess(actor, teacher.schoolId);
+    } catch {
       return {
         success: false,
         error: "Unauthorized to reset password for this teacher",

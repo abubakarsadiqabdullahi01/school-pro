@@ -2,6 +2,7 @@ import Link from "next/link"
 import { CreditCard, FileText, Percent, Receipt, Wallet } from "lucide-react"
 
 import { getFinanceOverview } from "@/app/actions/finance"
+import { FinanceDashboardCharts } from "@/components/finance/views/finance-dashboard-charts"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira } from "@/lib/money"
@@ -39,6 +40,7 @@ export async function FinanceDashboardView({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Finance</h1>
+          <p className="font-medium">{data.school.name} ({data.school.code})</p>
           <p className="text-muted-foreground">
             {data.currentTerm?.name ?? data.currentSession?.name ?? "Current"} fee collection, balances, and payment activity.
           </p>
@@ -72,29 +74,36 @@ export async function FinanceDashboardView({
         })}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Payment Status</CardTitle>
-            <CardDescription>Student charge status for the selected period.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3">
-            <StatusTile label="Paid" value={data.counts.paid} />
-            <StatusTile label="Partial" value={data.counts.partial} />
-            <StatusTile label="Unpaid" value={data.counts.unpaid} />
-            <StatusTile label="Waived" value={data.counts.waived} />
-          </CardContent>
-        </Card>
+      <FinanceDashboardCharts totals={data.totals} counts={data.counts} />
 
+      <div className="grid gap-4 md:grid-cols-4">
+        <StatusTile label="Paid charges" value={data.counts.paid} />
+        <StatusTile label="Partial charges" value={data.counts.partial} />
+        <StatusTile label="Unpaid charges" value={data.counts.unpaid} />
+        <StatusTile label="Waived charges" value={data.counts.waived} />
+      </div>
+
+      <div className="grid gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Payments</CardTitle>
-            <CardDescription>Latest receipts recorded by finance.</CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle>Recent Payments</CardTitle>
+              <CardDescription>Latest receipt rows for this school. Click any row to reprint the receipt.</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`${basePath}/receipts`}>All receipts</Link>
+            </Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {data.recentPayments.length > 0 ? (
+              // Each row is a link to its receipt: this list is the most common place
+              // somebody realises they need to reprint one.
               data.recentPayments.map((payment) => (
-                <div key={payment.id} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0">
+                <Link
+                  key={payment.id}
+                  href={`${basePath}/receipts/${payment.id}`}
+                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 hover:opacity-80"
+                >
                   <div>
                     <p className="font-medium">{payment.studentName}</p>
                     <p className="text-sm text-muted-foreground">{payment.admissionNo} · {payment.receiptNo}</p>
@@ -103,7 +112,7 @@ export async function FinanceDashboardView({
                     <p className="font-medium">{formatNaira(payment.amount)}</p>
                     <p className="text-sm text-muted-foreground">{payment.status}</p>
                   </div>
-                </div>
+                </Link>
               ))
             ) : (
               <p className="text-sm text-muted-foreground">No payments have been recorded yet.</p>
@@ -117,9 +126,11 @@ export async function FinanceDashboardView({
 
 function StatusTile({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border p-3">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-2xl font-semibold">{value}</p>
-    </div>
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        <p className="text-2xl font-semibold">{value}</p>
+      </CardContent>
+    </Card>
   )
 }

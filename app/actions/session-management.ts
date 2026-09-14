@@ -1,28 +1,16 @@
 "use server"
 
-import { auth } from "@/auth"
+import { assertSchoolAccess, authActive, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 
-async function getWritableSessionSchoolId(userId: string, role: string, requestedSchoolId: string) {
-  if (role === "SUPER_ADMIN") {
+function getWritableSessionSchoolId(actor: Actor, requestedSchoolId: string) {
+  try {
+    assertSchoolAccess(actor, requestedSchoolId)
     return requestedSchoolId
-  }
-
-  if (role !== "ADMIN") {
+  } catch {
     return null
   }
-
-  const admin = await prisma.admin.findUnique({
-    where: { userId },
-    select: { schoolId: true },
-  })
-
-  if (!admin?.schoolId || admin.schoolId !== requestedSchoolId) {
-    return null
-  }
-
-  return admin.schoolId
 }
 
 // Create a new session
@@ -34,12 +22,8 @@ export async function createSession(data: {
   isCurrent: boolean
 }) {
   try {
-    const session = await auth()
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" }
-    }
-
-    const schoolId = await getWritableSessionSchoolId(session.user.id, session.user.role, data.schoolId)
+    const actor = await requirePermission("academics.manage")
+    const schoolId = getWritableSessionSchoolId(actor, data.schoolId)
 
     if (!schoolId) {
       return { success: false, error: "Unauthorized for this school" }
@@ -97,12 +81,8 @@ export async function updateSession(data: {
   isCurrent: boolean
 }) {
   try {
-    const session = await auth()
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" }
-    }
-
-    const schoolId = await getWritableSessionSchoolId(session.user.id, session.user.role, data.schoolId)
+    const actor = await requirePermission("academics.manage")
+    const schoolId = getWritableSessionSchoolId(actor, data.schoolId)
 
     if (!schoolId) {
       return { success: false, error: "Unauthorized for this school" }
@@ -168,29 +148,12 @@ export async function updateSession(data: {
 // Delete session
 export async function deleteSession(id: string) {
   try {
-    const session = await auth()
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" }
-    }
-
-    const adminSchoolId =
-      session.user.role === "ADMIN"
-        ? (
-            await prisma.admin.findUnique({
-              where: { userId: session.user.id },
-              select: { schoolId: true },
-            })
-          )?.schoolId
-        : undefined
-
-    if (session.user.role === "ADMIN" && !adminSchoolId) {
-      return { success: false, error: "Admin not associated with a school" }
-    }
+    const actor = await requirePermission("academics.manage")
 
     const sessionWithTerms = await prisma.session.findFirst({
       where: {
         id,
-        ...(adminSchoolId ? { schoolId: adminSchoolId } : {}),
+        ...(actor.schoolId ? { schoolId: actor.schoolId } : {}),
       },
       include: {
         _count: {
@@ -227,28 +190,10 @@ export async function deleteSession(id: string) {
 // Set current session
 export async function setCurrentSession(sessionId: string, schoolId: string) {
   try {
-    const session = await auth()
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" }
-    }
-
-    let authorizedSchoolId = schoolId
-
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin?.schoolId) {
-        return { success: false, error: "Admin not associated with a school" }
-      }
-
-      if (admin.schoolId !== schoolId) {
-        return { success: false, error: "Unauthorized for this school" }
-      }
-
-      authorizedSchoolId = admin.schoolId
+    const actor = await requirePermission("academics.manage")
+    const authorizedSchoolId = getWritableSessionSchoolId(actor, schoolId)
+    if (!authorizedSchoolId) {
+      return { success: false, error: "Unauthorized for this school" }
     }
 
     const targetSession = await prisma.session.findFirst({
@@ -292,29 +237,12 @@ export async function setCurrentSession(sessionId: string, schoolId: string) {
 // Get session details
 export async function getSession(id: string) {
   try {
-    const session = await auth()
-    if (!session?.user || !["SUPER_ADMIN", "ADMIN"].includes(session.user.role)) {
-      return { success: false, error: "Unauthorized" }
-    }
-
-    const adminSchoolId =
-      session.user.role === "ADMIN"
-        ? (
-            await prisma.admin.findUnique({
-              where: { userId: session.user.id },
-              select: { schoolId: true },
-            })
-          )?.schoolId
-        : undefined
-
-    if (session.user.role === "ADMIN" && !adminSchoolId) {
-      return { success: false, error: "Admin not associated with a school" }
-    }
+    const actor = await requirePermission("academics.manage")
 
     const sessionData = await prisma.session.findFirst({
       where: {
         id,
-        ...(adminSchoolId ? { schoolId: adminSchoolId } : {}),
+        ...(actor.schoolId ? { schoolId: actor.schoolId } : {}),
       },
       include: {
         school: {
@@ -348,7 +276,7 @@ export async function getSession(id: string) {
 // Get all sessions with formatting
 export async function getSessions() {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -394,7 +322,7 @@ export async function getSessions() {
 // Get schools for session creation
 export async function getSchoolsForSession() {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }

@@ -11,7 +11,7 @@ import { AdminTermsTable } from "@/components/session-management/admin-terms-tab
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 export default async function AdminSessionDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { schoolId } = await requireAdminSchool()
+  const { schoolId } = await requireAdminSchool("academics.manage")
   const { id } = await params
 
   const sessionData = await prisma.session.findFirst({

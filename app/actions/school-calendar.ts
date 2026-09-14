@@ -1,8 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
+import { AuthorizationError, assertSchoolAccess, requirePermission } from "@/lib/authz"
 
 interface CalendarData {
   sessions: Array<{
@@ -167,28 +166,12 @@ function generateUpcomingEvents(sessions: any[]): Array<{
 
 export async function getSchoolCalendarData(): Promise<CalendarData> {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      redirect("/auth/login")
-    }
-
-    // Get user's school
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      include: {
-        admin: {
-          include: {
-            school: true,
-          },
-        },
-      },
-    })
-
-    if (!user?.admin?.school) {
+    const actor = await requirePermission("academics.manage")
+    if (!actor.schoolId) {
       throw new Error("School not found")
     }
 
-    const schoolId = user.admin.school.id
+    const schoolId = actor.schoolId
 
     // Fetch sessions with terms
     const sessions = await prisma.session.findMany({
@@ -261,10 +244,21 @@ export async function getSchoolCalendarData(): Promise<CalendarData> {
 
 export async function updateSessionDates(sessionId: string, startDate: Date, endDate: Date) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      throw new Error("Unauthorized")
+    // Being logged in was the only check here. Any account — a student's, a parent's —
+    // could rewrite the dates of any session in any school, and `isCurrent` is derived
+    // from these dates, so it moved the active session for everyone.
+    const actor = await requirePermission("academics.manage")
+
+    const existing = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { schoolId: true },
+    })
+
+    if (!existing) {
+      return { success: false, message: "Session not found" }
     }
+
+    assertSchoolAccess(actor, existing.schoolId)
 
     await prisma.session.update({
       where: { id: sessionId },
@@ -278,16 +272,28 @@ export async function updateSessionDates(sessionId: string, startDate: Date, end
     return { success: true, message: "Session dates updated successfully" }
   } catch (error) {
     console.error("Failed to update session dates:", error)
+    if (error instanceof AuthorizationError) {
+      return { success: false, message: error.message }
+    }
     return { success: false, message: "Failed to update session dates" }
   }
 }
 
 export async function updateTermDates(termId: string, startDate: Date, endDate: Date) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      throw new Error("Unauthorized")
+    const actor = await requirePermission("academics.manage")
+
+    // A term's school is its session's school; there is no schoolId on Term itself.
+    const existing = await prisma.term.findUnique({
+      where: { id: termId },
+      select: { session: { select: { schoolId: true } } },
+    })
+
+    if (!existing) {
+      return { success: false, message: "Term not found" }
     }
+
+    assertSchoolAccess(actor, existing.session.schoolId)
 
     await prisma.term.update({
       where: { id: termId },
@@ -301,6 +307,9 @@ export async function updateTermDates(termId: string, startDate: Date, endDate: 
     return { success: true, message: "Term dates updated successfully" }
   } catch (error) {
     console.error("Failed to update term dates:", error)
+    if (error instanceof AuthorizationError) {
+      return { success: false, message: error.message }
+    }
     return { success: false, message: "Failed to update term dates" }
   }
 }

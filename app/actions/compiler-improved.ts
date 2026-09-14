@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { assertSchoolAccess, requireRole } from "@/lib/authz";
+import { assertSchoolAccess, requirePermission } from "@/lib/authz";
 import { recordAudit } from "@/lib/audit";
 import { unstable_cache } from "next/cache";
 import { revalidateTag } from "next/cache";
@@ -36,7 +36,7 @@ interface AssessmentWithCalculations extends AssessmentData {
 // callers only ever read `user.id` — with `actor` added so a caller that needs to check
 // school access does not have to resolve the session a second time.
 async function authorizeAndGetUser() {
-  const actor = await requireRole("SUPER_ADMIN", "ADMIN", "TEACHER");
+  const actor = await requirePermission("compiler.enter_scores");
 
   return {
     actor,
@@ -252,6 +252,7 @@ export async function getAssessmentsWithStatus(
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: {
         classTermId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
       },
       include: {
         student: {
@@ -531,7 +532,7 @@ export async function saveAssessments(
       where: {
         id: { in: studentClassTermIds },
         termId,
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "COMPLETED"] },
         student: {
           schoolId: effectiveSchoolId,
         },
@@ -582,6 +583,14 @@ export async function saveAssessments(
     );
     if (classTermIds.size !== 1) {
       throw new Error("Assessments must belong to one class term at a time");
+    }
+
+    const workflow = await prisma.classTermResultWorkflow.findUnique({
+      where: { classTermId },
+      select: { status: true },
+    });
+    if (workflow?.status === "LOCKED") {
+      throw new Error("This class result set is locked and cannot be edited.");
     }
 
     // Find assigned teacher for this subject and class

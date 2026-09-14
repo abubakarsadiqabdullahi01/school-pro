@@ -1,3 +1,4 @@
+import { BackButton } from "@/components/back-button"
 import Link from "next/link"
 
 import { getFinanceSetupData } from "@/app/actions/finance"
@@ -16,6 +17,7 @@ export default async function FinanceFeesPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
+          <BackButton fallbackHref="/dashboard/admin/finance" />
           <h1 className="text-3xl font-bold tracking-tight">Fee Setup</h1>
           <p className="text-muted-foreground">Create fee categories and schedules before recording payments.</p>
         </div>

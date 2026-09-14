@@ -105,6 +105,8 @@ interface Teacher {
   classes: ClassInfo[];
   subjects: SubjectInfo[];
   assessmentsCount: number;
+  hasStaffRecord?: boolean;
+  isActive?: boolean;
   createdAt: Date;
 }
 
@@ -265,8 +267,15 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
       const result = await deleteTeacher(teacherToDelete.id);
 
       if (result.success) {
-        toast.success("Teacher Deleted", {
-          description: `${teacherToDelete.fullName} has been successfully removed.`,
+        // A teacher who has entered scores, or who exists in HR as staff, is archived
+        // rather than removed. Reporting that as a deletion sent admins looking for a
+        // record that was still there.
+        const archived = "isArchived" in result && result.isArchived;
+        toast.success(archived ? "Teacher Archived" : "Teacher Deleted", {
+          description: archived
+            ? ("message" in result && result.message) ||
+              `${teacherToDelete.fullName} has been deactivated. Their records are kept.`
+            : `${teacherToDelete.fullName} has been successfully removed.`,
         });
         setIsDeleteDialogOpen(false);
         router.refresh();
@@ -393,6 +402,7 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                   <TableHead>Contact</TableHead>
                   <TableHead>Classes</TableHead>
                   <TableHead>Subjects</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -456,6 +466,15 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                       </TableCell>
                       <TableCell>
                         {formatSubjectsDisplay(teacher.subjects)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            teacher.isActive === false ? "destructive" : "default"
+                          }
+                        >
+                          {teacher.isActive === false ? "Archived" : "Active"}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -551,11 +570,11 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Teacher Deletion</DialogTitle>
+            <DialogTitle>Remove Teacher</DialogTitle>
             <DialogDescription>
               {teacherToDelete ? (
                 <>
-                  You are about to delete{" "}
+                  You are about to remove{" "}
                   <span className="font-semibold">
                     {teacherToDelete.fullName}
                   </span>
@@ -564,9 +583,8 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                   teacherToDelete.subjects.length > 0 ||
                   teacherToDelete.assessmentsCount > 0 ? (
                     <div className="mt-2 space-y-2">
-                      <p className="text-destructive font-medium">
-                        This teacher cannot be deleted because they have active
-                        assignments.
+                      <p className="font-medium">
+                        Their current assignments will be cleared:
                       </p>
 
                       {teacherToDelete.classes.length > 0 && (
@@ -617,10 +635,29 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                       {teacherToDelete.assessmentsCount > 0 && (
                         <div className="text-sm">
                           <p>
-                            Has {teacherToDelete.assessmentsCount} assessment
-                            records.
+                            Has entered {teacherToDelete.assessmentsCount}{" "}
+                            assessment records.
                           </p>
                         </div>
+                      )}
+
+                      {teacherToDelete.assessmentsCount > 0 ||
+                      teacherToDelete.hasStaffRecord ? (
+                        <p className="text-sm font-medium">
+                          This teacher will be archived, not deleted. Their
+                          login is disabled and they leave the active list, but
+                          the scores they entered stay on the students&apos;
+                          records
+                          {teacherToDelete.hasStaffRecord
+                            ? " and their HR staff record is left intact"
+                            : ""}
+                          .
+                        </p>
+                      ) : (
+                        <p className="text-sm font-medium">
+                          They have entered no scores, so the teacher and their
+                          login will be permanently removed.
+                        </p>
                       )}
                     </div>
                   ) : (
@@ -649,16 +686,16 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
             <Button
               variant="destructive"
               onClick={confirmDelete}
-              disabled={
-                isDeleting ||
-                (teacherToDelete?.classes.length || 0) > 0 ||
-                (teacherToDelete?.subjects.length || 0) > 0 ||
-                (teacherToDelete?.assessmentsCount || 0) > 0
-              }
+              disabled={isDeleting}
               className="gap-1"
             >
               {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isDeleting ? "Deleting..." : "Delete Teacher"}
+              {isDeleting
+                ? "Working..."
+                : (teacherToDelete?.assessmentsCount || 0) > 0 ||
+                    teacherToDelete?.hasStaffRecord
+                  ? "Archive Teacher"
+                  : "Delete Teacher"}
             </Button>
           </DialogFooter>
         </DialogContent>

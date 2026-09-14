@@ -271,7 +271,7 @@ export async function getStudentsForTeacherClass(classTermId: string) {
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: {
         classTermId: classTermId,
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "COMPLETED"] },
       },
       include: {
         student: {
@@ -385,7 +385,7 @@ export async function getAssessmentsWithStatus(
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: {
         classTermId,
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "COMPLETED"] },
       },
       include: {
         student: {
@@ -644,7 +644,7 @@ export async function saveAssessments(
       where: {
         studentId: { in: studentIds },
         classTermId: classTermId,
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "COMPLETED"] },
       },
       include: {
         student: { select: { id: true } },
@@ -659,6 +659,22 @@ export async function saveAssessments(
       throw new Error(
         `Students not found in this class: ${missingStudents.join(", ")}`,
       );
+    }
+
+    const enrollmentById = new Map(
+      studentClassTerms.map((studentClassTerm) => [
+        studentClassTerm.id,
+        studentClassTerm,
+      ]),
+    );
+
+    for (const assessment of assessments) {
+      const enrollment = enrollmentById.get(assessment.studentClassTermId);
+      if (!enrollment || enrollment.student.id !== assessment.studentId) {
+        throw new Error(
+          `Student ${assessment.studentId} is not linked to enrollment ${assessment.studentClassTermId}`,
+        );
+      }
     }
 
     // Informational only — the save itself upserts. Deliberately not filtered by
@@ -870,6 +886,7 @@ export async function getAssessmentsForSubject(
 
       whereClause.studentClassTerm = {
         classTermId: classTermId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
       };
     }
 

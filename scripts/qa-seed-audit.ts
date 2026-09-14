@@ -4,9 +4,10 @@
  *
  * Run:  npx tsx scripts/qa-seed-audit.ts
  */
-import { PrismaClient, ClassLevel } from "@prisma/client";
+import { ClassLevel } from "@prisma/client";
+import { createPrismaClient } from "../lib/prisma-client";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const SUBJECTS_BY_LEVEL: Record<string, string[]> = {
   PRIMARY: [

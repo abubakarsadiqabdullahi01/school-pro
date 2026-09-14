@@ -2,5 +2,5 @@ import { StudentStatementView } from "@/components/finance/views/student-stateme
 
 export default async function AccountantStudentStatementPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  return <StudentStatementView studentId={id} />
+  return <StudentStatementView basePath="/dashboard/accountant" studentId={id} />
 }

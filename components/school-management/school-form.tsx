@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { createSchool, updateSchool } from "@/app/actions/school-management"
 import { Loader2 } from 'lucide-react'
+import { isLogoReference } from "@/lib/file-reference"
 
 const schoolFormSchema = z.object({
   name: z.string().min(2, "School name must be at least 2 characters"),
@@ -21,7 +22,7 @@ const schoolFormSchema = z.object({
   phone: z.string().min(10, "Phone number must be at least 10 characters"),
   email: z.string().email("Invalid email address"),
   website: z.string().url("Invalid website URL").optional().or(z.literal("")),
-  logoUrl: z.string().url("Invalid logo URL").optional().or(z.literal("")),
+  logoUrl: z.string().refine((value) => !value || isLogoReference(value), "Invalid logo URL").optional(),
   admissionPrefix: z.string().min(2, "Admission prefix must be at least 2 characters").max(5, "Admission prefix must be at most 5 characters").optional(),
   admissionFormat: z.string().optional(),
   admissionSequenceStart: z.number().min(1, "Admission sequence start must be at least 1").optional(),

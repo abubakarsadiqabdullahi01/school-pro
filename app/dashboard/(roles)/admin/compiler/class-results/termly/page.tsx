@@ -1,21 +1,20 @@
-import { auth } from "@/auth"
-import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { ClassResultsTermlyComponent } from "@/components/compiler/class-results-termly"
 import type { ClassLevel } from "@prisma/client"
+import { requirePermission } from "@/lib/authz"
+import { redirect } from "next/navigation"
 
 export default async function AdminClassResultsTermlyPage() {
-  const session = await auth()
-
-  // Check if user is admin
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN")) {
+  const actor = await requirePermission("compiler.review_results").catch(() => null)
+  if (!actor || !actor.schoolId) {
     redirect("/dashboard")
   }
+  const schoolId = actor.schoolId
 
   // Get the admin's assigned school
   const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
+    where: { userId: actor.userId },
     include: {
       school: {
         select: {
@@ -31,7 +30,14 @@ export default async function AdminClassResultsTermlyPage() {
     },
   })
 
-  if (!admin || !admin.school) {
+  const school =
+    admin?.school ??
+    (await prisma.school.findUnique({
+      where: { id: schoolId },
+      select: { id: true, name: true, code: true, address: true, phone: true, email: true, logoUrl: true },
+    }))
+
+  if (!school) {
     redirect("/dashboard/access-error")
   }
 
@@ -40,7 +46,7 @@ export default async function AdminClassResultsTermlyPage() {
     where: {
       isCurrent: true,
       session: {
-        schoolId: admin.school.id,
+        schoolId,
       },
     },
     include: {
@@ -57,7 +63,7 @@ export default async function AdminClassResultsTermlyPage() {
   const terms = await prisma.term.findMany({
     where: {
       session: {
-        schoolId: admin.school.id,
+        schoolId,
       },
     },
     include: {
@@ -80,18 +86,18 @@ export default async function AdminClassResultsTermlyPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Class Results Termly</h2>
           <p className="text-muted-foreground">
-            Generate and manage termly class results for {admin.school.name} ({admin.school.code})
+            Generate and manage termly class results for {school.name} ({school.code})
           </p>
         </div>
 
         <ClassResultsTermlyComponent
-          schoolId={admin.school.id}
-          schoolName={admin.school.name}
-          schoolCode={admin.school.code}
-          schoolAddress={admin.school.address || ""}
-          schoolPhone={admin.school.phone || ""}
-          schoolEmail={admin.school.email || ""}
-          schoolLogo={admin.school.logoUrl}
+          schoolId={school.id}
+          schoolName={school.name}
+          schoolCode={school.code}
+          schoolAddress={school.address || ""}
+          schoolPhone={school.phone || ""}
+          schoolEmail={school.email || ""}
+          schoolLogo={school.logoUrl}
           terms={terms}
           currentTermId={currentTerm?.id}
           classLevels={classLevels}

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
+import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 import type { ClassLevel } from "@prisma/client"
 
 // Create a new class
@@ -16,24 +16,11 @@ export async function createClass({
   schoolId: string
 }) {
   // Verify the current user is authorized to create classes
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // If admin, verify they are creating a class for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== schoolId) {
-        throw new Error("You can only create classes for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, schoolId)
 
     // Create the class
     const newClass = await prisma.class.create({
@@ -63,11 +50,7 @@ export async function updateClass({
   level: ClassLevel
 }) {
   // Verify the current user is authorized to update classes
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Get the class to update
@@ -81,16 +64,7 @@ export async function updateClass({
     }
 
     // If admin, verify they are updating a class for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== classToUpdate.schoolId) {
-        throw new Error("You can only update classes for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, classToUpdate.schoolId)
 
     // Update the class
     await prisma.class.update({
@@ -113,11 +87,7 @@ export async function updateClass({
 // Delete a class
 export async function deleteClass(id: string) {
   // Verify the current user is authorized to delete classes
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Check if class exists
@@ -141,15 +111,27 @@ export async function deleteClass(id: string) {
     }
 
     // If admin, verify they are deleting a class for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
+    assertSchoolAccess(actor, classToDelete.schoolId)
+
+    // A class sits at the top of a cascade that ends at student results:
+    //   Class -> ClassTerm -> StudentClassTerm -> Assessment, every link CASCADE.
+    // Deleting one also cascades StudentEnrollmentHistory and StudentTransition (both
+    // ends), so an unguarded delete took enrolment history, promotion history and every
+    // score any student earned in the class. There was no guard at all.
+    const enrolmentCount = await prisma.studentClassTerm.count({
+      where: { classTerm: { classId: id } },
+    })
+
+    if (enrolmentCount > 0) {
+      const assessmentCount = await prisma.assessment.count({
+        where: { studentClassTerm: { classTerm: { classId: id } } },
       })
 
-      if (!admin || admin.schoolId !== classToDelete.schoolId) {
-        throw new Error("You can only delete classes for your assigned school")
-      }
+      throw new Error(
+        assessmentCount > 0
+          ? `Cannot delete this class: ${enrolmentCount} student enrolment(s) and ${assessmentCount} recorded result(s) belong to it. Move the students to another class first.`
+          : `Cannot delete this class: ${enrolmentCount} student enrolment(s) belong to it. Move the students to another class first.`,
+      )
     }
 
     // Delete all related data. Fees go first: they hang off ClassTerm, so deleting the
@@ -181,7 +163,7 @@ export async function deleteClass(id: string) {
     return { success: true }
   } catch (error) {
     console.error("Failed to delete class:", error)
-    throw new Error("Failed to delete class")
+    throw new Error(error instanceof Error ? error.message : "Failed to delete class")
   }
 }
 
@@ -194,11 +176,7 @@ export async function assignSubjectsToClass({
   subjectIds: string[]
 }) {
   // Verify the current user is authorized to assign subjects
-  const session = await auth()
-
-  if (!session?.user || (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  const actor = await requirePermission("academics.manage")
 
   try {
     // Get the class
@@ -220,16 +198,7 @@ export async function assignSubjectsToClass({
     }
 
     // If admin, verify they are managing a class for their assigned school
-    if (session.user.role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({
-        where: { userId: session.user.id },
-        select: { schoolId: true },
-      })
-
-      if (!admin || admin.schoolId !== classData.schoolId) {
-        throw new Error("You can only manage classes for your assigned school")
-      }
-    }
+    assertSchoolAccess(actor, classData.schoolId)
 
     // Get the current term for this school
     const currentTerm = await prisma.term.findFirst({

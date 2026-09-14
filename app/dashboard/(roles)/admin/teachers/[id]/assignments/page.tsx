@@ -1,6 +1,3 @@
-import { auth } from "@/auth";
-import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { AssignmentsManager } from "@/components/teacher-management/assignments/assignments-manager";
 import { getTeacher } from "@/app/actions/teacher-management";
@@ -18,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { requireAdminSchool } from "@/lib/admin-page-context";
 
 interface TeacherAssignmentsPageProps {
   params: {
@@ -29,30 +27,7 @@ export default async function TeacherAssignmentsPage({
   params,
 }: TeacherAssignmentsPageProps) {
   const { id } = await params;
-  const session = await auth();
-
-  // Check if user is admin
-  if (!session?.user || session.user.role !== "ADMIN") {
-    redirect("/dashboard");
-  }
-
-  // Get the admin's assigned school
-  const admin = await prisma.admin.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-        },
-      },
-    },
-  });
-
-  if (!admin || !admin.school) {
-    redirect("/dashboard/access-error");
-  }
+  const { school } = await requireAdminSchool("teachers.manage");
 
   // Fetch teacher details
   const teacherResult = await getTeacher(id);
@@ -121,7 +96,7 @@ export default async function TeacherAssignmentsPage({
             <CardTitle className="flex items-center justify-between">
               <span>Teacher Assignment Management</span>
               <div className="text-sm font-normal text-muted-foreground">
-                {admin.school.name} ({admin.school.code})
+                {school.name} ({school.code})
               </div>
             </CardTitle>
             <CardDescription>

@@ -1,6 +1,6 @@
 "use server"
 
-import { auth } from "@/auth"
+import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { revokeAllSessionsForUser } from "@/lib/sessions.server"
 import { revalidatePath } from "next/cache"
@@ -10,7 +10,7 @@ import { Gender } from "@prisma/client"
 // Get system statistics for super admin dashboard
 export async function getSystemStats() {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -99,7 +99,7 @@ export async function getSystemStats() {
 // Get school performance data
 export async function getSchoolPerformance() {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -186,7 +186,7 @@ export async function getSchoolPerformance() {
 // Toggle user status (activate/deactivate)
 export async function toggleUserStatus(userId: string, userType: string) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -257,7 +257,7 @@ export async function createAdminUser(data: {
   permissions: string[]
 }) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -342,7 +342,7 @@ export async function createAdminUser(data: {
 // Delete user (soft delete by deactivating)
 export async function deleteUser(userId: string, userType: string) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -352,9 +352,19 @@ export async function deleteUser(userId: string, userType: string) {
       data: { isActive: false },
     })
 
+    // toggleUserStatus revokes on deactivation and this did not, so the more final-sounding
+    // action was the one that left the account's existing sign-ins working.
+    const revokedSessions = await revokeAllSessionsForUser(userId)
+
     revalidatePath(`/dashboard/super-admin/users/${userType}s`)
 
-    return { success: true, message: "User deactivated successfully" }
+    return {
+      success: true,
+      message:
+        revokedSessions > 0
+          ? `User deactivated and signed out of ${revokedSessions} session(s)`
+          : "User deactivated successfully",
+    }
   } catch (error) {
     console.error("Error deleting user:", error)
     return {
@@ -366,7 +376,7 @@ export async function deleteUser(userId: string, userType: string) {
 
 export async function getAdminDetailsById(adminId: string) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -438,7 +448,7 @@ export async function updateAdmin(
   },
 ) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -536,7 +546,7 @@ export async function updateAdmin(
 // Reset admin password
 export async function resetAdminPassword(adminId: string) {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }
@@ -576,7 +586,7 @@ export async function resetAdminPassword(adminId: string) {
 
 export async function getAdminUsers() {
   try {
-    const session = await auth()
+    const session = await authActive()
     if (!session?.user || session.user.role !== "SUPER_ADMIN") {
       return { success: false, error: "Unauthorized" }
     }

@@ -1,7 +1,9 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
 import type { Role } from "@prisma/client"
+import type { Session } from "next-auth"
 import { AuthorizationError, type Actor } from "@/lib/authz-scope"
+import { hasPermission, resolveEffectivePermissions, type PermissionKey } from "@/lib/permissions"
 
 /**
  * The one authorization boundary.
@@ -132,12 +134,92 @@ export async function requireRole(...allowed: Role[]): Promise<Actor> {
   return actor
 }
 
+async function permissionProfilesForActor(actor: Actor) {
+  if (!actor.schoolId) return []
+
+  const assignments = await prisma.userPermissionProfile.findMany({
+    where: {
+      userId: actor.userId,
+      schoolId: actor.schoolId,
+      isActive: true,
+      profile: { isActive: true },
+    },
+    select: {
+      profile: {
+        select: {
+          code: true,
+          permissions: true,
+          isActive: true,
+        },
+      },
+    },
+  })
+
+  return assignments.map((assignment) => ({
+    code: assignment.profile.code,
+    permissions: Array.isArray(assignment.profile.permissions)
+      ? assignment.profile.permissions.map(String)
+      : [],
+    isActive: assignment.profile.isActive,
+  }))
+}
+
+/** Resolves the actor and requires a configurable school permission. */
+export async function requirePermission(permission: PermissionKey): Promise<Actor> {
+  const actor = await requireActor()
+  const profiles = await permissionProfilesForActor(actor)
+
+  if (!hasPermission(actor.role, permission, profiles)) {
+    throw new AuthorizationError(`Missing permission: ${permission}`)
+  }
+
+  return actor
+}
+
+/** Resolves the actor and requires at least one configurable permission. */
+export async function requireAnyPermission(permissions: readonly PermissionKey[]): Promise<Actor> {
+  const actor = await requireActor()
+  const profiles = await permissionProfilesForActor(actor)
+
+  if (!permissions.some((permission) => hasPermission(actor.role, permission, profiles))) {
+    throw new AuthorizationError(`Missing one of permissions: ${permissions.join(", ")}`)
+  }
+
+  return actor
+}
+
+export async function getEffectivePermissionsForCurrentUser(): Promise<PermissionKey[]> {
+  const actor = await requireActor()
+  const profiles = await permissionProfilesForActor(actor)
+  return [...resolveEffectivePermissions(actor.role, profiles)]
+}
+
 /**
  * The common case: an action an admin runs for their own school and a super admin runs
  * across all of them.
  */
 export async function requireAdminScope(): Promise<Actor> {
-  return requireRole("SUPER_ADMIN", "ADMIN")
+  return requireAnyPermission([
+    "school.manage",
+    "users.manage",
+    "students.manage",
+    "teachers.manage",
+    "parents.manage",
+    "academics.manage",
+    "compiler.enter_scores",
+    "compiler.review_results",
+    "compiler.publish_results",
+    "compiler.lock_results",
+    "compiler.configure_policy",
+    "finance.setup",
+    "finance.collect_payments",
+    "finance.view_reports",
+    "expenditure.manage",
+    "expenditure.approve",
+    "payroll.manage",
+    "payroll.pay",
+    "reports.export",
+  ])
 }
 
 /** A teacher-only action. `teacherId` is guaranteed non-null on the result. */
@@ -149,4 +231,60 @@ export async function requireTeacher(): Promise<Actor & { teacherId: string }> {
   }
 
   return { ...actor, teacherId: actor.teacherId }
+}
+
+/**
+ * Whether a signed-in account is still usable — active, and its sign-in not revoked.
+ *
+ * `requireActor` above already does this, but the guards in student-management and
+ * parent-management predate it and read the role straight off the session. `isActive` is
+ * copied into the JWT at sign-in and the token lives 30 days, so without this a deactivated
+ * admin kept full access to those actions until their token expired.
+ *
+ * Returns a reason rather than throwing, because the two callers report failure differently.
+ */
+export async function accountUsable(
+  userId: string,
+  sessionRecordId?: string | null,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isActive: true },
+  })
+
+  if (!user) return { ok: false, reason: "User profile not found" }
+  if (!user.isActive) return { ok: false, reason: "This account has been deactivated" }
+
+  // A missing id means the token predates per-session revocation and must NOT be treated as
+  // revoked — see the same reasoning in requireActor.
+  if (sessionRecordId) {
+    const record = await prisma.loginSession.findUnique({
+      where: { id: sessionRecordId },
+      select: { revokedAt: true },
+    })
+
+    if (record?.revokedAt) {
+      return { ok: false, reason: "This session has been signed out. Please sign in again." }
+    }
+  }
+
+  return { ok: true }
+}
+
+/**
+ * `auth()`, but nothing comes back for an account that is no longer usable.
+ *
+ * Modules that predate lib/authz read the role straight off the session, and there are
+ * dozens of those call sites. Rather than adding a check to each one, this drops into the
+ * same position as `auth()`: a deactivated or revoked session resolves to null, so the
+ * `if (!session?.user)` guard already at every call site rejects it unchanged.
+ */
+export async function authActive(): Promise<Session | null> {
+  const session = await auth()
+  if (!session?.user?.id) return null
+
+  const usable = await accountUsable(session.user.id, session.user.sessionRecordId)
+  if (!usable.ok) return null
+
+  return session
 }

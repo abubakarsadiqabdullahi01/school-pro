@@ -183,8 +183,13 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
       const result = await deleteTeacher(teacher.id);
 
       if (result.success) {
-        toast.success("Teacher Deleted", {
-          description: `${teacher.fullName} has been successfully removed.`,
+        // Archiving is a real outcome here, not a failure — see deleteTeacher.
+        const archived = "isArchived" in result && result.isArchived;
+        toast.success(archived ? "Teacher Archived" : "Teacher Deleted", {
+          description: archived
+            ? ("message" in result && result.message) ||
+              `${teacher.fullName} has been deactivated. Their records are kept.`
+            : `${teacher.fullName} has been successfully removed.`,
         });
         setIsDeleteDialogOpen(false);
         router.push("/dashboard/admin/teachers");
@@ -838,10 +843,11 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Are you absolutely sure?</DialogTitle>
+            <DialogTitle>Remove this teacher?</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. This will permanently delete the
-              teacher account and remove all associated data from our servers.
+              {teacher.assessmentsCount > 0
+                ? `This teacher has entered ${teacher.assessmentsCount} assessment records. They will be archived rather than deleted: their login is disabled and they leave the active list, but the scores they entered stay on the students' records.`
+                : "They have entered no scores, so the teacher account and login will be permanently removed. This cannot be undone."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -909,7 +915,11 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
               className="gap-1"
             >
               {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {isDeleting ? "Deleting..." : "Delete Teacher"}
+              {isDeleting
+                ? "Working..."
+                : teacher.assessmentsCount > 0
+                  ? "Archive Teacher"
+                  : "Delete Teacher"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,5 @@
 import { getFinanceAdjustments } from "@/app/actions/finance"
+import { BackButton } from "@/components/back-button"
 import { FinanceAdjustmentForm } from "@/components/finance/finance-adjustment-form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira } from "@/lib/money"
@@ -9,8 +10,11 @@ export default async function DiscountsPage() {
   return (
     <div className="space-y-6">
       <div>
+        <BackButton fallbackHref="/dashboard/admin/finance" />
         <h1 className="text-3xl font-bold tracking-tight">Discounts</h1>
-        <p className="text-muted-foreground">Manage approved fixed or percentage fee discounts.</p>
+        <p className="text-muted-foreground">
+          Search a student, choose the unpaid charge, then record the approved discount with a reason.
+        </p>
       </div>
       <FinanceAdjustmentForm mode="discount" />
       <Card>
