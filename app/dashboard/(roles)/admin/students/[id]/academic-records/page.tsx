@@ -3,17 +3,18 @@ import AcademicRecords from "@/components/student-management/academic-records"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
 interface AcademicRecordsPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default async function AcademicRecordsPage({ params }: AcademicRecordsPageProps) {
   await requireAdminSchool("students.manage")
+  const { id } = await params
 
   return (
     <PageTransition>
-      <AcademicRecords studentId={params.id} />
+      <AcademicRecords studentId={id} />
     </PageTransition>
   )
 }

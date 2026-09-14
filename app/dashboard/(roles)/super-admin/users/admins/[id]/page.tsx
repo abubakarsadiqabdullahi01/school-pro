@@ -5,7 +5,7 @@ import { AdminDetails } from "@/components/user-management/admin-details"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { notFound } from "next/navigation"
 
-export default async function AdminDetailsPage({ params }: { params: { id: string } }) {
+export default async function AdminDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
 
   if (!session?.user || session.user.role !== "SUPER_ADMIN") {

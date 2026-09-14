@@ -5,10 +5,10 @@ import { TermForm } from "@/components/session-management/term-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 
 interface CreateTermPageProps {
-  searchParams: {
+  searchParams: Promise<{
     sessionId?: string
     [key: string]: string | string[] | undefined
-  }
+  }>
 }
 
 export default async function CreateTermPage({ searchParams }: CreateTermPageProps) {

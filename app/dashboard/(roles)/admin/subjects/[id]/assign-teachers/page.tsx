@@ -4,7 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { AssignTeachersForm } from "@/components/subject-management/assign-teachers-form"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
-export default async function AdminAssignTeachersPage({ params }: { params: { id: string } }) {
+export default async function AdminAssignTeachersPage({ params }: { params: Promise<{ id: string }> }) {
   const { schoolId } = await requireAdminSchool("academics.manage")
 
   // Ensure params is properly awaited

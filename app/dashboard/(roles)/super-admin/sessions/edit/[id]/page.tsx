@@ -5,7 +5,7 @@ import { SessionForm } from "@/components/session-management/session-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { notFound } from "next/navigation"
 
-export default async function EditSessionPage({ params }: { params: { id: string } }) {
+export default async function EditSessionPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
 
   // Check if user is super admin
@@ -13,8 +13,8 @@ export default async function EditSessionPage({ params }: { params: { id: string
     redirect("/dashboard")
   }
 
-  // Ensure params is properly awaited
-  const id = params.id
+  // params is a Promise in Next 16; reading .id off it gives undefined.
+  const { id } = await params
 
   // Fetch the session to edit
   const sessionData = await prisma.session.findUnique({

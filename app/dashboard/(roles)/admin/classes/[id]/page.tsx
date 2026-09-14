@@ -10,7 +10,7 @@ import { ClassSubjectsTable } from "@/components/class-management/class-subjects
 import { formatNaira } from "@/lib/money"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
-export default async function AdminClassDetailsPage({ params }: { params: { id: string } }) {
+export default async function AdminClassDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { schoolId } = await requireAdminSchool("academics.manage")
 
   // Ensure params is properly awaited

@@ -7,7 +7,7 @@ import { requireAdminSchool } from "@/lib/admin-page-context";
 export default async function AdminAssignSubjectsPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const { schoolId } = await requireAdminSchool("teachers.manage");
 

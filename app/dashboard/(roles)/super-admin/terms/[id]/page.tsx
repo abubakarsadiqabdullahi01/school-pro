@@ -11,7 +11,7 @@ import { CalendarRange, Edit } from "lucide-react"
 import Link from "next/link"
 
 
-export default async function TermDetailsPage({ params }: { params: { id: string } }) {
+export default async function TermDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
 
   // Check if user is super admin

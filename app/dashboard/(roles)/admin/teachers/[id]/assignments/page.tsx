@@ -18,9 +18,9 @@ import {
 import { requireAdminSchool } from "@/lib/admin-page-context";
 
 interface TeacherAssignmentsPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default async function TeacherAssignmentsPage({

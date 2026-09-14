@@ -5,7 +5,7 @@ import { getSchool } from "@/app/actions/school-management"
 import { SchoolForm } from "@/components/school-management/school-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 
-export default async function EditSchoolPage({ params }: { params: { id: string } }) {
+export default async function EditSchoolPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
   
   if (!session?.user || session.user.role !== "SUPER_ADMIN") {

@@ -4,7 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { ParentEditForm } from "@/components/parent-managements/parent-edit-form"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 
-export default async function AdminEditParentPage({ params }: { params: { id: string } }) {
+export default async function AdminEditParentPage({ params }: { params: Promise<{ id: string }> }) {
   const { schoolId } = await requireAdminSchool("parents.manage")
 
   // Ensure params is properly awaited
