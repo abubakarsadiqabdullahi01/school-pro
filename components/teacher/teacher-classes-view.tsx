@@ -20,7 +20,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Users, BookOpen, Eye, Calendar, GraduationCap } from "lucide-react";
+import Link from "next/link";
+import { Users, BookOpen, Eye, Calendar, GraduationCap, ClipboardList } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -138,6 +139,17 @@ export function TeacherClassesView({
                     )}
                   </div>
                 </div>
+
+                <Button
+                  asChild
+                  variant="outline"
+                  className="w-full bg-transparent"
+                >
+                  <Link href={`/dashboard/teacher/my-classes/${classAssignment.classTerm.id}/traits`}>
+                    <ClipboardList className="h-4 w-4 mr-2" />
+                    Behaviour &amp; Skills
+                  </Link>
+                </Button>
 
                 <Dialog>
                   <DialogTrigger asChild>

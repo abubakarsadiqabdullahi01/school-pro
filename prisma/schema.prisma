@@ -1,6 +1,6 @@
 generator client {
-  provider        = "prisma-client-js"
-  engineType      = "client"
+  provider   = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {
@@ -35,6 +35,7 @@ model User {
   assessmentsUpdated         Assessment[]               @relation("AssessmentUpdatedByUser")
   createdTransitions         StudentTransition[]        @relation("CreatedByUser")
   enrollmentHistory          StudentEnrollmentHistory[] @relation("EnrollmentHistoryCreatedBy")
+  traitRatingsRecorded       StudentTraitRating[]       @relation("TraitRatingRecordedBy")
   integrityChecks            DataIntegrityCheck[]       @relation("IntegrityChecksRunBy")
   receivedPayments           Payment[]                  @relation("PaymentReceivedByUser")
   expensesRecorded           Expense[]                  @relation("ExpenseRecordedBy")
@@ -86,6 +87,7 @@ model Student {
   transitions       StudentTransition[]        @relation("StudentTransitions")
   attendances       Attendance[]               @relation("StudentAttendances")
   enrollmentHistory StudentEnrollmentHistory[] @relation("StudentEnrollmentHistory")
+  traitRatings      StudentTraitRating[]       @relation("StudentTraitRatings")
 
   @@index([schoolId])
   @@index([admissionNo])
@@ -460,6 +462,7 @@ model School {
   transitionPolicy     TransitionPolicy?
   assessmentScheme     AssessmentScheme?
   permissionProfiles   PermissionProfile[]
+  traitRatings         StudentTraitRating[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -522,6 +525,7 @@ model Term {
   teacherSubjects   TeacherSubject[] // Added relationship
   enrollmentHistory StudentEnrollmentHistory[]
   expenses          Expense[]
+  traitRatings      StudentTraitRating[]
 
   @@index([isCurrent])
 }
@@ -572,6 +576,7 @@ model ClassTerm {
   feeSchedules      FeeSchedule[]
   studentCharges    StudentCharge[]
   resultWorkflow    ClassTermResultWorkflow?
+  traitRatings      StudentTraitRating[]
 
   @@unique([classId, termId])
 }
@@ -1044,6 +1049,41 @@ model Attendance {
   // every attendance summary double-counts.
   @@unique([studentId, date])
   @@index([date])
+}
+
+/// One term's rating for one affective or psychomotor trait.
+///
+/// Both domains were printed on the report card with hardcoded traits and a dash
+/// for every rating; this is where the real figures live. The trait is stored as
+/// a code from lib/report-traits.ts rather than as a label, so renaming what is
+/// printed never orphans what was recorded.
+model StudentTraitRating {
+  id          String      @id @default(uuid())
+  schoolId    String
+  studentId   String
+  termId      String
+  classTermId String
+  domain      TraitDomain
+  /// Code from REPORT_TRAITS, e.g. PUNCTUALITY. Validated before it is written.
+  trait       String
+  /// 1 to 5, where 5 is Excellent. Enforced in the action, not by the column.
+  rating      Int
+  recordedBy  String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  school         School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student        Student   @relation("StudentTraitRatings", fields: [studentId], references: [id], onDelete: Cascade)
+  term           Term      @relation(fields: [termId], references: [id], onDelete: Cascade)
+  classTerm      ClassTerm @relation(fields: [classTermId], references: [id], onDelete: Cascade)
+  recordedByUser User      @relation("TraitRatingRecordedBy", fields: [recordedBy], references: [id])
+
+  /// One rating per trait per term. Re-entering a trait updates the row rather
+  /// than adding a second, so a report sheet can never show two values for one
+  /// trait.
+  @@unique([studentId, termId, trait])
+  @@index([classTermId, termId])
+  @@index([schoolId, termId])
 }
 
 // ---------------------------------------------------------------------------
@@ -1743,6 +1783,11 @@ enum AdjustmentType {
 enum ExemptionType {
   FULL
   PARTIAL
+}
+
+enum TraitDomain {
+  AFFECTIVE
+  PSYCHOMOTOR
 }
 
 enum AttendanceStatus {

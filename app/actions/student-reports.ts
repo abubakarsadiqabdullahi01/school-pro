@@ -259,6 +259,14 @@ export async function getStudentReportData(studentId: string, termId: string) {
     // Get student's position in class
     const position = await calculateStudentPosition(studentId, termId)
 
+    // Behaviour and skills, as rated by the class teacher for this term. Empty
+    // when nobody has filled the sheet in — the report card prints a dash per
+    // trait rather than dropping the tables, so the omission is visible.
+    const traitRatings = await prisma.studentTraitRating.findMany({
+      where: { studentId, termId },
+      select: { trait: true, rating: true },
+    })
+
     const studentResult = {
       studentId: student.id,
       studentName: `${student.user.firstName} ${student.user.lastName}`,
@@ -270,7 +278,8 @@ export async function getStudentReportData(studentId: string, termId: string) {
       grade: overallGradeResult.grade,
       remark: overallGradeResult.remark,
       position,
-      gradingSystem, 
+      gradingSystem,
+      traitRatings,
     }
 
     return { success: true, data: studentResult }

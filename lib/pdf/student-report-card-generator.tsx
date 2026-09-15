@@ -2,6 +2,8 @@ import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { format } from "date-fns"
 
+import { RATING_KEY, ratingsForDomain } from "@/lib/report-traits"
+
 interface StudentResult {
   studentId: string
   studentName: string
@@ -33,6 +35,9 @@ interface StudentResult {
   remark: string
   position: number
   gradingSystem: GradingSystem
+  /** Affective and psychomotor ratings for the term, as the class teacher entered them.
+   *  Absent on older callers, which print a dash against every trait. */
+  traitRatings?: Array<{ trait: string; rating: number }>
 }
 
 interface SchoolInfo {
@@ -583,18 +588,21 @@ class StudentReportCardGenerator {
     return (this.doc as any).lastAutoTable.finalY
   }
 
-  private drawPsychomotorDomain(): number {
+  private drawPsychomotorDomain(student: StudentResult): number {
     this.doc.setFont("helvetica", "bold")
     this.doc.setFontSize(this.config.fontSize.normal)
     this.doc.setTextColor(...this.config.colors.primary)
     const middleX = this.pageWidth / 3 + this.config.margins.left - 10
     this.doc.text("PSYCHOMOTOR DOMAIN", middleX, this.currentY)
 
+    // A trait the teacher left blank prints as a dash. Dropping the row instead
+    // would read as though the school does not assess it.
     const psychomotorData = [
       ["Trait", "Rating"],
-      ["Handwriting", "-"],
-      ["Sports", "-"],
-      ["Arts", "-"],
+      ...ratingsForDomain("PSYCHOMOTOR", student.traitRatings ?? []).map((row) => [
+        row.label,
+        row.rating === null ? "-" : String(row.rating),
+      ]),
     ]
 
     autoTable(this.doc, {
@@ -621,7 +629,7 @@ class StudentReportCardGenerator {
     return (this.doc as any).lastAutoTable.finalY
   }
 
-  private drawAffectiveDomain(): number {
+  private drawAffectiveDomain(student: StudentResult): number {
     this.doc.setFont("helvetica", "bold")
     this.doc.setFontSize(this.config.fontSize.normal)
     this.doc.setTextColor(...this.config.colors.primary)
@@ -630,9 +638,10 @@ class StudentReportCardGenerator {
 
     const affectiveData = [
       ["Trait", "Rating"],
-      ["Punctuality", "-"],
-      ["Neatness", "-"],
-      ["Behavior", "-"],
+      ...ratingsForDomain("AFFECTIVE", student.traitRatings ?? []).map((row) => [
+        row.label,
+        row.rating === null ? "-" : String(row.rating),
+      ]),
     ]
 
     autoTable(this.doc, {
@@ -661,10 +670,17 @@ class StudentReportCardGenerator {
 
   private drawPerformanceSummary(student: StudentResult, gradingSystem: GradingSystem): void {
     const gradesFinalY = this.drawGradesDescription(gradingSystem)
-    const psychomotorFinalY = this.drawPsychomotorDomain()
-    const affectiveFinalY = this.drawAffectiveDomain()
+    const psychomotorFinalY = this.drawPsychomotorDomain(student)
+    const affectiveFinalY = this.drawAffectiveDomain(student)
 
-    this.currentY = Math.max(gradesFinalY, psychomotorFinalY, affectiveFinalY) + 10
+    // What 1 to 5 mean. Without the key the ratings are just numbers to a parent.
+    const keyY = Math.max(psychomotorFinalY, affectiveFinalY) + 3.5
+    this.doc.setFont("helvetica", "normal")
+    this.doc.setFontSize(this.config.fontSize.small - 0.5)
+    this.doc.setTextColor(...this.config.colors.secondary)
+    this.doc.text(RATING_KEY, this.pageWidth / 3 + this.config.margins.left - 10, keyY)
+
+    this.currentY = Math.max(gradesFinalY, keyY) + 10
   }
 
   private drawCommentsSection(student: StudentResult): void {
