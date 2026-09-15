@@ -195,20 +195,32 @@ export function PermissionManagementView({ data }: { data: PermissionManagementD
             />
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          {/* Columns, not one long list. Twenty-odd permissions stacked two
+              abreast pushed the Create button and the existing profiles below
+              the fold, so building a role meant scrolling past everything you
+              had already ticked. Each permission is one line now: the label is
+              what an administrator reads, and the code sits beside it for
+              anyone who needs it. */}
+          <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
             {data.permissionGroups.map((group) => (
-              <div key={group.name} className="rounded-md border p-4">
-                <h3 className="text-sm font-semibold">{group.name}</h3>
-                <div className="mt-3 space-y-3">
+              <div key={group.name} className="rounded-md border p-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {group.name}
+                </h3>
+                <div className="mt-2 space-y-1">
                   {group.permissions.map((permission) => (
-                    <label key={permission} className="flex items-start gap-3 text-sm">
+                    <label
+                      key={permission}
+                      className="flex cursor-pointer items-start gap-2.5 rounded px-1 py-1.5 text-sm hover:bg-muted/60"
+                    >
                       <Checkbox
                         checked={selectedPermissions.includes(permission)}
                         onCheckedChange={() => togglePermission(permission)}
                       />
-                      <span className="grid gap-1">
-                        <span>{data.permissionLabels[permission]}</span>
-                        <span className="text-xs text-muted-foreground">{permission}</span>
+                      {/* Wraps rather than truncates: a permission you cannot
+                          read in full is one you cannot safely tick. */}
+                      <span className="min-w-0 flex-1 leading-snug" title={permission}>
+                        {data.permissionLabels[permission]}
                       </span>
                     </label>
                   ))}
@@ -225,9 +237,11 @@ export function PermissionManagementView({ data }: { data: PermissionManagementD
             Create Profile
           </Button>
 
-          <div className="rounded-md border">
+          {/* Existing profiles side by side for the same reason: four of them
+              stacked full width was most of the page. */}
+          <div className="grid gap-3 xl:grid-cols-2">
             {data.profiles.map((profile) => (
-              <div key={profile.id} className="border-b p-4 last:border-b-0">
+              <div key={profile.id} className="rounded-md border p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{profile.name}</span>
                   <Badge variant={profile.isSystem ? "secondary" : "outline"}>{profile.code}</Badge>
