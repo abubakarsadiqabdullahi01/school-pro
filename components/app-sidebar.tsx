@@ -102,6 +102,18 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
   const canUseExpenditure = canAny("expenditure.manage", "expenditure.approve");
   const canUsePayroll = canAny("payroll.manage", "payroll.pay");
 
+  // Shown when something inside it will actually render, rather than to anyone
+  // holding any permission at all. A teacher holds compiler.enter_scores, which
+  // used to open this group and reveal Students, Compiler and Terms — every one
+  // of which bounces them straight back to their own dashboard, because the
+  // pages behind them need permissions a teacher does not have.
+  const canSeeSchoolManagement =
+    canManageSchool ||
+    canUseFinance ||
+    canUseExpenditure ||
+    canUsePayroll ||
+    can("compiler.review_results");
+
   const toggleGroup = (group: string) => {
     setOpenGroups((prev) => ({
       ...prev,
@@ -458,7 +470,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
           </Collapsible>
         )}
 
-        {(roleString === "admin" || (roleString === "teacher" && (canManageSchool || canUseCompiler || canUseFinance || canUseExpenditure || canUsePayroll))) && (
+        {canSeeSchoolManagement && (
           <Collapsible
             open={openGroups.schoolManagement}
             onOpenChange={() => toggleGroup("schoolManagement")}
@@ -531,6 +543,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                     </Collapsible>
                     )}
 
+                    {can("students.manage") && (
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -584,6 +597,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+                    )}
 
                     {/* <Collapsible>
                       <SidebarMenuItem>
@@ -616,6 +630,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                       </SidebarMenuItem>
                     </Collapsible> */}
 
+                    {can("compiler.review_results") && (
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -686,7 +701,9 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+                    )}
 
+                    {can("academics.manage") && (
                     <Collapsible>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -740,6 +757,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
+                    )}
 
                     {can("academics.manage") && (
                     <Collapsible>
