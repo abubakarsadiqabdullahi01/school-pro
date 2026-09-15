@@ -550,6 +550,155 @@ export async function createFeeSchedule(input: unknown): Promise<ActionResult<{ 
   }
 }
 
+/**
+ * The fee schedules already set up, with how many students each has billed.
+ *
+ * Fee Setup listed categories only, so a schedule could not be seen after it was
+ * created — which is also why nobody noticed that students admitted later were
+ * never billed against it. The charge count is the number that makes that
+ * visible: compare it with the class roll.
+ */
+export async function getFeeSchedules(): Promise<ActionResult<Array<{
+  id: string
+  name: string
+  categoryName: string
+  sessionName: string
+  scope: string
+  amount: string
+  appliesTo: string
+  isActive: boolean
+  chargeCount: number
+}>>> {
+  try {
+    const actor = await requireFinanceViewer()
+    const schoolId = await actorSchool(actor)
+
+    const schedules = await prisma.feeSchedule.findMany({
+      where: { schoolId },
+      orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        amount: true,
+        appliesTo: true,
+        isActive: true,
+        category: { select: { name: true } },
+        session: { select: { name: true } },
+        term: { select: { name: true } },
+        classTerm: { select: { class: { select: { name: true } }, term: { select: { name: true } } } },
+        _count: { select: { charges: true } },
+      },
+    })
+
+    return {
+      success: true,
+      data: schedules.map((schedule) => ({
+        id: schedule.id,
+        name: schedule.name,
+        categoryName: schedule.category.name,
+        sessionName: schedule.session.name,
+        // Scope reads the way it was set: one class, a whole term, or the session.
+        scope: schedule.classTerm
+          ? `${schedule.classTerm.class.name} · ${schedule.classTerm.term.name}`
+          : schedule.term
+            ? `All classes · ${schedule.term.name}`
+            : "Whole session",
+        amount: moneyString(schedule.amount),
+        appliesTo: schedule.appliesTo,
+        isActive: schedule.isActive,
+        chargeCount: schedule._count.charges,
+      })),
+    }
+  } catch (error) {
+    return toError(error, "Failed to load fee schedules")
+  }
+}
+
+/**
+ * Bills an existing schedule to anyone its scope now covers but who has no charge.
+ *
+ * Enrolment raises fees from the moment that behaviour shipped, but students
+ * admitted before it — between a schedule being created and this release — have
+ * no charge at all, and an unbilled student reads as "nothing owing" rather than
+ * as a gap. This is the catch-up, and it is safe to run repeatedly: the unique
+ * index on (studentId, feeScheduleId) means only the missing charges land.
+ */
+export async function applyFeeScheduleToNewStudents(input: unknown): Promise<ActionResult<{
+  chargesCreated: number
+  studentsConsidered: number
+}>> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const { scheduleId } = z.object({ scheduleId: z.string().min(1) }).parse(input)
+
+    const schedule = await prisma.feeSchedule.findFirst({
+      where: { id: scheduleId, schoolId },
+      select: {
+        id: true,
+        sessionId: true,
+        termId: true,
+        classTermId: true,
+        amount: true,
+        appliesTo: true,
+        dueDate: true,
+        isActive: true,
+        session: { select: { startDate: true } },
+      },
+    })
+    if (!schedule) throw new Error("Fee schedule not found")
+    if (!schedule.isActive) throw new Error("That fee schedule is inactive. Reactivate it before billing anyone.")
+
+    // Same rule as the original run: an enrolment row stays ACTIVE when the
+    // student is deactivated, so the student's own status decides.
+    const activeStudent = { user: { isActive: true } }
+    const enrolledStudents = await prisma.studentClassTerm.findMany({
+      where: schedule.classTermId
+        ? { classTermId: schedule.classTermId, status: "ACTIVE", student: activeStudent }
+        : schedule.termId
+          ? { termId: schedule.termId, status: "ACTIVE", student: { schoolId, ...activeStudent } }
+          : {
+              status: "ACTIVE",
+              student: { schoolId, ...activeStudent },
+              term: { sessionId: schedule.sessionId },
+            },
+      select: { studentId: true, classTermId: true, termId: true },
+    })
+
+    const billableStudents = await studentsForAppliesTo(
+      enrolledStudents,
+      schedule.appliesTo,
+      schoolId,
+      schedule.session.startDate,
+    )
+
+    let chargesCreated = 0
+    if (billableStudents.length > 0) {
+      const created = await prisma.studentCharge.createMany({
+        data: billableStudents.map((enrollment) => ({
+          schoolId,
+          studentId: enrollment.studentId,
+          sessionId: schedule.sessionId,
+          termId: schedule.termId ?? enrollment.termId,
+          classTermId: schedule.classTermId ?? enrollment.classTermId,
+          feeScheduleId: schedule.id,
+          originalAmount: schedule.amount,
+          finalAmountDue: schedule.amount,
+          balance: schedule.amount,
+          dueDate: schedule.dueDate,
+        })),
+        skipDuplicates: true,
+      })
+      chargesCreated = created.count
+    }
+
+    revalidateFinance("/fees")
+    return { success: true, data: { chargesCreated, studentsConsidered: billableStudents.length } }
+  } catch (error) {
+    return toError(error, "Failed to apply the fee schedule")
+  }
+}
+
 export async function searchFinanceStudents(query: string): Promise<ActionResult<Array<{
   id: string
   admissionNo: string

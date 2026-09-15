@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { requireAdminScope } from "@/lib/authz";
+import { raiseEnrolmentCharges } from "@/lib/fee-charges.server";
 import { revalidatePath } from "next/cache";
 
 import { calculateGrade } from "@/lib/grading";
@@ -681,6 +682,17 @@ export async function executeStudentTransitions(transitions: {
                 status: "ACTIVE",
               },
             });
+
+        // The new class term's fees follow the student into it. A withdrawal
+        // raises nothing, for the same reason it creates no ACTIVE enrolment.
+        if (newStudentClassTerm) {
+          await raiseEnrolmentCharges(tx, {
+            schoolId: toClassTerm.class.schoolId,
+            studentId,
+            classTermId: toClassTermId,
+            termId: toClassTerm.termId,
+          });
+        }
 
         await tx.studentEnrollmentHistory.create({
           data: {

@@ -1,13 +1,14 @@
 import { BackButton } from "@/components/back-button"
 import Link from "next/link"
 
-import { getFinanceSetupData } from "@/app/actions/finance"
+import { getFeeSchedules, getFinanceSetupData } from "@/app/actions/finance"
+import { FeeScheduleList } from "@/components/finance/fee-schedule-list"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
 export default async function FinanceFeesPage() {
-  const setup = await getFinanceSetupData()
+  const [setup, schedules] = await Promise.all([getFinanceSetupData(), getFeeSchedules()])
 
   if (!setup.success) {
     return <p className="text-destructive">{setup.error}</p>
@@ -47,6 +48,12 @@ export default async function FinanceFeesPage() {
           )}
         </CardContent>
       </Card>
+
+      {schedules.success ? (
+        <FeeScheduleList schedules={schedules.data} />
+      ) : (
+        <p className="text-destructive">{schedules.error}</p>
+      )}
     </div>
   )
 }

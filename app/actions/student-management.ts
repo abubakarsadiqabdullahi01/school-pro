@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/db";
 import { requirePermission } from "@/lib/authz";
+import { raiseEnrolmentCharges } from "@/lib/fee-charges.server";
 import { toNumber } from "@/lib/money";
 import bcrypt from "bcryptjs";
 import { Gender } from "@prisma/client";
@@ -234,6 +235,16 @@ export async function createStudent(data: {
           },
         });
 
+        // Joining a class is what makes a student billable. Raising the charges
+        // here, in the same transaction, is what stops a student admitted after
+        // the fee schedule was set up from carrying a zero balance forever.
+        await raiseEnrolmentCharges(tx, {
+          schoolId,
+          studentId: student.id,
+          classTermId: classTerm.id,
+          termId,
+        });
+
         // Log enrollment history
         await tx.studentEnrollmentHistory.create({
           data: {
@@ -435,6 +446,16 @@ export async function updateStudent(input: {
                 termId: data.termId,
                 status: "ACTIVE",
               },
+            });
+
+            // Same rule as admission: the new class's fees are raised on the
+            // move. Charges already on the old class term stay as they are —
+            // reversing them is an accounting decision, not an edit.
+            await raiseEnrolmentCharges(tx, {
+              schoolId,
+              studentId: studentId,
+              classTermId: newClassTerm.id,
+              termId: data.termId,
             });
 
             // Log new enrollment if no previous enrollment
