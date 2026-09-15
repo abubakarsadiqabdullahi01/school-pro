@@ -85,10 +85,10 @@ export default async function StudentDashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatsCard title="Current Class" value={currentEnrollment?.classTerm.class.name ?? "Not assigned"} icon={BookOpen} />
-        <StatsCard title="Subjects" value={String(currentSubjects.length)} icon={FileText} description="Current term" />
-        <StatsCard title="Attendance" value={attendanceTotal ? `${attendanceRate}%` : "No records"} icon={CheckCircle} />
-        <StatsCard title="Average Score" value={average === null ? "Not released" : `${average}%`} icon={Calendar} />
+        <StatsCard title="Current Class" value={currentEnrollment?.classTerm.class.name ?? "Not assigned"} icon={<BookOpen className="h-4 w-4 text-muted-foreground" />} />
+        <StatsCard title="Subjects" value={String(currentSubjects.length)} icon={<FileText className="h-4 w-4 text-muted-foreground" />} description="Current term" />
+        <StatsCard title="Attendance" value={attendanceTotal ? `${attendanceRate}%` : "No records"} icon={<CheckCircle className="h-4 w-4 text-muted-foreground" />} />
+        <StatsCard title="Average Score" value={average === null ? "Not released" : `${average}%`} icon={<Calendar className="h-4 w-4 text-muted-foreground" />} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

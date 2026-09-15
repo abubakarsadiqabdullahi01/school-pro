@@ -1,5 +1,6 @@
 "use client"
 
+import { createElement, isValidElement, type ReactNode } from "react"
 import { motion } from "framer-motion"
 import type { LucideIcon } from "lucide-react"
 
@@ -9,7 +10,15 @@ import { cn } from "@/lib/utils"
 interface StatsCardProps {
   title: string
   value: string
-  icon: LucideIcon
+  /**
+   * A Lucide component from a client component, or a rendered element.
+   *
+   * A server component cannot pass the component itself — React refuses to send
+   * a function across the boundary, and the student and parent dashboards threw
+   * "Functions cannot be passed directly to Client Components" on every load
+   * because of it. Those pages pass `<BookOpen />` instead; elements serialize.
+   */
+  icon: LucideIcon | ReactNode
   description?: string
   trend?: {
     value: number
@@ -19,7 +28,11 @@ interface StatsCardProps {
   delay?: number
 }
 
-export function StatsCard({ title, value, icon: Icon, description, trend, className, delay = 0 }: StatsCardProps) {
+export function StatsCard({ title, value, icon, description, trend, className, delay = 0 }: StatsCardProps) {
+  const iconNode = isValidElement(icon)
+    ? icon
+    : createElement(icon as LucideIcon, { className: "h-4 w-4 text-muted-foreground" })
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -29,7 +42,7 @@ export function StatsCard({ title, value, icon: Icon, description, trend, classN
       <Card className={cn("overflow-hidden", className)}>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">{title}</CardTitle>
-          <Icon className="h-4 w-4 text-muted-foreground" />
+          {iconNode}
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{value}</div>

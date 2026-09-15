@@ -96,10 +96,10 @@ export default async function ParentDashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatsCard title="Children" value={String(children.length)} icon={Users} />
-        <StatsCard title="Attendance" value={attendanceRecords.length ? `${attendanceRate}%` : "No records"} icon={CheckCircle} />
-        <StatsCard title="Paid This Term" value={formatNaira(paidAmount, { kobo: false })} icon={DollarSign} />
-        <StatsCard title="Pending Fees" value={formatNaira(pendingAmount, { kobo: false })} icon={Calendar} />
+        <StatsCard title="Children" value={String(children.length)} icon={<Users className="h-4 w-4 text-muted-foreground" />} />
+        <StatsCard title="Attendance" value={attendanceRecords.length ? `${attendanceRate}%` : "No records"} icon={<CheckCircle className="h-4 w-4 text-muted-foreground" />} />
+        <StatsCard title="Paid This Term" value={formatNaira(paidAmount, { kobo: false })} icon={<DollarSign className="h-4 w-4 text-muted-foreground" />} />
+        <StatsCard title="Pending Fees" value={formatNaira(pendingAmount, { kobo: false })} icon={<Calendar className="h-4 w-4 text-muted-foreground" />} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
