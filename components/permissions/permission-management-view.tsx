@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ShieldCheck, UserCog, Loader2, Plus, X } from "lucide-react"
+import { ShieldCheck, UserCog, Loader2, Plus, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,13 @@ import {
   revokePermissionProfile,
 } from "@/app/actions/permissions"
 import type { PermissionKey } from "@/lib/permissions"
+
+/** Login account types, written the way the office says them. */
+const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Super Admin",
+  ADMIN: "Administrator",
+  TEACHER: "Teacher",
+}
 
 type PermissionManagementData = {
   permissionGroups: Array<{ name: string; permissions: PermissionKey[] }>
@@ -36,6 +43,9 @@ type PermissionManagementData = {
     id: string
     name: string
     role: string
+    jobTitle: string | null
+    staffNo: string | null
+    department: string | null
     profiles: Array<{
       id: string
       name: string
@@ -53,7 +63,21 @@ export function PermissionManagementView({ data }: { data: PermissionManagementD
   const [selectedPermissions, setSelectedPermissions] = useState<PermissionKey[]>([])
   const [selectedUserId, setSelectedUserId] = useState(data.users[0]?.id ?? "")
   const [selectedProfileId, setSelectedProfileId] = useState("")
+  const [staffQuery, setStaffQuery] = useState("")
   const [isPending, startTransition] = useTransition()
+
+  // Search covers what people actually know about a colleague: their name, their
+  // staff number off a payslip, their job title or their department.
+  const visibleStaff = useMemo(() => {
+    const query = staffQuery.trim().toLowerCase()
+    if (!query) return data.users
+
+    return data.users.filter((user) =>
+      [user.name, user.staffNo, user.jobTitle, user.department, user.role]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(query)),
+    )
+  }, [data.users, staffQuery])
 
   const activeProfiles = data.profiles.filter((profile) => profile.isActive)
   const selectedUser = data.users.find((user) => user.id === selectedUserId)
@@ -225,80 +249,167 @@ export function PermissionManagementView({ data }: { data: PermissionManagementD
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="flex flex-col">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UserCog className="h-5 w-5" />
-            User Assignments
+            Staff Roles
           </CardTitle>
-          <CardDescription>Grant or revoke profiles without changing login roles.</CardDescription>
+          <CardDescription>
+            Grant or revoke profiles without changing anyone&apos;s login account type. Students and
+            parents are not listed — profiles govern office duties only.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="space-y-2">
-            <Label>User</Label>
-            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a user" />
-              </SelectTrigger>
-              <SelectContent>
-                {data.users.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.name} ({user.role})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+        <CardContent className="grid flex-1 gap-5 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+          {/* Who to configure */}
+          <div className="flex flex-col gap-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="staff-search"
+                value={staffQuery}
+                onChange={(event) => setStaffQuery(event.target.value)}
+                placeholder="Search name, staff no, role"
+                className="pl-8"
+                aria-label="Search staff"
+              />
+            </div>
+
+            <div className="max-h-[22rem] overflow-y-auto rounded-md border">
+              {visibleStaff.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">
+                  {data.users.length === 0
+                    ? "No staff accounts yet. Add teachers or administrators first."
+                    : "No staff match that search."}
+                </p>
+              ) : (
+                visibleStaff.map((user) => {
+                  const isSelected = user.id === selectedUserId
+                  return (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onClick={() => setSelectedUserId(user.id)}
+                      aria-pressed={isSelected}
+                      className={`flex w-full items-center justify-between gap-3 border-b p-3 text-left transition-colors last:border-b-0 ${
+                        isSelected ? "bg-muted" : "hover:bg-muted/50"
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{user.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {user.jobTitle ?? ROLE_LABELS[user.role] ?? user.role}
+                          {user.staffNo ? ` · ${user.staffNo}` : ""}
+                        </span>
+                      </span>
+                      {user.profiles.length > 0 && (
+                        <Badge variant="secondary" className="shrink-0 tabular-nums">
+                          {user.profiles.length}
+                        </Badge>
+                      )}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {visibleStaff.length} of {data.users.length} staff
+            </p>
           </div>
 
-          {selectedUser && (
-            <div className="rounded-md border p-4">
-              <div className="flex items-center justify-between gap-4">
+          {/* What they can do */}
+          {selectedUser ? (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
                 <div>
-                  <p className="font-medium">{selectedUser.name}</p>
-                  <p className="text-sm text-muted-foreground">{selectedUser.role}</p>
+                  <p className="text-lg font-semibold leading-tight">{selectedUser.name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedUser.jobTitle ?? ROLE_LABELS[selectedUser.role] ?? selectedUser.role}
+                    {selectedUser.department ? ` · ${selectedUser.department}` : ""}
+                  </p>
                 </div>
-                <Badge variant="secondary">{effectivePermissionCount} profile permissions</Badge>
+                <Badge variant="secondary">
+                  {effectivePermissionCount} permission{effectivePermissionCount === 1 ? "" : "s"}
+                </Badge>
               </div>
 
-              <div className="mt-4 space-y-2">
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Assigned profiles
+                </Label>
                 {selectedUser.profiles.length ? (
                   selectedUser.profiles.map((profile) => (
-                    <div key={profile.id} className="flex items-center justify-between gap-3 rounded-md bg-muted p-3">
-                      <div>
-                        <p className="text-sm font-medium">{profile.name}</p>
-                        <p className="text-xs text-muted-foreground">{profile.code}</p>
+                    <div
+                      key={profile.id}
+                      className="flex items-center justify-between gap-3 rounded-md border p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{profile.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {profile.permissions.length} permission
+                          {profile.permissions.length === 1 ? "" : "s"} · {profile.code}
+                        </p>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => handleRevokeProfile(profile.id)} disabled={isPending}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRevokeProfile(profile.id)}
+                        disabled={isPending}
+                      >
                         <X className="mr-2 h-4 w-4" />
                         Revoke
                       </Button>
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-muted-foreground">No permission profiles assigned.</p>
+                  <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                    No profiles yet — this person has only what their login role allows.
+                  </p>
                 )}
               </div>
-            </div>
-          )}
 
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose profile to assign" />
-              </SelectTrigger>
-              <SelectContent>
-                {assignableProfiles.map((profile) => (
-                  <SelectItem key={profile.id} value={profile.id}>
-                    {profile.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button onClick={handleAssignProfile} disabled={isPending || !selectedUserId || !selectedProfileId}>
-              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              Assign
-            </Button>
-          </div>
+              <div className="mt-auto space-y-2 border-t pt-4">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Add a profile
+                </Label>
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                  <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          assignableProfiles.length ? "Choose a profile" : "Every profile is assigned"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {assignableProfiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleAssignProfile}
+                    disabled={isPending || !selectedUserId || !selectedProfileId}
+                  >
+                    {isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="mr-2 h-4 w-4" />
+                    )}
+                    Assign
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Select a staff member to see and change what they can do.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

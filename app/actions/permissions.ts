@@ -114,13 +114,17 @@ export async function getPermissionManagementData() {
         orderBy: [{ isSystem: "desc" }, { name: "asc" }],
       }),
       prisma.user.findMany({
+        // Staff only. Permission profiles grant office duties — compiling results,
+        // recording payments, running payroll — and a student or parent has no
+        // business in that list. Including them also meant loading the entire
+        // school roll on every visit to this page, thousands of rows to pick one
+        // person out of.
         where: {
           isActive: true,
           OR: [
             { admin: { schoolId: actor.schoolId } },
             { teacher: { schoolId: actor.schoolId } },
-            { parent: { schoolId: actor.schoolId } },
-            { student: { schoolId: actor.schoolId } },
+            { staffRecord: { schoolId: actor.schoolId } },
           ],
         },
         select: {
@@ -128,6 +132,8 @@ export async function getPermissionManagementData() {
           firstName: true,
           lastName: true,
           role: true,
+          teacher: { select: { id: true } },
+          staffRecord: { select: { staffNo: true, jobTitle: true, department: true } },
           permissionProfiles: {
             where: { schoolId: actor.schoolId },
             select: {
@@ -171,6 +177,12 @@ export async function getPermissionManagementData() {
           id: user.id,
           name: `${user.firstName} ${user.lastName}`,
           role: user.role,
+          // What this person does, for telling two staff of the same login role
+          // apart in the list. Falls back to the login role when nobody has
+          // filled in an HR record.
+          jobTitle: user.staffRecord?.jobTitle ?? (user.teacher ? "Teacher" : null),
+          staffNo: user.staffRecord?.staffNo ?? null,
+          department: user.staffRecord?.department ?? null,
           profiles: user.permissionProfiles
             .filter((assignment) => assignment.isActive && assignment.profile.isActive)
             .map((assignment) => ({

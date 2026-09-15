@@ -65,8 +65,12 @@ export function DashboardLayoutClient({
         <NavigationProgress />
         <LoadingOverlay />
         <AppSidebar userRole={userRole} schoolInfo={schoolInfo} permissions={permissions} />
-        <SidebarInset>
-          <div className="flex flex-col min-h-screen">
+        {/* min-w-0: the inset is a flex child beside a 256px sidebar and carries
+            w-full, so without this any wide child — a results table, a payroll
+            run — sets the floor and pushes the whole page sideways instead of
+            scrolling inside its own container. */}
+        <SidebarInset className="min-w-0">
+          <div className="flex min-h-screen min-w-0 flex-col">
             <DashboardHeader
               userRole={userRole}
               userName={userName}

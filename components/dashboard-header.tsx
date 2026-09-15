@@ -121,7 +121,15 @@ export function DashboardHeader({
 
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-            {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            {/* Both icons are always rendered and CSS picks one, rather than
+                branching on the theme in JS. The server has no way to know the
+                viewer's theme, so it always rendered the moon; a dark-mode
+                viewer hydrated a sun over it, React found the trees differed and
+                threw away the server HTML for the whole page. This markup is
+                identical on both sides, and the .dark class next-themes sets
+                before first paint decides what is seen. */}
+            <Sun className="hidden h-5 w-5 dark:block" />
+            <Moon className="h-5 w-5 dark:hidden" />
             <span className="sr-only">Toggle theme</span>
           </Button>
 
