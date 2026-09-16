@@ -1181,15 +1181,14 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {/* One entry, because there is one page. This group previously listed
-                        My Children, Academic Progress, Attendance and Fees, all resolving
-                        here. Fees especially: finance exists now, but nothing in it is
-                        parent-facing, and pointing a Fees link at a dashboard is the worst
-                        way to promise one. */}
+                    {/* My Children is its own page now. It used to point at
+                        /dashboard/parent, the same URL as Dashboard above it, so a parent
+                        had two menu entries and one page and clicking either appeared to
+                        do nothing. */}
                     <SidebarMenuItem>
                       <SidebarMenuButton
-                        href="/dashboard/parent"
-                        isActive={pathname === "/dashboard/parent"}
+                        href="/dashboard/parent/children"
+                        isActive={pathname.startsWith("/dashboard/parent/children")}
                       >
                         <Users className="h-4 w-4" />
                         <span>My Children</span>

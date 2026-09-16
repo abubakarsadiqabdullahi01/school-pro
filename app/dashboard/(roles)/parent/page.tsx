@@ -1,9 +1,11 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/db"
 import { redirect } from "next/navigation"
-import { Calendar, CheckCircle, DollarSign, Users } from "lucide-react"
+import Link from "next/link"
+import { ArrowRight, Calendar, CheckCircle, DollarSign, Users } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { StatsCard } from "@/components/dashboard/stats-card"
 import { formatDate } from "@/lib/format"
@@ -113,12 +115,25 @@ export default async function ParentDashboardPage() {
             return (
               <Card key={child.id}>
                 <CardHeader>
-                  <CardTitle>
-                    {child.user.firstName} {child.user.lastName}
-                  </CardTitle>
-                  <CardDescription>
-                    {child.admissionNo} · {enrollment?.classTerm.class.name ?? "No class assigned"}
-                  </CardDescription>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <CardTitle>
+                        {child.user.firstName} {child.user.lastName}
+                      </CardTitle>
+                      <CardDescription>
+                        {child.admissionNo} · {enrollment?.classTerm.class.name ?? "No class assigned"}
+                      </CardDescription>
+                    </div>
+                    {/* The summary below is a glance; everything about the child —
+                        subjects, released results, fees and every receipt — is one click
+                        away rather than nowhere. */}
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/dashboard/parent/children/${child.id}`}>
+                        View details
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-3">
