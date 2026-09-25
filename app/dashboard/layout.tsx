@@ -1,10 +1,15 @@
 import type React from "react"
 import { redirect } from "next/navigation"
-import { auth } from "@/auth"
+import { authActive, getEffectivePermissionsForCurrentUser } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client"
+import { IdleSessionWatcher } from "@/components/session/idle-session-watcher"
 import { getActiveSchool, getSchoolOptions } from "@/lib/school-context.server"
-import { getEffectivePermissionsForCurrentUser } from "@/lib/authz"
+
+// Every dashboard screen depends on the signed-in user and school selection. Declaring
+// this at the shared boundary avoids wasteful prerender attempts and noisy build-time
+// authentication errors for every child route.
+export const dynamic = "force-dynamic"
 
 export const metadata = {
   title: "Dashboard | DigiSchool-Pro",
@@ -13,7 +18,7 @@ export const metadata = {
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   // Get the user session
-  const session = await auth()
+  const session = await authActive()
 
   // If no session, redirect to login
   if (!session || !session.user) {
@@ -98,6 +103,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <DashboardLayoutClient
+      userId={session.user.id}
       userRole={userRole}
       userName={userName}
       userAvatar={session.user.avatarUrl}
@@ -106,6 +112,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
       activeSchool={activeSchool}
       permissions={permissions}
     >
+      {/*
+        Mounted once for the whole dashboard rather than per page, so the countdown
+        survives navigation. It renders nothing until a session is close to expiring.
+      */}
+      <IdleSessionWatcher />
       {children}
     </DashboardLayoutClient>
   )

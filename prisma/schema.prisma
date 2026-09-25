@@ -37,6 +37,7 @@ model User {
   enrollmentHistory          StudentEnrollmentHistory[] @relation("EnrollmentHistoryCreatedBy")
   traitRatingsRecorded       StudentTraitRating[]       @relation("TraitRatingRecordedBy")
   integrityChecks            DataIntegrityCheck[]       @relation("IntegrityChecksRunBy")
+  accountingReversals        AccountingReversal[]       @relation("AccountingReversalCreatedBy")
   receivedPayments           Payment[]                  @relation("PaymentReceivedByUser")
   expensesRecorded           Expense[]                  @relation("ExpenseRecordedBy")
   expensesApproved           Expense[]                  @relation("ExpenseApprovedBy")
@@ -55,6 +56,7 @@ model User {
   permissionProfiles         UserPermissionProfile[]    @relation("UserPermissionProfiles")
   permissionProfilesAssigned UserPermissionProfile[]    @relation("PermissionProfilesAssignedBy")
   resultWorkflowEvents       ResultWorkflowEvent[]      @relation("ResultWorkflowEventActor")
+  attendancesMarked          Attendance[]               @relation("AttendanceMarkedBy")
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
 
@@ -76,18 +78,20 @@ model Student {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  parents           StudentParent[]            @relation("StudentParents")
-  classTerms        StudentClassTerm[]         @relation("StudentClassTerms")
-  assessments       Assessment[]               @relation("StudentAssessments")
-  payments          Payment[]                  @relation("StudentPayments")
-  charges           StudentCharge[]            @relation("StudentCharges")
-  discounts         Discount[]                 @relation("StudentDiscounts")
-  exemptions        FeeExemption[]             @relation("StudentFeeExemptions")
-  expensesReceived  Expense[]                  @relation("ExpensePayeeStudent")
-  transitions       StudentTransition[]        @relation("StudentTransitions")
-  attendances       Attendance[]               @relation("StudentAttendances")
-  enrollmentHistory StudentEnrollmentHistory[] @relation("StudentEnrollmentHistory")
-  traitRatings      StudentTraitRating[]       @relation("StudentTraitRatings")
+  parents             StudentParent[]            @relation("StudentParents")
+  classTerms          StudentClassTerm[]         @relation("StudentClassTerms")
+  assessments         Assessment[]               @relation("StudentAssessments")
+  payments            Payment[]                  @relation("StudentPayments")
+  gatewayTransactions GatewayTransaction[]
+  charges             StudentCharge[]            @relation("StudentCharges")
+  discounts           Discount[]                 @relation("StudentDiscounts")
+  exemptions          FeeExemption[]             @relation("StudentFeeExemptions")
+  expensesReceived    Expense[]                  @relation("ExpensePayeeStudent")
+  transitions         StudentTransition[]        @relation("StudentTransitions")
+  attendances         Attendance[]               @relation("StudentAttendances")
+  enrollmentHistory   StudentEnrollmentHistory[] @relation("StudentEnrollmentHistory")
+  traitRatings        StudentTraitRating[]       @relation("StudentTraitRatings")
+  annualDecisions     AnnualResultDecision[]
 
   @@index([schoolId])
   @@index([admissionNo])
@@ -176,9 +180,9 @@ model StudentEnrollmentHistory {
   createdBy           String
   createdAt           DateTime         @default(now())
 
-  student       Student   @relation("StudentEnrollmentHistory", fields: [studentId], references: [id], onDelete: Cascade)
-  classTerm     ClassTerm @relation(fields: [classTermId], references: [id], onDelete: Cascade)
-  term          Term      @relation(fields: [termId], references: [id], onDelete: Cascade)
+  student       Student   @relation("StudentEnrollmentHistory", fields: [studentId], references: [id], onDelete: Restrict)
+  classTerm     ClassTerm @relation(fields: [classTermId], references: [id], onDelete: Restrict)
+  term          Term      @relation(fields: [termId], references: [id], onDelete: Restrict)
   createdByUser User      @relation("EnrollmentHistoryCreatedBy", fields: [createdBy], references: [id])
 
   @@index([studentId, termId])
@@ -251,20 +255,25 @@ model AssessmentScheme {
 /// draft, reviewed, published, locked, or withdrawn. Individual Assessment rows still
 /// carry publication flags for family visibility; this row is the module-level state.
 model ClassTermResultWorkflow {
-  id          String               @id @default(uuid())
-  classTermId String               @unique
-  status      ResultWorkflowStatus @default(DRAFT)
-  reviewedBy  String?
-  reviewedAt  DateTime?
-  publishedBy String?
-  publishedAt DateTime?
-  lockedBy    String?
-  lockedAt    DateTime?
-  withdrawnBy String?
-  withdrawnAt DateTime?
-  notes       String?              @db.VarChar(1000)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  id                       String               @id @default(uuid())
+  classTermId              String               @unique
+  status                   ResultWorkflowStatus @default(DRAFT)
+  reviewedBy               String?
+  reviewedAt               DateTime?
+  publishedBy              String?
+  publishedAt              DateTime?
+  lockedBy                 String?
+  lockedAt                 DateTime?
+  withdrawnBy              String?
+  withdrawnAt              DateTime?
+  notes                    String?              @db.VarChar(1000)
+  /// Frozen policies used when the result was published. Historical reports must never
+  /// change because a school edits its current grading bands or assessment split.
+  gradingSnapshot          Json?
+  assessmentSchemeSnapshot Json?
+  snapshotCapturedAt       DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
 
   classTerm ClassTerm             @relation(fields: [classTermId], references: [id], onDelete: Cascade)
   events    ResultWorkflowEvent[]
@@ -326,13 +335,15 @@ model Payment {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  school         School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  student        Student             @relation("StudentPayments", fields: [studentId], references: [id], onDelete: Cascade)
-  feeStructure   FeeStructure?       @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
-  term           Term                @relation(fields: [termId], references: [id], onDelete: Cascade)
-  session        Session?            @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  receivedByUser User?               @relation("PaymentReceivedByUser", fields: [receivedBy], references: [id], onDelete: SetNull)
-  allocations    PaymentAllocation[]
+  school             School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student            Student              @relation("StudentPayments", fields: [studentId], references: [id], onDelete: Cascade)
+  feeStructure       FeeStructure?        @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
+  term               Term                 @relation(fields: [termId], references: [id], onDelete: Cascade)
+  session            Session?             @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  receivedByUser     User?                @relation("PaymentReceivedByUser", fields: [receivedBy], references: [id], onDelete: SetNull)
+  allocations        PaymentAllocation[]
+  reversals          AccountingReversal[]
+  gatewayTransaction GatewayTransaction?
 
   // Receipt numbers are issued per school, so two schools may both hold receipt 0001.
   @@unique([schoolId, receiptNo])
@@ -428,41 +439,49 @@ model School {
   admissionFormat        String @default("{PREFIX}-{YEAR}-{NUMBER}")
   admissionSequenceStart Int    @default(1)
 
-  sessions             Session[]
-  classes              Class[]
-  subjects             Subject[]
-  students             Student[]
-  teachers             Teacher[]
-  parents              Parent[]
-  admins               Admin[]
-  gradingSystems       GradingSystem[]
-  admissionSequences   AdmissionSequence[]
-  systemConfigurations SystemConfiguration[]
-  feeStructures        FeeStructure[]
-  feeCategories        FeeCategory[]
-  feeSchedules         FeeSchedule[]
-  studentCharges       StudentCharge[]
-  discounts            Discount[]
-  feeExemptions        FeeExemption[]
-  payments             Payment[]
-  receiptSequences     ReceiptSequence[]
-  expenseCategories    ExpenseCategory[]
-  paymentAccounts      PaymentAccount[]
-  expenses             Expense[]
-  voucherSequences     ExpenseVoucherSequence[]
-  staff                Staff[]
-  staffConfig          StaffConfig?
-  salaryScales         SalaryScale[]
-  allowanceTypes       AllowanceType[]
-  deductionTypes       DeductionType[]
-  payrollRuns          PayrollRun[]
-  payrollItems         PayrollItem[]
-  salaryPayments       SalaryPayment[]
-  payslipSequences     PayslipSequence[]
-  transitionPolicy     TransitionPolicy?
-  assessmentScheme     AssessmentScheme?
-  permissionProfiles   PermissionProfile[]
-  traitRatings         StudentTraitRating[]
+  sessions               Session[]
+  classes                Class[]
+  subjects               Subject[]
+  students               Student[]
+  teachers               Teacher[]
+  parents                Parent[]
+  admins                 Admin[]
+  gradingSystems         GradingSystem[]
+  admissionSequences     AdmissionSequence[]
+  systemConfigurations   SystemConfiguration[]
+  feeStructures          FeeStructure[]
+  feeCategories          FeeCategory[]
+  feeSchedules           FeeSchedule[]
+  studentCharges         StudentCharge[]
+  discounts              Discount[]
+  feeExemptions          FeeExemption[]
+  payments               Payment[]
+  receiptSequences       ReceiptSequence[]
+  expenseCategories      ExpenseCategory[]
+  paymentAccounts        PaymentAccount[]
+  expenses               Expense[]
+  voucherSequences       ExpenseVoucherSequence[]
+  staff                  Staff[]
+  staffConfig            StaffConfig?
+  salaryScales           SalaryScale[]
+  allowanceTypes         AllowanceType[]
+  deductionTypes         DeductionType[]
+  payrollRuns            PayrollRun[]
+  payrollItems           PayrollItem[]
+  salaryPayments         SalaryPayment[]
+  payslipSequences       PayslipSequence[]
+  transitionPolicy       TransitionPolicy?
+  classPromotionPolicies ClassPromotionPolicy[]
+  annualDecisions        AnnualResultDecision[]
+  assessmentScheme       AssessmentScheme?
+  permissionProfiles     PermissionProfile[]
+  traitRatings           StudentTraitRating[]
+  academicPeriod         SchoolAcademicPeriod?
+  accountingReversals    AccountingReversal[]
+  integrityChecks        DataIntegrityCheck[]
+  paymentConfigurations  SchoolPaymentConfiguration[]
+  gatewayTransactions    GatewayTransaction[]
+  gatewayEvents          GatewayEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -483,22 +502,24 @@ model AdmissionSequence {
 }
 
 model Session {
-  id             String          @id @default(uuid())
-  schoolId       String
-  name           String
-  startDate      DateTime
-  endDate        DateTime
-  isCurrent      Boolean         @default(false)
-  terms          Term[]
-  payments       Payment[]
-  feeSchedules   FeeSchedule[]
-  studentCharges StudentCharge[]
-  discounts      Discount[]
-  feeExemptions  FeeExemption[]
-  expenses       Expense[]
-  payrollRuns    PayrollRun[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id                String                 @id @default(uuid())
+  schoolId          String
+  name              String
+  startDate         DateTime
+  endDate           DateTime
+  isCurrent         Boolean                @default(false)
+  terms             Term[]
+  payments          Payment[]
+  feeSchedules      FeeSchedule[]
+  studentCharges    StudentCharge[]
+  discounts         Discount[]
+  feeExemptions     FeeExemption[]
+  expenses          Expense[]
+  payrollRuns       PayrollRun[]
+  currentForSchools SchoolAcademicPeriod[] @relation("CurrentAcademicSession")
+  annualDecisions   AnnualResultDecision[]
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
 
   school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 }
@@ -513,21 +534,43 @@ model Term {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  session           Session                    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  classTerms        ClassTerm[]
-  assessments       Assessment[]
-  payments          Payment[]
-  feeSchedules      FeeSchedule[]
-  studentCharges    StudentCharge[]
-  discounts         Discount[]
-  feeExemptions     FeeExemption[]
-  studentClassTerms StudentClassTerm[]
-  teacherSubjects   TeacherSubject[] // Added relationship
-  enrollmentHistory StudentEnrollmentHistory[]
-  expenses          Expense[]
-  traitRatings      StudentTraitRating[]
+  session             Session                    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  classTerms          ClassTerm[]
+  assessments         Assessment[]
+  attendances         Attendance[]
+  payments            Payment[]
+  feeSchedules        FeeSchedule[]
+  studentCharges      StudentCharge[]
+  discounts           Discount[]
+  feeExemptions       FeeExemption[]
+  studentClassTerms   StudentClassTerm[]
+  teacherSubjects     TeacherSubject[] // Added relationship
+  enrollmentHistory   StudentEnrollmentHistory[]
+  expenses            Expense[]
+  traitRatings        StudentTraitRating[]
+  currentForSchools   SchoolAcademicPeriod[]     @relation("CurrentAcademicTerm")
+  gatewayTransactions GatewayTransaction[]
 
   @@index([isCurrent])
+}
+
+/// The database-enforced current-period pointer. There can be exactly one row per school;
+/// the legacy Boolean flags remain synchronized for existing queries and UI code.
+model SchoolAcademicPeriod {
+  id        String   @id @default(uuid())
+  schoolId  String   @unique
+  sessionId String
+  termId    String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  session Session @relation("CurrentAcademicSession", fields: [sessionId], references: [id], onDelete: Cascade)
+  term    Term    @relation("CurrentAcademicTerm", fields: [termId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([termId])
 }
 
 model Class {
@@ -538,9 +581,11 @@ model Class {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  school     School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  classTerms ClassTerm[]
-  subjects   ClassSubject[]
+  school          School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classTerms      ClassTerm[]
+  subjects        ClassSubject[]
+  promotionPolicy ClassPromotionPolicy?
+  annualDecisions AnnualResultDecision[]
 }
 
 model Subject {
@@ -577,6 +622,7 @@ model ClassTerm {
   studentCharges    StudentCharge[]
   resultWorkflow    ClassTermResultWorkflow?
   traitRatings      StudentTraitRating[]
+  attendances       Attendance[]
 
   @@unique([classId, termId])
 }
@@ -716,17 +762,21 @@ model AuditLog {
 
 model DataIntegrityCheck {
   id          String      @id @default(uuid())
+  schoolId    String?
   checkType   String
   description String
   status      CheckStatus @default(PENDING)
   issuesFound Int         @default(0)
+  results     Json?
+  completedAt DateTime?
   resolvedAt  DateTime?
   runBy       String
   createdAt   DateTime    @default(now())
 
-  runByUser User @relation("IntegrityChecksRunBy", fields: [runBy], references: [id], onDelete: Cascade)
+  school    School? @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  runByUser User    @relation("IntegrityChecksRunBy", fields: [runBy], references: [id], onDelete: Restrict)
 
-  @@index([checkType, status])
+  @@index([schoolId, checkType, status])
   @@index([createdAt])
 }
 
@@ -934,15 +984,16 @@ model StudentCharge {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  school      School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  student     Student             @relation("StudentCharges", fields: [studentId], references: [id], onDelete: Cascade)
-  session     Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  term        Term?               @relation(fields: [termId], references: [id], onDelete: Cascade)
-  classTerm   ClassTerm?          @relation(fields: [classTermId], references: [id], onDelete: SetNull)
-  feeSchedule FeeSchedule         @relation(fields: [feeScheduleId], references: [id], onDelete: Restrict)
-  allocations PaymentAllocation[]
-  discounts   Discount[]
-  exemptions  FeeExemption[]
+  school             School                         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student            Student                        @relation("StudentCharges", fields: [studentId], references: [id], onDelete: Cascade)
+  session            Session                        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  term               Term?                          @relation(fields: [termId], references: [id], onDelete: Cascade)
+  classTerm          ClassTerm?                     @relation(fields: [classTermId], references: [id], onDelete: SetNull)
+  feeSchedule        FeeSchedule                    @relation(fields: [feeScheduleId], references: [id], onDelete: Restrict)
+  allocations        PaymentAllocation[]
+  gatewayAllocations GatewayTransactionAllocation[]
+  discounts          Discount[]
+  exemptions         FeeExemption[]
 
   @@unique([studentId, feeScheduleId])
   @@index([schoolId, status])
@@ -965,6 +1016,160 @@ model PaymentAllocation {
 
   @@unique([paymentId, chargeId])
   @@index([chargeId])
+}
+
+/// Per-school payment-provider policy. A row is environment-specific so test onboarding
+/// can be completed without accidentally enabling the live connection.
+model SchoolPaymentConfiguration {
+  id                     String                            @id @default(uuid())
+  schoolId               String
+  provider               PaymentGatewayProvider            @default(PAYSTACK)
+  environment            PaymentGatewayEnvironment
+  accountMode            PaymentGatewayAccountMode         @default(PLATFORM_MANAGED)
+  status                 PaymentGatewayConfigurationStatus @default(DRAFT)
+  isEnabled              Boolean                           @default(false)
+  subaccountCode         String?
+  providerAccountId      String?
+  /// Reference to an encrypted secret or vault entry for a future school-owned connection.
+  /// Never store an API secret directly in this field.
+  credentialKeyRef       String?
+  businessName           String?
+  settlementBankCode     String?
+  settlementAccountLast4 String?                           @db.VarChar(4)
+  feePolicy              PaymentGatewayFeePolicy           @default(SCHOOL_PAYS)
+  platformChargeType     PaymentGatewayChargeType          @default(NONE)
+  platformChargeValue    Decimal                           @default(0) @db.Decimal(12, 2)
+  allowedChannels        Json?
+  allowPartialPayments   Boolean                           @default(false)
+  allocationPolicy       GatewayAllocationPolicy           @default(SELECTED_CHARGES)
+  configVersion          Int                               @default(1)
+  verifiedAt             DateTime?
+  suspendedAt            DateTime?
+  createdAt              DateTime                          @default(now())
+  updatedAt              DateTime                          @updatedAt
+
+  school       School                    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  transactions GatewayTransaction[]
+  credential   PaymentGatewayCredential?
+
+  @@unique([schoolId, provider, environment])
+  @@index([provider, environment, status])
+  @@index([schoolId, isEnabled])
+}
+
+/// Encrypted school-owned provider credentials. The encryption key stays outside the
+/// database; webhookToken selects the right secret without exposing a school id publicly.
+model PaymentGatewayCredential {
+  id                   String    @id @default(uuid())
+  configurationId      String    @unique
+  encryptedSecret      String    @db.Text
+  initializationVector String    @db.VarChar(24)
+  authenticationTag    String    @db.VarChar(32)
+  secretLast4          String    @db.VarChar(4)
+  publicKey            String?
+  webhookToken         String    @unique @db.Char(64)
+  keyVersion           Int       @default(1)
+  rotatedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  configuration SchoolPaymentConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+}
+
+/// Provider-side payment attempt. Successful rows link one-to-one to the ordinary
+/// finance Payment so reports never need a second online-only ledger.
+model GatewayTransaction {
+  id                    String                    @id @default(uuid())
+  schoolId              String
+  studentId             String
+  termId                String
+  configurationId       String?
+  provider              PaymentGatewayProvider    @default(PAYSTACK)
+  environment           PaymentGatewayEnvironment
+  reference             String
+  providerTransactionId String?
+  status                GatewayTransactionStatus  @default(CREATED)
+  currency              String                    @default("NGN") @db.VarChar(3)
+  amountExpected        Decimal                   @db.Decimal(14, 2)
+  amountRequested       Decimal?                  @db.Decimal(14, 2)
+  amountCharged         Decimal?                  @db.Decimal(14, 2)
+  providerFee           Decimal?                  @db.Decimal(14, 2)
+  channel               String?
+  payerEmail            String?                   @db.VarChar(320)
+  paymentId             String?                   @unique
+  configurationSnapshot Json?
+  providerMetadata      Json?
+  failureCode           String?
+  failureMessage        String?                   @db.Text
+  initializedAt         DateTime?
+  verifiedAt            DateTime?
+  paidAt                DateTime?
+  expiresAt             DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  school        School                         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student       Student                        @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  term          Term                           @relation(fields: [termId], references: [id], onDelete: Restrict)
+  configuration SchoolPaymentConfiguration?    @relation(fields: [configurationId], references: [id], onDelete: SetNull)
+  payment       Payment?                       @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  allocations   GatewayTransactionAllocation[]
+  events        GatewayEvent[]
+
+  @@unique([provider, reference])
+  @@index([schoolId, status, createdAt])
+  @@index([studentId, createdAt])
+  @@index([configurationId])
+  @@index([providerTransactionId])
+}
+
+/// Intended ledger allocations captured before leaving DigiSchool-Pro for checkout.
+model GatewayTransactionAllocation {
+  id                   String   @id @default(uuid())
+  gatewayTransactionId String
+  chargeId             String
+  amount               Decimal  @db.Decimal(14, 2)
+  createdAt            DateTime @default(now())
+
+  gatewayTransaction GatewayTransaction @relation(fields: [gatewayTransactionId], references: [id], onDelete: Cascade)
+  charge             StudentCharge      @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+
+  @@unique([gatewayTransactionId, chargeId])
+  @@index([chargeId])
+}
+
+/// Durable webhook inbox. Persist a verified event before returning HTTP 200, then process
+/// it through the idempotent gateway confirmation service.
+model GatewayEvent {
+  id                   String                    @id @default(uuid())
+  schoolId             String?
+  gatewayTransactionId String?
+  provider             PaymentGatewayProvider    @default(PAYSTACK)
+  environment          PaymentGatewayEnvironment
+  providerEventId      String?
+  eventType            String
+  reference            String?
+  payloadHash          String                    @db.Char(64)
+  payload              Json?
+  status               GatewayEventStatus        @default(PENDING)
+  attempts             Int                       @default(0)
+  nextAttemptAt        DateTime?
+  claimedAt            DateTime?
+  processedAt          DateTime?
+  lastError            String?                   @db.Text
+  receivedAt           DateTime                  @default(now())
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  school             School?             @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  gatewayTransaction GatewayTransaction? @relation(fields: [gatewayTransactionId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, environment, payloadHash])
+  @@unique([provider, environment, providerEventId])
+  @@index([status, nextAttemptAt, receivedAt])
+  @@index([reference])
+  @@index([schoolId, receivedAt])
+  @@index([gatewayTransactionId])
 }
 
 model Discount {
@@ -1036,19 +1241,28 @@ model FeeExemption {
 }
 
 model Attendance {
-  id        String           @id @default(uuid())
-  studentId String
-  date      DateTime
-  status    AttendanceStatus
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id          String           @id @default(uuid())
+  studentId   String
+  classTermId String?
+  termId      String?
+  markedBy    String?
+  date        DateTime
+  status      AttendanceStatus
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
-  student Student @relation("StudentAttendances", fields: [studentId], references: [id], onDelete: Cascade)
+  student   Student    @relation("StudentAttendances", fields: [studentId], references: [id], onDelete: Cascade)
+  classTerm ClassTerm? @relation(fields: [classTermId], references: [id], onDelete: SetNull)
+  term      Term?      @relation(fields: [termId], references: [id], onDelete: SetNull)
+  marker    User?      @relation("AttendanceMarkedBy", fields: [markedBy], references: [id], onDelete: SetNull)
 
   // One row per student per day. Without this, two concurrent marks create two rows and
   // every attendance summary double-counts.
   @@unique([studentId, date])
   @@index([date])
+  @@index([classTermId, date])
+  @@index([termId, date])
+  @@index([markedBy])
 }
 
 /// One term's rating for one affective or psychomotor trait.
@@ -1184,19 +1398,20 @@ model Expense {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  school         School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  session        Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  term           Term                @relation(fields: [termId], references: [id], onDelete: Cascade)
-  category       ExpenseCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  account        PaymentAccount      @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  recordedByUser User                @relation("ExpenseRecordedBy", fields: [recordedBy], references: [id], onDelete: Restrict)
-  approvedByUser User?               @relation("ExpenseApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
-  paidByUser     User?               @relation("ExpensePaidBy", fields: [paidBy], references: [id], onDelete: SetNull)
-  payeeUser      User?               @relation("ExpensePayeeUser", fields: [payeeUserId], references: [id], onDelete: SetNull)
-  payeeStudent   Student?            @relation("ExpensePayeeStudent", fields: [payeeStudentId], references: [id], onDelete: SetNull)
-  payeeStaff     Staff?              @relation("ExpensePayeeStaff", fields: [payeeStaffId], references: [id], onDelete: SetNull)
+  school         School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  session        Session              @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  term           Term                 @relation(fields: [termId], references: [id], onDelete: Cascade)
+  category       ExpenseCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  account        PaymentAccount       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  recordedByUser User                 @relation("ExpenseRecordedBy", fields: [recordedBy], references: [id], onDelete: Restrict)
+  approvedByUser User?                @relation("ExpenseApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  paidByUser     User?                @relation("ExpensePaidBy", fields: [paidBy], references: [id], onDelete: SetNull)
+  payeeUser      User?                @relation("ExpensePayeeUser", fields: [payeeUserId], references: [id], onDelete: SetNull)
+  payeeStudent   Student?             @relation("ExpensePayeeStudent", fields: [payeeStudentId], references: [id], onDelete: SetNull)
+  payeeStaff     Staff?               @relation("ExpensePayeeStaff", fields: [payeeStaffId], references: [id], onDelete: SetNull)
   attachments    ExpenseAttachment[]
   salaryPayments SalaryPayment[]
+  reversals      AccountingReversal[]
 
   /// Voucher numbers are issued per school, so two schools may both hold voucher 0001.
   @@unique([schoolId, voucherNo])
@@ -1296,12 +1511,26 @@ model Staff {
   pensionPin    String?
   taxId         String?
 
-  notes     String?  @db.Text
+  notes String? @db.Text
+
+  /// How far through HR paperwork this person is.
+  ///
+  /// Defaults to COMPLETE, which is correct for every record that reaches this table the
+  /// old way: an HR officer filling the staff form has the person in front of them. Only
+  /// `provisionStaffForTeacher` writes NOT_STARTED, because a record created as a
+  /// side-effect of adding a teacher has a name and almost nothing else. That default is
+  /// also what keeps existing rows honest when this column is added.
+  onboardingStatus StaffOnboardingStatus @default(COMPLETE)
+  /// Set when the record was created automatically from a teacher rather than typed by HR.
+  /// Kept so the onboarding queue can explain itself rather than just listing names.
+  autoProvisioned  Boolean               @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   school       School                    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   user         User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  documents    StaffDocument[]
   salaries     StaffSalary[]
   allowances   StaffAllowance[]
   deductions   StaffDeduction[]
@@ -1311,6 +1540,7 @@ model Staff {
 
   @@unique([schoolId, staffNo])
   @@index([schoolId, employmentStatus])
+  @@index([schoolId, onboardingStatus])
   @@index([schoolId, staffType])
   @@index([department])
   @@index([lastName, firstName])
@@ -1524,13 +1754,14 @@ model PayrollRun {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  school          School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  session         Session?        @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  generatedByUser User            @relation("PayrollGeneratedBy", fields: [generatedBy], references: [id], onDelete: Restrict)
-  approvedByUser  User?           @relation("PayrollApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
-  paidByUser      User?           @relation("PayrollPaidBy", fields: [paidBy], references: [id], onDelete: SetNull)
+  school          School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  session         Session?             @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  generatedByUser User                 @relation("PayrollGeneratedBy", fields: [generatedBy], references: [id], onDelete: Restrict)
+  approvedByUser  User?                @relation("PayrollApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  paidByUser      User?                @relation("PayrollPaidBy", fields: [paidBy], references: [id], onDelete: SetNull)
   items           PayrollItem[]
   payments        SalaryPayment[]
+  reversals       AccountingReversal[]
 
   /// One payroll per school per month. This is the duplicate-payroll guard, at the database
   /// level rather than only in application code.
@@ -1538,6 +1769,32 @@ model PayrollRun {
   @@index([schoolId, status])
   @@index([sessionId])
   @@index([year, month])
+}
+
+/// Append-only accounting evidence for money that was returned or a payment that was
+/// undone. The original record stays visible and immutable; exactly one target is set.
+model AccountingReversal {
+  id           String         @id @default(uuid())
+  schoolId     String
+  targetType   ReversalTarget
+  paymentId    String?        @unique
+  expenseId    String?        @unique
+  payrollRunId String?        @unique
+  amount       Decimal        @db.Decimal(14, 2)
+  reason       String         @db.VarChar(500)
+  referenceNo  String?
+  reversedAt   DateTime       @default(now())
+  createdBy    String
+  createdAt    DateTime       @default(now())
+
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  payment       Payment?    @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  expense       Expense?    @relation(fields: [expenseId], references: [id], onDelete: Restrict)
+  payrollRun    PayrollRun? @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
+  createdByUser User        @relation("AccountingReversalCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, reversedAt])
+  @@index([targetType, reversedAt])
 }
 
 /// One staff member's line in a payroll run.
@@ -1710,11 +1967,155 @@ model TransitionPolicy {
   minCoreSubjectsPassed     Int?
   requireAllSubjectsEntered Boolean                  @default(false)
   allowManualOverride       Boolean                  @default(true)
+  /// Minimum subjects at or above `creditMark`. Null means credits are not counted.
+  ///
+  /// Distinct from `minSubjectsPassed`, which counts against the grading system pass mark
+  /// (40 by default). A credit is the higher bar Nigerian schools actually promote on: a
+  /// D7 at 45 is a pass and is not a credit.
+  minCreditsRequired        Int?
+  /// The score a subject must reach to count as a credit. 50 is the WAEC C6 boundary.
+  creditMark                Decimal                  @default(50.00) @db.Decimal(5, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+}
+
+/// A class's own promotion rules, overriding the school default.
+///
+/// The school-wide `TransitionPolicy` answers "how does this school promote"; this answers
+/// "except for JSS3", which is the question a real school actually has. A class with no row
+/// here follows the school default unchanged, so adding this model changes nothing until
+/// somebody deliberately overrides a class.
+///
+/// Deliberately **not** versioned by session. A policy edit cannot rewrite history because
+/// history does not read the policy: `AnnualResultDecision` freezes the rule it was judged
+/// by at the moment the decision is taken.
+model ClassPromotionPolicy {
+  id       String @id @default(uuid())
+  schoolId String
+  classId  String @unique
+
+  requireResultsPublished   Boolean                  @default(false)
+  usePromotionCriteria      Boolean                  @default(true)
+  promotionMinAverage       Decimal?                 @db.Decimal(5, 2)
+  minSubjectsPassed         Int?
+  minCreditsRequired        Int?
+  creditMark                Decimal                  @default(50.00) @db.Decimal(5, 2)
+  evaluationScope           PromotionEvaluationScope @default(SESSION_AVERAGE)
+  requiredSubjectIds        Json?
+  minCoreSubjectsPassed     Int?
+  requireAllSubjectsEntered Boolean                  @default(false)
+  allowManualOverride       Boolean                  @default(true)
+  /// A final year - SS3, or Primary 6. Its learners GRADUATE rather than being PROMOTED.
+  /// The academic bar still applies: a school that wants every finalist out regardless
+  /// turns `usePromotionCriteria` off for the class rather than needing a second flag.
+  isGraduatingClass         Boolean                  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  class  Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+}
+
+/// One learner's end-of-session outcome, frozen.
+///
+/// This is the record the annual report card prints, and the reason the promotion rules
+/// needed somewhere to land. Three things matter about it:
+///
+///  - **The decision is a field, not a sentence.** `decision` is the status; the principal's
+///    words are separate free text. Parsing "Promoted to JSS2" back into a status would be
+///    a bug waiting to happen.
+///  - **It is a snapshot.** The average, the counts, the reasons and the policy that judged
+///    them are all copied in. Editing a class's promotion rule next year must not silently
+///    restate what was decided this year.
+///  - **Deciding and approving are separate acts.** An exams officer computes; a principal
+///    approves. Only an approved decision prints on a card.
+model AnnualResultDecision {
+  id        String @id @default(uuid())
+  schoolId  String
+  sessionId String
+  classId   String
+  studentId String
+
+  decision         AnnualPromotionDecision @default(PENDING)
+  /// The principal's own words. Never the status - see the note above.
+  principalComment String?                 @db.Text
+
+  sessionAverage  Decimal? @db.Decimal(5, 2)
+  subjectsOffered Int      @default(0)
+  subjectsPassed  Int      @default(0)
+  creditsEarned   Int      @default(0)
+  termsCounted    Int      @default(0)
+
+  /// The resolved policy this was judged by, copied in rather than referenced.
+  policyBasis Json?
+  /// Every reason the policy gave for refusing, frozen with the decision.
+  reasons     Json?
+
+  /// True when a human chose an outcome the rules did not reach.
+  isOverride     Boolean @default(false)
+  overrideReason String? @db.Text
+
+  /// User ids, deliberately without relations: who decided must survive their account
+  /// being deleted, the same reasoning as `Assessment.publishedBy`.
+  decidedBy  String?
+  decidedAt  DateTime?
+  approvedBy String?
+  approvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  class   Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, sessionId])
+  @@index([schoolId, sessionId])
+  @@index([classId, sessionId])
+  @@index([sessionId, decision])
+}
+
+/// A file HR holds for a staff member: the appointment letter, an ID, a certificate.
+///
+/// The file itself lives in the same storage the expenditure receipts use; this row is the
+/// record of it, plus the two things a paper file cannot answer - when it expires and who
+/// checked it.
+model StaffDocument {
+  id      String            @id @default(uuid())
+  staffId String
+  type    StaffDocumentType
+  title   String
+
+  /// Storage key, not a URL. Resolved through the same signing path as expense receipts so
+  /// a staff member's ID card is never a guessable public link.
+  storageKey String
+  fileName   String?
+  fileSize   Int?
+  mimeType   String?
+
+  /// For anything that lapses - a contract, a work permit, a medical.
+  expiresAt DateTime?
+
+  /// User ids without relations, for the same reason as AnnualResultDecision.
+  uploadedBy String?
+  verifiedBy String?
+  verifiedAt DateTime?
+  notes      String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, type])
+  @@index([expiresAt])
 }
 
 // Enums remain the same
@@ -1739,6 +2140,68 @@ enum AttemptStatus {
   FAILED_PASSWORD
   FAILED_CREDENTIAL
   LOCKED_OUT
+}
+
+enum PaymentGatewayProvider {
+  PAYSTACK
+}
+
+enum PaymentGatewayEnvironment {
+  TEST
+  LIVE
+}
+
+enum PaymentGatewayAccountMode {
+  PLATFORM_MANAGED
+  SCHOOL_OWNED
+}
+
+enum PaymentGatewayConfigurationStatus {
+  DRAFT
+  PENDING_VERIFICATION
+  READY
+  SUSPENDED
+  DISABLED
+}
+
+enum PaymentGatewayFeePolicy {
+  SCHOOL_PAYS
+  PLATFORM_PAYS
+  PARENT_PAYS_GROSS_UP
+}
+
+enum PaymentGatewayChargeType {
+  NONE
+  FLAT
+  PERCENTAGE
+}
+
+enum GatewayAllocationPolicy {
+  SELECTED_CHARGES
+  OLDEST_FIRST
+  MANUAL_REVIEW
+}
+
+enum GatewayTransactionStatus {
+  CREATED
+  INITIALIZED
+  INITIALIZATION_UNKNOWN
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  ABANDONED
+  REQUIRES_REVIEW
+  REFUNDED
+  DISPUTED
+}
+
+enum GatewayEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
 }
 
 enum ClassLevel {
@@ -1820,6 +2283,35 @@ enum PromotionEvaluationScope {
   SESSION_AVERAGE
 }
 
+/// The outcome printed on an annual report card.
+///
+/// PENDING is the honest state between compiling a session and a principal approving it -
+/// better than defaulting to PROMOTED and hoping somebody checks.
+enum AnnualPromotionDecision {
+  PENDING
+  PROMOTED
+  REPEATED
+  GRADUATED
+}
+
+enum StaffOnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum StaffDocumentType {
+  APPOINTMENT_LETTER
+  IDENTIFICATION
+  QUALIFICATION_CERTIFICATE
+  BIRTH_CERTIFICATE
+  MEDICAL_REPORT
+  REFERENCE_LETTER
+  GUARANTOR_FORM
+  CONTRACT
+  OTHER
+}
+
 enum TransitionType {
   PROMOTION
   TRANSFER
@@ -1873,6 +2365,7 @@ enum ExpenseStatus {
   PAID
   REJECTED
   CANCELLED
+  REVERSED
 }
 
 /// Used by Expense. `Payment.paymentMethod` on the income side is still a plain String
@@ -1930,12 +2423,20 @@ enum PayrollStatus {
   APPROVED
   PAID
   CANCELLED
+  REVERSED
 }
 
 enum PayrollItemStatus {
   PENDING
   PAID
   EXCLUDED
+  REVERSED
+}
+
+enum ReversalTarget {
+  PAYMENT
+  EXPENSE
+  PAYROLL
 }
 
 enum PayrollLineKind {

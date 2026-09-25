@@ -19,8 +19,11 @@ export function storageRoot() {
 }
 
 // Only generated names in known categories can ever resolve to disk paths.
+// Keep this list in step with `storeUpload`'s category union: a category missing here
+// cannot be written or read at all, and the failure looks like "Invalid file reference"
+// rather than anything pointing at the real cause.
 export function validFileKey(key: string) {
-  return /^(school-logos|profile-avatars|expense-receipts)\/[a-zA-Z0-9_-]{1,100}\/[a-f0-9-]{36}\.(jpg|png|gif|webp|heic|pdf)$/.test(key)
+  return /^(school-logos|profile-avatars|expense-receipts|staff-documents)\/[a-zA-Z0-9_-]{1,100}\/[a-f0-9-]{36}\.(jpg|png|gif|webp|heic|pdf)$/.test(key)
 }
 export function localFileKey(url: string): string | null {
   if (!url.startsWith(FILE_URL_PREFIX)) return null
@@ -34,19 +37,19 @@ export function fileContentType(key: string) {
 async function filePath(key: string, create = false) {
   if (!validFileKey(key)) throw new UploadError("Invalid file reference")
   const root = storageRoot()
-  const parent = path.join(root, path.dirname(key))
+  const parent = path.join(/* turbopackIgnore: true */ root, path.dirname(key))
   if (create) await mkdir(parent, { recursive: true, mode: 0o700 })
   // Refuse symlinks in the managed tree; even valid keys must stay in storage.
   let current = root
   for (const segment of ["", ...key.split("/")]) {
-    if (segment) current = path.join(current, segment)
+    if (segment) current = path.join(/* turbopackIgnore: true */ current, segment)
     try {
       if ((await lstat(current)).isSymbolicLink()) throw new UploadError("Invalid storage path")
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   }
-  return path.join(root, key)
+  return path.join(/* turbopackIgnore: true */ root, key)
 }
 
 function matchesType(bytes: Buffer, type: string) {
@@ -58,8 +61,10 @@ function matchesType(bytes: Buffer, type: string) {
   if (type === "image/heic") return bytes.subarray(4, 8).toString() === "ftyp" && /^(heic|heix|hevc|hevx|mif1)$/.test(bytes.subarray(8, 12).toString())
   return false
 }
-export async function storeUpload(file: File, category: "school-logos" | "profile-avatars" | "expense-receipts", owner: string) {
-  const allowed = category === "expense-receipts" ? receiptTypes : imageTypes
+export async function storeUpload(file: File, category: "school-logos" | "profile-avatars" | "expense-receipts" | "staff-documents", owner: string) {
+  // Staff documents are scans and PDFs, like receipts - an appointment letter is almost
+  // never a PNG. Logos and avatars stay image-only.
+  const allowed = category === "expense-receipts" || category === "staff-documents" ? receiptTypes : imageTypes
   const max = (category === "profile-avatars" ? 2 : category === "school-logos" ? 5 : 10) * 1024 * 1024
   if (!allowed.includes(file.type) || !file.size || file.size > max) throw new UploadError("Invalid file type or size")
   const bytes = Buffer.from(await file.arrayBuffer())
@@ -69,7 +74,7 @@ export async function storeUpload(file: File, category: "school-logos" | "profil
   return `${FILE_URL_PREFIX}${key}`
 }
 export async function readStoredFile(key: string) {
-  return readFile(await filePath(key))
+  return readFile(/* turbopackIgnore: true */ await filePath(key))
 }
 export async function deleteStoredFile(url: string) {
   const key = localFileKey(url)

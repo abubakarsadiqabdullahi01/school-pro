@@ -1,18 +1,19 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import { auth } from "@/auth";
-import { requireAdminScope } from "@/lib/authz";
+import { requirePermission } from "@/lib/authz";
 import { raiseEnrolmentCharges } from "@/lib/fee-charges.server";
 import { revalidatePath } from "next/cache";
 
 import { calculateGrade } from "@/lib/grading";
 import type { GradingSystem } from "@/lib/grading";
+import { gradingSystemFromSnapshot } from "@/lib/result-snapshot";
 import type { PromotionEvaluationScope } from "@prisma/client";
 import {
   DEFAULT_PROMOTION_POLICY,
   splitByEligibility,
   type PromotionPolicy,
+  type SubjectOutcome,
   type StudentResultSummary,
 } from "@/lib/promotion";
 
@@ -20,7 +21,7 @@ import {
 // Delegates to the shared boundary in lib/authz.ts. `undefined` still means "super
 // admin, no school filter", which is what every caller in this file expects.
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
-  const actor = await requireAdminScope();
+  const actor = await requirePermission("students.manage");
   return actor.schoolId ?? undefined;
 }
 
@@ -239,6 +240,7 @@ export async function getStudentsForTransition(classTermId: string) {
             name: true,
           },
         },
+        resultWorkflow: { select: { gradingSnapshot: true } },
       },
     });
 
@@ -263,7 +265,8 @@ export async function getStudentsForTransition(classTermId: string) {
       },
     });
 
-    const gradingSystem: GradingSystem = gradingSystemData
+    const frozenGradingSystem = gradingSystemFromSnapshot(classTerm.resultWorkflow?.gradingSnapshot);
+    const gradingSystem: GradingSystem = frozenGradingSystem ?? (gradingSystemData
       ? {
           levels: gradingSystemData.levels.map((level) => ({
             minScore: level.minScore,
@@ -284,7 +287,7 @@ export async function getStudentsForTransition(classTermId: string) {
             { minScore: 0, maxScore: 39, grade: "F", remark: "Fail" },
           ],
           passMark: 40,
-        };
+        });
 
     // Get active students in the class with their assessments. Historical rows are kept
     // for audit, but they must not be offered for another transition.
@@ -519,7 +522,8 @@ export async function executeStudentTransitions(transitions: {
   overrideIneligible?: boolean;
 }) {
   try {
-    const schoolId = await authorizeAndGetSchoolId();
+    const actor = await requirePermission("students.manage");
+    const schoolId = actor.schoolId ?? undefined;
     const {
       fromClassTermId,
       toClassTermId,
@@ -559,13 +563,7 @@ export async function executeStudentTransitions(transitions: {
       throw new Error("Classes do not belong to admin's school");
     }
 
-    // Get current user for audit trail
-    const session = await auth();
-    const userId = session?.user?.id;
-
-    if (!userId) {
-      throw new Error("User ID not found");
-    }
+    const userId = actor.userId;
 
     // The promotion policy only governs promotion. A transfer moves a student sideways and
     // a withdrawal ends their enrolment; neither is a judgement on their results.
@@ -585,6 +583,7 @@ export async function executeStudentTransitions(transitions: {
           fromClassTerm.termId,
           studentIds,
           gradingSystem?.passMark ?? 40,
+          policy,
         );
         const { ineligible } = splitByEligibility(summaries, policy);
 
@@ -712,7 +711,9 @@ export async function executeStudentTransitions(transitions: {
           data: {
             studentId,
             fromClassTermId,
-            toClassTermId,
+            // The current schema requires a destination. For withdrawal the truthful
+            // destination is the class being left, not an unrelated class selected by UI.
+            toClassTermId: isWithdrawal ? fromClassTermId : toClassTermId,
             transitionType,
             transitionDate: new Date(),
             notes: `${notes || ""}${overrideNote}`.trim(),
@@ -822,7 +823,12 @@ export async function getTransitionHistory(
         },
       },
       orderBy: { transitionDate: "desc" },
-      take: 100,
+      // The history table filters and pages on the client, so this is the whole set it can
+      // ever show. At 100 a single session's promotions already overflowed it and the page
+      // reported "of 100" as though that were the total. 500 covers a full year for a
+      // school of a few hundred; TransitionHistoryTable warns when the set is this size, so
+      // a school that outgrows it is told rather than quietly shown less than the truth.
+      take: 500,
     });
 
     const formattedTransitions = transitions.map((transition) => ({
@@ -937,6 +943,10 @@ export async function getTransitionPolicy(): Promise<{
         minCoreSubjectsPassed: stored.minCoreSubjectsPassed,
         requireAllSubjectsEntered: stored.requireAllSubjectsEntered,
         allowManualOverride: stored.allowManualOverride,
+        minCreditsRequired: stored.minCreditsRequired,
+        creditMark: Number(stored.creditMark),
+        // A school-wide policy has no notion of a final year; that belongs to a class.
+        isGraduatingClass: false,
       },
     };
   } catch (error) {
@@ -957,6 +967,8 @@ export async function saveTransitionPolicy(input: {
   minCoreSubjectsPassed?: number | null;
   requireAllSubjectsEntered?: boolean;
   allowManualOverride?: boolean;
+  minCreditsRequired?: number | null;
+  creditMark?: number | null;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const schoolId = await authorizeAndGetSchoolId();
@@ -977,6 +989,12 @@ export async function saveTransitionPolicy(input: {
       : [];
     const evaluationScope: PromotionEvaluationScope =
       input.evaluationScope === "SESSION_AVERAGE" ? "SESSION_AVERAGE" : "TERM";
+    const minCreditsRequired =
+      input.minCreditsRequired != null && Number.isFinite(input.minCreditsRequired)
+        ? Math.trunc(input.minCreditsRequired)
+        : null;
+    const creditMark =
+      input.creditMark != null && Number.isFinite(input.creditMark) ? input.creditMark : 50;
 
     if (minAverage != null && (minAverage < 0 || minAverage > 100)) {
       throw new Error("The minimum average must be between 0 and 100");
@@ -986,6 +1004,12 @@ export async function saveTransitionPolicy(input: {
     }
     if (minCoreSubjectsPassed != null && minCoreSubjectsPassed < 0) {
       throw new Error("The minimum number of core subjects passed cannot be negative");
+    }
+    if (minCreditsRequired != null && minCreditsRequired < 0) {
+      throw new Error("The minimum number of credits cannot be negative");
+    }
+    if (creditMark < 0 || creditMark > 100) {
+      throw new Error("The credit mark must be between 0 and 100");
     }
     if (minCoreSubjectsPassed != null && requiredSubjectIds.length === 0) {
       throw new Error("Choose the required/core subjects before setting a core-subject pass rule");
@@ -997,10 +1021,11 @@ export async function saveTransitionPolicy(input: {
       minAverage == null &&
       minSubjectsPassed == null &&
       minCoreSubjectsPassed == null &&
+      minCreditsRequired == null &&
       !input.requireAllSubjectsEntered
     ) {
       throw new Error(
-        "Set a minimum average, subjects passed, core subjects, or missing-subject rule before turning the criteria on",
+        "Set a minimum average, subjects passed, credits, core subjects, or missing-subject rule before turning the criteria on",
       );
     }
 
@@ -1014,6 +1039,8 @@ export async function saveTransitionPolicy(input: {
       minCoreSubjectsPassed,
       requireAllSubjectsEntered: Boolean(input.requireAllSubjectsEntered),
       allowManualOverride: input.allowManualOverride !== false,
+      minCreditsRequired,
+      creditMark,
     };
 
     await prisma.transitionPolicy.upsert({
@@ -1045,53 +1072,114 @@ async function summariseResults(
   termId: string,
   studentIds: string[],
   passMark: number,
+  policy: PromotionPolicy,
 ): Promise<StudentResultSummary[]> {
-  const rows = await prisma.studentClassTerm.findMany({
-    where: { classTermId, studentId: { in: studentIds } },
+  const context = await prisma.classTerm.findUnique({
+    where: { id: classTermId },
+    select: {
+      term: { select: { sessionId: true, session: { select: { schoolId: true } } } },
+      classSubjects: { select: { subjectId: true } },
+    },
+  });
+  if (!context) throw new Error("Source class term not found");
+
+  const [students, terms, scheme] = await Promise.all([
+    prisma.student.findMany({
+      where: { id: { in: studentIds } },
+      select: { id: true, user: { select: { firstName: true, lastName: true } } },
+    }),
+    policy.evaluationScope === "SESSION_AVERAGE"
+      ? prisma.term.findMany({
+          where: { sessionId: context.term.sessionId },
+          select: { id: true },
+        })
+      : Promise.resolve([{ id: termId }]),
+    prisma.assessmentScheme.findUnique({
+      where: { schoolId: context.term.session.schoolId },
+      select: { ca1Max: true, ca2Max: true, ca3Max: true, examMax: true },
+    }),
+  ]);
+
+  const termIds = terms.map((term) => term.id);
+  const subjectIds = [
+    ...new Set([
+      ...context.classSubjects.map((subject) => subject.subjectId),
+      ...policy.requiredSubjectIds,
+    ]),
+  ];
+  const assessments = await prisma.assessment.findMany({
+    where: { studentId: { in: studentIds }, termId: { in: termIds }, subjectId: { in: subjectIds } },
     select: {
       studentId: true,
-      student: { select: { user: { select: { firstName: true, lastName: true } } } },
-      assessments: {
-        where: { termId },
-        select: {
-          ca1: true,
-          ca2: true,
-          ca3: true,
-          exam: true,
-          isAbsent: true,
-          isExempt: true,
-          isPublished: true,
-        },
-      },
+      subjectId: true,
+      ca1: true,
+      ca2: true,
+      ca3: true,
+      exam: true,
+      isAbsent: true,
+      isExempt: true,
+      isPublished: true,
     },
   });
 
-  return rows.map((row) => {
-    let total = 0;
-    let counted = 0;
-    let passed = 0;
-    let hasUnpublished = false;
+  const requiredComponents = {
+    ca1: (scheme?.ca1Max ?? 10) > 0,
+    ca2: (scheme?.ca2Max ?? 10) > 0,
+    ca3: (scheme?.ca3Max ?? 10) > 0,
+    exam: (scheme?.examMax ?? 70) > 0,
+  };
 
-    for (const assessment of row.assessments) {
-      // Publication is about the record existing for the term, so an absent or exempt entry
-      // still counts towards whether the term has been released.
-      if (!assessment.isPublished) hasUnpublished = true;
-      if (assessment.isAbsent || assessment.isExempt) continue;
+  return students.map((student) => {
+    const studentRows = assessments.filter((row) => row.studentId === student.id);
+    const subjectResults: SubjectOutcome[] = [];
+    const missingSubjectIds: string[] = [];
+    let hasUnpublishedResults = false;
 
-      const score =
-        (assessment.ca1 || 0) + (assessment.ca2 || 0) + (assessment.ca3 || 0) + (assessment.exam || 0);
-      total += score;
-      counted += 1;
-      if (score >= passMark) passed += 1;
+    for (const subjectId of subjectIds) {
+      const subjectRows = studentRows.filter((row) => row.subjectId === subjectId);
+      if (subjectRows.some((row) => !row.isPublished)) hasUnpublishedResults = true;
+
+      const usableScores = subjectRows.flatMap((row) => {
+        if (row.isAbsent || row.isExempt) return [];
+        const complete =
+          (!requiredComponents.ca1 || row.ca1 != null) &&
+          (!requiredComponents.ca2 || row.ca2 != null) &&
+          (!requiredComponents.ca3 || row.ca3 != null) &&
+          (!requiredComponents.exam || row.exam != null);
+        if (!complete) return [];
+        return [(row.ca1 ?? 0) + (row.ca2 ?? 0) + (row.ca3 ?? 0) + (row.exam ?? 0)];
+      });
+
+      if (usableScores.length === 0) {
+        missingSubjectIds.push(subjectId);
+        continue;
+      }
+      const average = usableScores.reduce((sum, score) => sum + score, 0) / usableScores.length;
+      // `score` is what the credit rule counts against. Carrying it here rather than
+      // recomputing keeps one definition of a subject's mark for this period.
+      subjectResults.push({ subjectId, passed: average >= passMark, score: average });
     }
 
+    const subjectScores = subjectResults.map((result) => {
+      const rows = studentRows.filter((row) => row.subjectId === result.subjectId);
+      const scores = rows
+        .filter((row) => !row.isAbsent && !row.isExempt)
+        .map((row) => (row.ca1 ?? 0) + (row.ca2 ?? 0) + (row.ca3 ?? 0) + (row.exam ?? 0));
+      return scores.reduce((sum, score) => sum + score, 0) / scores.length;
+    });
+
     return {
-      studentId: row.studentId,
-      name: `${row.student.user.firstName} ${row.student.user.lastName}`,
-      subjectCount: counted,
-      averageScore: counted > 0 ? total / counted : 0,
-      passedSubjects: passed,
-      hasUnpublishedResults: hasUnpublished,
+      studentId: student.id,
+      name: `${student.user.firstName} ${student.user.lastName}`,
+      subjectCount: subjectResults.length,
+      averageScore:
+        subjectScores.length > 0
+          ? subjectScores.reduce((sum, score) => sum + score, 0) / subjectScores.length
+          : 0,
+      passedSubjects: subjectResults.filter((result) => result.passed).length,
+      hasUnpublishedResults,
+      missingSubjectIds,
+      subjectResults,
     };
   });
 }

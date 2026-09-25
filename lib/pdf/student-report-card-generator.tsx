@@ -3,12 +3,16 @@ import autoTable from "jspdf-autotable"
 import { format } from "date-fns"
 
 import { RATING_KEY, ratingsForDomain } from "@/lib/report-traits"
+import { stampAllPages } from "@/lib/pdf/watermark"
 
 interface StudentResult {
   studentId: string
   studentName: string
   admissionNo: string
   gender: string | null
+  /** The student's passport photograph. Null when none has been uploaded, in which case the
+   *  report prints an empty framed box so the layout does not shift between students. */
+  passportUrl?: string | null
   subjects: Record<
     string,
     {
@@ -38,6 +42,32 @@ interface StudentResult {
   /** Affective and psychomotor ratings for the term, as the class teacher entered them.
    *  Absent on older callers, which print a dash against every trait. */
   traitRatings?: Array<{ trait: string; rating: number }>
+  /**
+   * The approved end-of-session outcome, on an annual card.
+   *
+   * Absent or PENDING on a termly card, and on a sessional one nobody has approved yet.
+   * In that case the card prints the generated encouragement it always did, because an
+   * unapproved outcome is not the school's word yet.
+   */
+  annualDecision?: AnnualCardDecision
+  /** The principal's own words, when they have written any. */
+  principalComment?: string
+}
+
+type AnnualCardDecision = "PENDING" | "PROMOTED" | "REPEATED" | "GRADUATED"
+
+/** Printed when a decision was approved but nobody wrote a comment of their own. */
+const DECISION_SENTENCE: Record<Exclude<AnnualCardDecision, "PENDING">, string> = {
+  PROMOTED: "Promoted to the next class.",
+  REPEATED: "To repeat the class.",
+  GRADUATED: "Has completed the programme.",
+}
+
+/** The stamp in the corner of the comments box. Short enough to read at a glance. */
+const DECISION_STAMP: Record<Exclude<AnnualCardDecision, "PENDING">, string> = {
+  PROMOTED: "PROMOTED",
+  REPEATED: "REPEAT",
+  GRADUATED: "GRADUATED",
 }
 
 interface SchoolInfo {
@@ -111,6 +141,28 @@ interface PDFConfig {
     academicResults: Record<string, number>
   }
   logoSize?: { width: number; height: number }
+  /** Passport photograph box, in millimetres. Roughly the 35×45 passport ratio. */
+  passportSize?: { width: number; height: number }
+  /**
+   * Stamped diagonally across every page.
+   *
+   * A report card is a document families keep and schools are asked to re-issue, so it
+   * benefits from the same mark a receipt carries. Left unset it draws nothing, so every
+   * existing caller is unchanged.
+   */
+  watermark?: string | null
+  /**
+   * Labels for the five score columns, in order: the three component columns, the column
+   * after them, and the summary column.
+   *
+   * A termly card marks three CAs and an exam. A sessional card marks three terms and
+   * totals them. The columns, widths, order and every other part of the layout are the
+   * same, so the sessional report is this document with five headers renamed rather than a
+   * second generator that would drift away from this one the first time either changed.
+   *
+   * Defaults to the termly labels, so every existing caller is untouched.
+   */
+  scoreHeaders?: [string, string, string, string, string]
 }
 
 interface GenerateReportParams {
@@ -123,6 +175,15 @@ interface GenerateReportParams {
   action?: "save" | "preview" | "print" | "merge-preview" | "merge-save"
   previewWindow?: Window | null
   allStudents?: StudentResult[]
+  /**
+   * Whether class positions appear on the card.
+   *
+   * Some schools deliberately do not rank children, and others rank only in senior classes,
+   * so this is the school's call at the moment of printing rather than a build-time decision.
+   * When false, both the per-subject "Pos." column and the "Position in Class" summary line
+   * are left out entirely — not blanked, which would still advertise that a rank exists.
+   */
+  includePosition?: boolean
 }
 
 // Server-side image conversion using API
@@ -154,6 +215,20 @@ async function getImageDataURLViaAPI(url: string): Promise<string | null> {
     console.error('API image conversion failed:', error)
     return null
   }
+}
+
+/**
+ * A date for the card, or an em dash.
+ *
+ * `format(new Date(""))` throws "Invalid time value", so every place that printed one of
+ * these dates was one unset field away from failing the whole document. A school that has
+ * not yet created next session has nothing to say here, and a blank line is the honest
+ * answer — far better than refusing to print the report card at all.
+ */
+function printableDate(value: string | null | undefined): string {
+  if (!value) return "—"
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? "—" : format(parsed, "MMM d, yyyy")
 }
 
 class StudentReportCardGenerator {
@@ -202,6 +277,7 @@ class StudentReportCardGenerator {
         },
       },
       logoSize: { width: 18, height: 18 },
+      passportSize: { width: 20, height: 25 },
       ...config,
     }
 
@@ -221,18 +297,22 @@ class StudentReportCardGenerator {
     if (!schoolInfo?.schoolName) throw new Error("School name is required")
     if (!classInfo?.className) throw new Error("Class name is required")
     if (!subjects?.length) throw new Error("Subjects array cannot be empty")
-    if (!classInfo.termEndDate || !classInfo.nextTermStartDate)
-      throw new Error("Term end and next term start dates are required")
-
-    try {
-      new Date(classInfo.termEndDate)
-      new Date(classInfo.nextTermStartDate)
-    } catch {
-      throw new Error("Invalid term end or next term start date format")
-    }
+    // Term dates are printed, not calculated with. An unset one is shown as a dash rather
+    // than throwing away the whole report card.
   }
 
-  private async drawSchoolHeader(schoolInfo: SchoolInfo): Promise<void> {
+  /**
+   * The letterhead: school logo left, school identity centred, student photograph right.
+   *
+   * The photo sits here rather than down in the student information block because the
+   * header is the one band on the page with a free right-hand margin — the logo already
+   * establishes that edge — and a report card reads better when the child's face is beside
+   * the school's mark rather than buried among the term dates.
+   */
+  private async drawSchoolHeader(
+    schoolInfo: SchoolInfo,
+    passportDataURL: string | null,
+  ): Promise<void> {
     const { schoolName, schoolAddress, schoolPhone, schoolEmail, schoolLogo } = schoolInfo
 
     let logoDataURL: string | null = null
@@ -285,16 +365,53 @@ class StudentReportCardGenerator {
     this.doc.setTextColor(...this.config.colors.primary)
     this.doc.text("STUDENT REPORT CARD", this.pageWidth / 2, this.currentY + 22, { align: "center" })
 
+    // The rule clears the photo rather than sitting flush against it. The centred text ends
+    // at +22 and the 25mm photo at +25, so +27 leaves both a margin.
     this.doc.setDrawColor(...this.config.colors.secondary)
     this.doc.setLineWidth(0.5)
     this.doc.line(
       this.config.margins.left,
-      this.currentY + 25,
+      this.currentY + 27,
       this.pageWidth - this.config.margins.right,
-      this.currentY + 25,
+      this.currentY + 27,
     )
 
-    this.currentY += 28
+    // Mirrors the logo on the left, within the same band.
+    this.drawPassport(passportDataURL, this.currentY)
+
+    this.currentY += 30
+  }
+
+  /**
+   * The passport photograph, framed, at the right of the student information block.
+   *
+   * The frame is drawn whether or not there is a picture, so a class where only some
+   * students have uploaded one still prints cards of identical height — a report card that
+   * changes shape per child looks like a fault rather than a missing photo.
+   */
+  private drawPassport(passportDataURL: string | null, top: number): void {
+    const width = this.config.passportSize!.width
+    const height = this.config.passportSize!.height
+    const x = this.pageWidth - this.config.margins.right - width
+
+    if (passportDataURL) {
+      try {
+        const imageFormat = passportDataURL.includes("image/png") ? "PNG" : "JPEG"
+        this.doc.addImage(passportDataURL, imageFormat, x, top, width, height)
+      } catch (error) {
+        console.warn("Failed to add passport to PDF:", error)
+      }
+    } else {
+      this.doc.setFont("helvetica", "normal")
+      this.doc.setFontSize(this.config.fontSize.small - 1)
+      this.doc.setTextColor(...this.config.colors.secondary)
+      this.doc.text("NO PHOTO", x + width / 2, top + height / 2, { align: "center" })
+      this.doc.setTextColor(...this.config.colors.text)
+    }
+
+    this.doc.setDrawColor(...this.config.colors.secondary)
+    this.doc.setLineWidth(0.3)
+    this.doc.rect(x, top, width, height)
   }
 
   private drawStudentInfo(student: StudentResult, classInfo: ClassInfo): void {
@@ -357,14 +474,14 @@ class StudentReportCardGenerator {
     this.doc.text("Term Ends:", rightColumnX - 10, this.currentY + 6)
     const termEndsWidth = this.doc.getTextWidth("Term Ends:")
     this.doc.setFont("helvetica", "normal")
-    this.doc.text(format(new Date(termEndDate), "MMM d, yyyy"), (rightColumnX - 10) + termEndsWidth + 1, this.currentY + 6)
+    this.doc.text(printableDate(termEndDate), (rightColumnX - 10) + termEndsWidth + 1, this.currentY + 6)
 
     this.doc.setFont("helvetica", "bold")
     this.doc.text("Next Term Begins:", rightColumnX + 30, this.currentY + 6)
     const nextTermWidth = this.doc.getTextWidth("Next Term Begins:")
     this.doc.setFont("helvetica", "normal")
     this.doc.text(
-      format(new Date(nextTermStartDate), "MMM d, yyyy"),
+      printableDate(nextTermStartDate),
       rightColumnX + 30 + nextTermWidth + 1,
       this.currentY + 6,
     )
@@ -386,6 +503,7 @@ class StudentReportCardGenerator {
     subjects: Subject[],
     gradingSystem: GradingSystem,
     classStatistics: ClassStatistics | null,
+    includePosition: boolean,
   ): void {
     this.currentY += 1
 
@@ -396,15 +514,20 @@ class StudentReportCardGenerator {
 
     this.currentY += 2
 
+    const [firstLabel, secondLabel, thirdLabel, fourthLabel, summaryLabel] = this.config
+      .scoreHeaders ?? ["1st CA\n(10)", "2nd CA\n(10)", "3rd CA\n(10)", "Exam\n(70)", "Total"]
+
     const headers = [
       "Subject",
-      "1st CA\n(10)",
-      "2nd CA\n(10)",
-      "3rd CA\n(10)",
-      "Exam\n(70)",
-      "Total",
+      firstLabel,
+      secondLabel,
+      thirdLabel,
+      fourthLabel,
+      summaryLabel,
       "Grade",
-      "Pos.",
+      // Dropped entirely rather than blanked: an empty column still tells a family that a
+      // rank exists and is being withheld.
+      ...(includePosition ? ["Pos."] : []),
       "Out\nOf",
       "Lowest\nScore",
       "Highest\nScore",
@@ -449,7 +572,7 @@ class StudentReportCardGenerator {
         subjectResult.exam !== null && subjectResult.exam !== undefined ? subjectResult.exam.toFixed(1) : "-",
         score !== null && score !== undefined ? score.toFixed(1) : "-",
         grade || "-",
-        position,
+        ...(includePosition ? [position] : []),
         outOf,
         lowest,
         highest,
@@ -457,6 +580,26 @@ class StudentReportCardGenerator {
         remark,
       ]
     })
+
+    // Same order as `headers` and each body row, so the two cannot drift apart. The width
+    // the position column gave up is returned to the subject name, which is the column that
+    // actually runs out of room.
+    const widths = this.config.tableWidths!.academicResults
+    const columnWidths = [
+      widths.subject + (includePosition ? 0 : widths.position),
+      widths.ca1,
+      widths.ca2,
+      widths.ca3,
+      widths.exam,
+      widths.total,
+      widths.grade,
+      ...(includePosition ? [widths.position] : []),
+      widths.outOf,
+      widths.lowest,
+      widths.highest,
+      widths.average,
+      widths.remarks,
+    ]
 
     autoTable(this.doc, {
       head: [headers],
@@ -477,84 +620,146 @@ class StudentReportCardGenerator {
         valign: "middle",
         cellPadding: 1.5,
       },
-      columnStyles: {
-        0: { cellWidth: this.config.tableWidths!.academicResults.subject },
-        1: { cellWidth: this.config.tableWidths!.academicResults.ca1, halign: "center" },
-        2: { cellWidth: this.config.tableWidths!.academicResults.ca2, halign: "center" },
-        3: { cellWidth: this.config.tableWidths!.academicResults.ca3, halign: "center" },
-        4: { cellWidth: this.config.tableWidths!.academicResults.exam, halign: "center" },
-        5: { cellWidth: this.config.tableWidths!.academicResults.total, halign: "center" },
-        6: { cellWidth: this.config.tableWidths!.academicResults.grade, halign: "center" },
-        7: { cellWidth: this.config.tableWidths!.academicResults.position, halign: "center" },
-        8: { cellWidth: this.config.tableWidths!.academicResults.outOf, halign: "center" },
-        9: { cellWidth: this.config.tableWidths!.academicResults.lowest, halign: "center" },
-        10: { cellWidth: this.config.tableWidths!.academicResults.highest, halign: "center" },
-        11: { cellWidth: this.config.tableWidths!.academicResults.average, halign: "center" },
-        12: { cellWidth: this.config.tableWidths!.academicResults.remarks },
-      },
+      // Built from the column order rather than hardcoded indices, because dropping the
+      // position column shifts every column after it. Hardcoding 0–12 silently applied the
+      // "Out Of" width to "Lowest Score" and left the last column unstyled.
+      columnStyles: columnWidths.reduce<Record<number, Record<string, unknown>>>(
+        (styles, width, index) => {
+          styles[index] = index === 0 ? { cellWidth: width } : { cellWidth: width, halign: "center" }
+          return styles
+        },
+        {},
+      ),
       alternateRowStyles: {
         fillColor: this.config.colors.lightGray,
       },
     })
 
     this.currentY = (this.doc as any).lastAutoTable.finalY + 5
-    this.drawCognitiveDomain(student, subjects, classStatistics)
+    this.drawCognitiveDomain(student, subjects, classStatistics, includePosition)
     this.currentY += 4
   }
 
+  /**
+   * The academic performance summary.
+   *
+   * This used to be a two-by-three grid of "Label: value" strings in one bold weight, with
+   * an empty half-row underneath when positions were switched off. Everything carried the
+   * same visual weight, so the two figures a parent actually looks for — the average and
+   * the grade — had to be hunted for among the arithmetic that supports them.
+   *
+   * It is now a band of tiles: the headline figures large, the workings on one quiet line
+   * beneath, and the remark on its own full-width bar. Drawn directly rather than through
+   * autoTable, because a table cell cannot hold two type sizes.
+   */
   private drawCognitiveDomain(
     student: StudentResult,
     subjects: Subject[],
     classStatistics: ClassStatistics | null,
+    includePosition: boolean,
   ): void {
     this.doc.setFont("helvetica", "bold")
     this.doc.setFontSize(this.config.fontSize.normal)
     this.doc.setTextColor(...this.config.colors.primary)
     this.doc.text("ACADEMIC PERFORMANCE", this.config.margins.left, this.currentY)
 
-    this.currentY += 2
+    this.currentY += 3
 
-    const subjectsOffered = Object.values(student.subjects).filter((subject) => subject.score !== null).length
+    const left = this.config.margins.left
+    const width = this.pageWidth - this.config.margins.left - this.config.margins.right
 
-    const cognitiveData = [
-      [
-        `Total Score: ${student.totalScore.toFixed(1)}`,
-        `Average Score: ${student.averageScore.toFixed(1)}%`,
-        `Overall Grade: ${student.grade ?? "—"}`,
-        `Position in Class: ${student.position > 0 ? `${student.position}${this.getOrdinalSuffix(student.position)}` : "-"}`,
-      ],
-      [
-        `Total Obtainable: ${(subjects.length * 100).toString()}`,
-        `Class Average: ${classStatistics ? classStatistics.classAverage.toFixed(1) + "%" : "-"}`,
-        `No. of Subjects Offered: ${subjectsOffered}`,
-        `Remark: ${student.remark}`, // Use the remark from grading system
-      ],
+    // Only the subjects that count towards the average.
+    //
+    // A subject the student did not sit is still given a `score` of 0 rather than null, so
+    // the old `score !== null` test counted every row on the sheet — which is why a card
+    // with two untaken subjects read "398 of 800 obtainable" beside an average of 66.3%,
+    // and no reader could get from one number to the other. The average divides by the
+    // subjects that were actually marked, and those are exactly the ones carrying a real
+    // grade: an untaken, absent or exempt subject is written out with `grade: "-"`.
+    const subjectsTaken = Object.values(student.subjects).filter(
+      (subject) => subject.grade !== null && subject.grade !== "-",
+    ).length
+    const obtainable = subjectsTaken * 100
+
+    const tiles: { label: string; value: string }[] = [
+      { label: "AVERAGE SCORE", value: `${student.averageScore.toFixed(1)}%` },
+      { label: "OVERALL GRADE", value: student.grade ?? "—" },
+      {
+        label: "CLASS AVERAGE",
+        value: classStatistics ? `${classStatistics.classAverage.toFixed(1)}%` : "—",
+      },
     ]
 
-    autoTable(this.doc, {
-      body: cognitiveData,
-      startY: this.currentY,
-      theme: "grid",
-      styles: {
-        fontSize: this.config.fontSize.small,
-        cellPadding: 1.5,
-        lineColor: [100, 100, 100],
-        lineWidth: 0.3,
-        valign: "middle",
-        overflow: "linebreak",
-        cellWidth: "wrap",
-      },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: "auto" },
-        1: { fontStyle: "bold", cellWidth: "auto" },
-        2: { fontStyle: "bold", cellWidth: "auto" },
-        3: { fontStyle: "bold", cellWidth: "auto" },
-      },
-      margin: { left: this.config.margins.left },
-      tableWidth: this.pageWidth - this.config.margins.left - this.config.margins.right,
+    if (includePosition) {
+      tiles.splice(2, 0, {
+        label: "POSITION IN CLASS",
+        value:
+          student.position > 0
+            ? `${student.position}${this.getOrdinalSuffix(student.position)}`
+            : "—",
+      })
+    }
+
+    const tileHeight = 13
+    const tileGap = 2
+    const tileWidth = (width - tileGap * (tiles.length - 1)) / tiles.length
+
+    tiles.forEach((tile, index) => {
+      const x = left + index * (tileWidth + tileGap)
+
+      this.doc.setFillColor(...this.config.colors.lightGray)
+      this.doc.setDrawColor(...this.config.colors.primary)
+      this.doc.setLineWidth(0.3)
+      this.doc.rect(x, this.currentY, tileWidth, tileHeight, "FD")
+
+      this.doc.setFont("helvetica", "normal")
+      this.doc.setFontSize(this.config.fontSize.small - 1.5)
+      this.doc.setTextColor(...this.config.colors.secondary)
+      this.doc.text(tile.label, x + tileWidth / 2, this.currentY + 4.5, { align: "center" })
+
+      this.doc.setFont("helvetica", "bold")
+      this.doc.setFontSize(this.config.fontSize.subheader)
+      this.doc.setTextColor(...this.config.colors.primary)
+      this.doc.text(tile.value, x + tileWidth / 2, this.currentY + 10.5, { align: "center" })
     })
 
-    this.currentY = (this.doc as any).lastAutoTable.finalY + 6
+    this.currentY += tileHeight + 3
+
+    // The workings, kept deliberately quiet: present for anyone who wants to check the
+    // headline figures, not competing with them.
+    const workings = [
+      `Total score ${student.totalScore.toFixed(1)} of ${obtainable} obtainable`,
+      `${subjectsTaken} of ${subjects.length} ${subjects.length === 1 ? "subject" : "subjects"} taken`,
+    ].join("     •     ")
+
+    this.doc.setFont("helvetica", "normal")
+    this.doc.setFontSize(this.config.fontSize.small - 0.5)
+    this.doc.setTextColor(...this.config.colors.secondary)
+    this.doc.text(workings, left + width / 2, this.currentY + 1, { align: "center" })
+
+    this.currentY += 4
+
+    // The remark gets its own bar, so it is not a fourth item competing with three numbers.
+    const remarkHeight = 7
+    const labelWidth = 26
+
+    this.doc.setDrawColor(...this.config.colors.primary)
+    this.doc.setLineWidth(0.3)
+    this.doc.setFillColor(...this.config.colors.primary)
+    this.doc.rect(left, this.currentY, labelWidth, remarkHeight, "FD")
+    this.doc.rect(left + labelWidth, this.currentY, width - labelWidth, remarkHeight, "D")
+
+    this.doc.setFont("helvetica", "bold")
+    this.doc.setFontSize(this.config.fontSize.small - 1)
+    this.doc.setTextColor(255, 255, 255)
+    this.doc.text("REMARK", left + labelWidth / 2, this.currentY + 4.6, { align: "center" })
+
+    this.doc.setFont("helvetica", "bold")
+    this.doc.setFontSize(this.config.fontSize.small)
+    this.doc.setTextColor(...this.config.colors.text)
+    this.doc.text(student.remark || "—", left + labelWidth + 3, this.currentY + 4.6)
+
+    this.currentY += remarkHeight + 6
   }
 
   private drawGradesDescription(gradingSystem: GradingSystem): number {
@@ -700,8 +905,22 @@ class StudentReportCardGenerator {
             ? "Fair Result, Work harder."
             : "Poor Result, Much more effort required."
 
-    const headTeacherComment =
-      student.averageScore >= 70
+    // The head teacher's line is where the annual outcome belongs, and it is the line the
+    // Word document meant by "Promotion or Repeated as Principal Comment".
+    //
+    // Three cases, in order of authority:
+    //   1. An approved decision with the principal's own words -> print those words.
+    //   2. An approved decision with no words                  -> print the outcome alone.
+    //   3. No approved decision                                -> the generated sentence,
+    //      exactly as before, because nothing has been decided to print instead.
+    const decided =
+      student.annualDecision !== undefined && student.annualDecision !== "PENDING"
+        ? student.annualDecision
+        : null
+
+    const headTeacherComment = decided
+      ? student.principalComment?.trim() || DECISION_SENTENCE[decided]
+      : student.averageScore >= 70
         ? "Very Good Result, Forward!"
         : student.averageScore >= 60
           ? "Good Result, Keep improving!"
@@ -740,6 +959,26 @@ class StudentReportCardGenerator {
     const signDate1 = `Sign: ______________________ ${currentDate}`
     const signDate1Width = this.doc.getTextWidth(signDate1)
     this.doc.text(signDate1, marginLeft + boxWidth - signDate1Width - padding, line1Y)
+
+    // A decision a family has to infer from prose is a decision badly communicated, so it
+    // is stated outright as well as being written into the comment.
+    if (decided) {
+      const stamp = DECISION_STAMP[decided]
+      this.doc.setFont("helvetica", "bold")
+      this.doc.setFontSize(this.config.fontSize.normal)
+      const stampWidth = this.doc.getTextWidth(stamp) + 6
+      const stampX = marginLeft + boxWidth - stampWidth - padding
+      const stampY = this.currentY - 3
+
+      this.doc.setDrawColor(...this.config.colors.primary)
+      this.doc.setLineWidth(0.5)
+      this.doc.roundedRect(stampX, stampY - 5, stampWidth, 7, 1.5, 1.5, "S")
+      this.doc.setTextColor(...this.config.colors.primary)
+      this.doc.text(stamp, stampX + 3, stampY)
+      this.doc.setTextColor(0, 0, 0)
+      this.doc.setFont("helvetica", "normal")
+      this.doc.setFontSize(this.config.fontSize.small)
+    }
 
     const label2 = "Head Teacher's Comment:"
     this.doc.setFont("helvetica", "bold")
@@ -799,9 +1038,8 @@ class StudentReportCardGenerator {
     this.doc.setFontSize(this.config.fontSize.small - 1)
     this.doc.setTextColor(...this.config.colors.text)
     this.doc.text(
-      `Next Term Begins: ${format(new Date(classInfo.nextTermStartDate), "MMM d, yyyy")} | Term Ends: ${format(
-        new Date(classInfo.termEndDate),
-        "MMM d, yyyy",
+      `Next Term Begins: ${printableDate(classInfo.nextTermStartDate)} | Term Ends: ${printableDate(
+        classInfo.termEndDate,
       )}`,
       this.pageWidth / 2,
       footerY + 10,
@@ -823,6 +1061,21 @@ class StudentReportCardGenerator {
     })
   }
 
+  /**
+   * Resolves a student's passport to a data URL, going through the same conversion API the
+   * school logo uses. A failure is not fatal — the card prints the empty frame instead.
+   */
+  private async loadPassport(passportUrl?: string | null): Promise<string | null> {
+    if (!passportUrl) return null
+    try {
+      if (passportUrl.startsWith("data:")) return passportUrl
+      return await getImageDataURLViaAPI(passportUrl)
+    } catch (error) {
+      console.warn("Failed to load passport photo:", error)
+      return null
+    }
+  }
+
   private getOrdinalSuffix(n: number): string {
     const s = ["th", "st", "nd", "rd"]
     const v = n % 100
@@ -837,16 +1090,25 @@ class StudentReportCardGenerator {
     classStatistics: ClassStatistics | null,
     gradingSystem: GradingSystem,
     action: "save" | "preview" | "print",
+    includePosition: boolean,
     previewWindow?: Window | null,
   ): Promise<void> {
     this.validateInputs(student, schoolInfo, classInfo, subjects)
 
-    await this.drawSchoolHeader(schoolInfo)
+    const passportDataURL = await this.loadPassport(student.passportUrl)
+
+    await this.drawSchoolHeader(schoolInfo, passportDataURL)
     this.drawStudentInfo(student, classInfo)
-    this.drawAcademicResults(student, subjects, gradingSystem, classStatistics)
+    this.drawAcademicResults(student, subjects, gradingSystem, classStatistics, includePosition)
     this.drawPerformanceSummary(student, gradingSystem)
     this.drawCommentsSection(student)
     this.drawFooter(student, classInfo)
+
+    stampAllPages(this.doc, {
+      watermark: this.config.watermark ?? schoolInfo.schoolCode,
+      footerRight: schoolInfo.schoolName,
+      marginX: this.config.margins.left,
+    })
 
     const fileName = `${student.admissionNo}_${classInfo.termName}_Report_Card.pdf`
     const blob = this.doc.output("blob")
@@ -902,6 +1164,7 @@ class StudentReportCardGenerator {
     classStatistics: ClassStatistics | null,
     gradingSystem: GradingSystem,
   action: "merge-preview" | "merge-save",
+  includePosition: boolean,
   previewWindow?: Window | null,
   ): Promise<void> {
     const mergedPdf = new jsPDF({ orientation: this.config.orientation })
@@ -915,9 +1178,11 @@ class StudentReportCardGenerator {
         this.doc = mergedPdf
         this.currentY = this.config.margins.top
 
-        await this.drawSchoolHeader(schoolInfo)
+        const passportDataURL = await this.loadPassport(student.passportUrl)
+
+        await this.drawSchoolHeader(schoolInfo, passportDataURL)
         this.drawStudentInfo(student, classInfo)
-        this.drawAcademicResults(student, subjects, gradingSystem, classStatistics)
+        this.drawAcademicResults(student, subjects, gradingSystem, classStatistics, includePosition)
         this.drawPerformanceSummary(student, gradingSystem)
         this.drawCommentsSection(student)
         this.drawFooter(student, classInfo)
@@ -930,6 +1195,12 @@ class StudentReportCardGenerator {
 
       console.log(`Processed ${processed}/${allStudents.length} students`)
     }
+
+    stampAllPages(mergedPdf, {
+      watermark: this.config.watermark ?? schoolInfo.schoolCode,
+      footerRight: schoolInfo.schoolName,
+      marginX: this.config.margins.left,
+    })
 
     const fileName = `${classInfo.className}_${classInfo.termName}_All_Reports.pdf`
     const blob = mergedPdf.output("blob")
@@ -978,6 +1249,8 @@ class StudentReportCardGenerator {
     gradingSystem,
     action = "save",
     allStudents = [],
+    includePosition = true,
+    previewWindow = null,
   }: GenerateReportParams): Promise<void> {
     try {
       if (["merge-preview", "merge-save"].includes(action) && allStudents.length > 0) {
@@ -989,6 +1262,8 @@ class StudentReportCardGenerator {
           classStatistics,
           gradingSystem,
           action as "merge-preview" | "merge-save",
+          includePosition,
+          previewWindow,
         )
       } else {
         await this.generateSingleReport(
@@ -999,6 +1274,8 @@ class StudentReportCardGenerator {
           classStatistics,
           gradingSystem,
           action as "save" | "preview" | "print",
+          includePosition,
+          previewWindow,
         )
       }
     } catch (error) {
@@ -1018,7 +1295,17 @@ export async function exportStudentReportPDF(params: {
   gradingSystem: GradingSystem
   action?: "save" | "preview" | "print" | "merge-preview" | "merge-save"
   allStudents?: StudentResult[]
+  includePosition?: boolean
   config?: Partial<PDFConfig>
+  /**
+   * A window the caller opened synchronously, for `action: "preview"`.
+   *
+   * Building the PDF is asynchronous, and a `window.open` that happens after an await is
+   * treated as unsolicited and blocked by every mainstream browser. The parameter existed on
+   * the renderer and nothing ever passed it, so preview silently depended on the popup
+   * blocker being off. Open the tab in the click handler and hand it over.
+   */
+  previewWindow?: Window | null
 }): Promise<void> {
   const generator = new StudentReportCardGenerator(params.config)
   await generator.generateStudentReportCard(params)

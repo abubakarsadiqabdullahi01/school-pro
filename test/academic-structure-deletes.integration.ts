@@ -17,7 +17,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
  * dropped from the timetable has no classSubjects and years of marks.
  */
 
-vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }))
+vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {},
+  // `lib/authz` reaches session expiry, which caches the school's idle limits.
+  unstable_cache: <T>(loader: T) => loader,
+}))
 vi.mock("@/lib/school-context.server", () => ({ getActiveSchool: async () => null }))
 vi.mock("@/auth", () => ({ auth: vi.fn() }))
 

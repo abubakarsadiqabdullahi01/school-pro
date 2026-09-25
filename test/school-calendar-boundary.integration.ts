@@ -13,7 +13,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
  * schedules bill against, and who is eligible for promotion.
  */
 
-vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }))
+vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {},
+  // `lib/authz` reaches session expiry, which caches the school's idle limits.
+  unstable_cache: <T>(loader: T) => loader,
+}))
 vi.mock("@/lib/school-context.server", () => ({ getActiveSchool: async () => null }))
 vi.mock("@/auth", () => ({ auth: vi.fn() }))
 

@@ -41,4 +41,17 @@ describe("local uploads", () => {
     await expect(storeUpload(new File(["<script>bad</script>"], "x.png", { type: "image/png" }), "school-logos", "school-1")).rejects.toThrow("content")
     await expect(storeUpload(new File([new Uint8Array(10 * 1024 * 1024 + 1)], "x.pdf", { type: "application/pdf" }), "expense-receipts", "school-1")).rejects.toThrow("size")
   })
+
+  it("takes a PDF as a staff document but not as a logo", async () => {
+    // An appointment letter is almost never a PNG, so `staff-documents` allows the receipt
+    // types. Logos and avatars stay image-only, and this pins that difference down rather
+    // than letting a later tidy-up collapse the two lists.
+    await setup()
+    const pdf = () => new File([Buffer.from("%PDF-1.4 letter")], "letter.pdf", { type: "application/pdf" })
+
+    const url = await storeUpload(pdf(), "staff-documents", "school-1")
+    expect(url).toMatch(/^\/api\/files\/staff-documents\/school-1\/[a-f0-9-]+\.pdf$/)
+
+    await expect(storeUpload(pdf(), "school-logos", "school-1")).rejects.toThrow("type or size")
+  })
 })

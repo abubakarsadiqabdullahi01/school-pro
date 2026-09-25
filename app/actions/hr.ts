@@ -8,6 +8,13 @@ import { recordAudit } from "@/lib/audit"
 import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { computePay, daysEmployedInMonth } from "@/lib/payroll"
+import {
+  canDeletePayComponent,
+  canDeleteSalaryScale,
+  canUseComponentName,
+} from "@/lib/hr/pay-component-rules"
+import { canGeneratePayroll } from "@/lib/hr/payroll-period-rules"
+import { nextStaffNo as nextStaffNoFor } from "@/lib/hr/staff-provisioning"
 import { getActiveSchool } from "@/lib/school-context.server"
 
 /**
@@ -179,15 +186,30 @@ async function actorSchool(actor: Actor): Promise<string> {
   throw new AuthorizationError("Select a school before using HR")
 }
 
-/** Read staff records, payroll and every HR report. */
+/**
+ * Read staff records, payroll and every HR report.
+ *
+ * NOTE: this is the same permission as `requireHrManager`, so there is currently no such
+ * thing as read-only HR access — granting somebody sight of payroll also lets them change
+ * what people are paid. Separating the two needs a `payroll.view` key in
+ * `lib/permissions.ts`, which is a change to the permission grid and to every existing
+ * profile, so it is a decision rather than a tidy-up.
+ */
 async function requireHrViewer(): Promise<Actor> {
   return requirePermission("payroll.manage")
 }
 
 /**
  * Staff records, salary scales, salary assignment, allowance and deduction configuration,
- * payroll approval and cancellation. The admin's authority — an accountant must not be able
- * to change what anybody is paid, including themselves.
+ * payroll approval and cancellation.
+ *
+ * Intended as the admin's authority, on the principle that whoever runs payroll should not
+ * also be the one who approves it. The split is real in the actions — generating, submitting
+ * and paying need `payroll.pay`, approving and cancelling need `payroll.manage` — but the
+ * built-in "HR and Payroll Officer" profile grants both, so one person can carry a run from
+ * generation to payment. `approvePayroll` records that in the audit log rather than refusing
+ * it, which suits a small school where the admin does everything and is worth knowing about
+ * in one where it does not.
  */
 async function requireHrManager(): Promise<Actor> {
   return requirePermission("payroll.manage")
@@ -243,20 +265,12 @@ async function hrConfig(schoolId: string) {
 /**
  * The next staff number for a school, as PREFIX-0001.
  *
- * Derived from the highest existing number rather than a counter table: staff numbers are
- * created one at a time by a person, so the race a sequence table protects against does not
- * arise, and there is no second source of truth to drift.
+ * The implementation now lives in `lib/hr/staff-provisioning.ts` so that provisioning a
+ * teacher can call it from inside that teacher's own transaction. This wrapper keeps the
+ * call sites in this file unchanged.
  */
 async function nextStaffNo(schoolId: string, prefix: string): Promise<string> {
-  const existing = await prisma.staff.findMany({
-    where: { schoolId, staffNo: { startsWith: `${prefix}-` } },
-    select: { staffNo: true },
-  })
-  const highest = existing.reduce((max, row) => {
-    const parsed = Number.parseInt(row.staffNo.slice(prefix.length + 1), 10)
-    return Number.isFinite(parsed) && parsed > max ? parsed : max
-  }, 0)
-  return `${prefix}-${String(highest + 1).padStart(4, "0")}`
+  return nextStaffNoFor(prisma, schoolId, prefix)
 }
 
 /** The first and last instant of a payroll month, in one place so nothing goes off by a day. */
@@ -697,7 +711,17 @@ export async function updateStaff(input: unknown): Promise<ActionResult<{ id: st
     if (!existing) throw new Error("Staff member not found")
 
     if (data.userId) {
-      const taken = await prisma.staff.findUnique({ where: { userId: data.userId }, select: { id: true, staffNo: true } })
+      const [user, taken] = await Promise.all([
+        prisma.user.findFirst({
+          where: {
+            id: data.userId,
+            OR: [{ admin: { schoolId } }, { teacher: { schoolId } }],
+          },
+          select: { id: true },
+        }),
+        prisma.staff.findUnique({ where: { userId: data.userId }, select: { id: true, staffNo: true } }),
+      ])
+      if (!user) throw new Error("That login does not belong to this school")
       if (taken && taken.id !== existing.id) {
         throw new Error(`That login is already linked to staff ${taken.staffNo}`)
       }
@@ -989,6 +1013,10 @@ export async function createSalaryScale(input: unknown): Promise<ActionResult<{ 
     const schoolId = await actorSchool(actor)
     const data = scaleSchema.parse(input)
 
+    const names = await prisma.salaryScale.findMany({ where: { schoolId }, select: { id: true, name: true } })
+    const naming = canUseComponentName(data.name, names, "salary scale")
+    if (!naming.allowed) throw new Error(naming.reason)
+
     const scale = await prisma.salaryScale.create({
       data: {
         schoolId,
@@ -1026,6 +1054,457 @@ export async function setSalaryScaleActive(input: unknown): Promise<ActionResult
   }
 }
 
+export type SalaryScaleDetail = {
+  id: string
+  name: string
+  gradeLevel: string | null
+  step: string | null
+  baseSalary: string
+  description: string | null
+  isActive: boolean
+  staffCount: number
+  createdAt: string
+  /** Every scale name in the school, so a rename is checked before it is submitted. */
+  takenNames: Array<{ id: string; name: string }>
+  /** Who is on it, so the delete refusal and its cause sit side by side. */
+  staff: Array<{ id: string; staffNo: string; name: string; department: string | null; baseSalary: string }>
+}
+
+/** One salary scale, with everything the manage screen decides what to offer on. */
+export async function getSalaryScale(scaleId: string): Promise<ActionResult<SalaryScaleDetail>> {
+  try {
+    const actor = await requireHrViewer()
+    const schoolId = await actorSchool(actor)
+
+    const scale = await prisma.salaryScale.findFirst({
+      where: { id: scaleId, schoolId },
+      select: {
+        id: true,
+        name: true,
+        gradeLevel: true,
+        step: true,
+        baseSalary: true,
+        description: true,
+        isActive: true,
+        createdAt: true,
+      },
+    })
+    if (!scale) throw new Error("Salary scale not found in this school")
+
+    const [names, salaries] = await Promise.all([
+      prisma.salaryScale.findMany({ where: { schoolId }, select: { id: true, name: true } }),
+      prisma.staffSalary.findMany({
+        where: { scaleId, isActive: true },
+        orderBy: { effectiveFrom: "desc" },
+        select: {
+          baseSalary: true,
+          staff: {
+            select: { id: true, staffNo: true, firstName: true, lastName: true, department: true },
+          },
+        },
+      }),
+    ])
+
+    return {
+      success: true,
+      data: {
+        id: scale.id,
+        name: scale.name,
+        gradeLevel: scale.gradeLevel,
+        step: scale.step,
+        baseSalary: moneyString(scale.baseSalary),
+        description: scale.description,
+        isActive: scale.isActive,
+        staffCount: salaries.length,
+        createdAt: scale.createdAt.toISOString(),
+        takenNames: names,
+        staff: salaries.map((salary) => ({
+          id: salary.staff.id,
+          staffNo: salary.staff.staffNo,
+          name: `${salary.staff.firstName} ${salary.staff.lastName}`,
+          department: salary.staff.department,
+          baseSalary: moneyString(salary.baseSalary),
+        })),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the salary scale")
+  }
+}
+
+/**
+ * Renames a scale, corrects its grade and step, moves its base salary, retires or revives it.
+ *
+ * Moving the base salary does not move anybody's pay: assigning a scale copies the figure
+ * onto the staff record, so the scale is a template. The screen says so before saving.
+ */
+export async function updateSalaryScale(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireHrManager()
+    const schoolId = await actorSchool(actor)
+    const data = scaleSchema.extend({ id: z.string().min(1), isActive: z.boolean() }).parse(input)
+
+    const scale = await prisma.salaryScale.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true, isActive: true, baseSalary: true },
+    })
+    if (!scale) throw new Error("Salary scale not found in this school")
+
+    const names = await prisma.salaryScale.findMany({ where: { schoolId }, select: { id: true, name: true } })
+    const naming = canUseComponentName(data.name, names, "salary scale", data.id)
+    if (!naming.allowed) throw new Error(naming.reason)
+
+    await prisma.salaryScale.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        gradeLevel: data.gradeLevel || null,
+        step: data.step || null,
+        baseSalary: money(data.baseSalary),
+        description: data.description || null,
+        isActive: data.isActive,
+      },
+    })
+
+    await recordAudit({
+      actor,
+      action: "hr.scale.update",
+      entityType: "SalaryScale",
+      entityId: data.id,
+      summary: `Updated the salary scale ${data.name}`,
+      before: { name: scale.name, baseSalary: moneyString(scale.baseSalary), isActive: scale.isActive },
+      after: { name: data.name, baseSalary: moneyString(data.baseSalary), isActive: data.isActive },
+    })
+
+    revalidateHr("/salary-scales", `/salary-scales/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to update the salary scale")
+  }
+}
+
+/** Deletes a scale nobody has been put on. Anything else is retired. */
+export async function deleteSalaryScale(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireHrManager()
+    const schoolId = await actorSchool(actor)
+    const data = z.object({ id: z.string().min(1) }).parse(input)
+
+    const scale = await prisma.salaryScale.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true },
+    })
+    if (!scale) throw new Error("Salary scale not found in this school")
+
+    const staffCount = await prisma.staffSalary.count({ where: { scaleId: data.id } })
+    const removal = canDeleteSalaryScale({ staffCount })
+    if (!removal.allowed) throw new Error(removal.reason)
+
+    await prisma.salaryScale.delete({ where: { id: data.id } })
+
+    await recordAudit({
+      actor,
+      action: "hr.scale.delete",
+      entityType: "SalaryScale",
+      entityId: data.id,
+      summary: `Deleted the salary scale ${scale.name}, which nobody was on`,
+      before: { name: scale.name },
+    })
+
+    revalidateHr("/salary-scales", `/salary-scales/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to delete the salary scale")
+  }
+}
+
+export type PayComponentDetail = {
+  id: string
+  name: string
+  kind: string
+  value: string
+  isRecurring: boolean
+  isActive: boolean
+  assignedCount: number
+  createdAt: string
+  /** Allowances only. */
+  isTaxable?: boolean
+  /** Deductions only. */
+  timing?: string
+  takenNames: Array<{ id: string; name: string }>
+  staff: Array<{ id: string; staffNo: string; name: string; value: string }>
+}
+
+/** One allowance type, with who is on it. */
+export async function getAllowanceType(typeId: string): Promise<ActionResult<PayComponentDetail>> {
+  try {
+    const actor = await requireHrViewer()
+    const schoolId = await actorSchool(actor)
+
+    const type = await prisma.allowanceType.findFirst({
+      where: { id: typeId, schoolId },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        value: true,
+        isTaxable: true,
+        isRecurring: true,
+        isActive: true,
+        createdAt: true,
+      },
+    })
+    if (!type) throw new Error("Allowance not found in this school")
+
+    const [names, assignments] = await Promise.all([
+      prisma.allowanceType.findMany({ where: { schoolId }, select: { id: true, name: true } }),
+      prisma.staffAllowance.findMany({
+        where: { allowanceTypeId: typeId, isActive: true },
+        select: {
+          valueOverride: true,
+          staff: { select: { id: true, staffNo: true, firstName: true, lastName: true } },
+        },
+      }),
+    ])
+
+    return {
+      success: true,
+      data: {
+        id: type.id,
+        name: type.name,
+        kind: type.kind,
+        value: moneyString(type.value),
+        isTaxable: type.isTaxable,
+        isRecurring: type.isRecurring,
+        isActive: type.isActive,
+        assignedCount: assignments.length,
+        createdAt: type.createdAt.toISOString(),
+        takenNames: names,
+        staff: assignments.map((assignment) => ({
+          id: assignment.staff.id,
+          staffNo: assignment.staff.staffNo,
+          name: `${assignment.staff.firstName} ${assignment.staff.lastName}`,
+          value: moneyString(assignment.valueOverride ?? type.value),
+        })),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the allowance")
+  }
+}
+
+/** One deduction type, with who is on it. */
+export async function getDeductionType(typeId: string): Promise<ActionResult<PayComponentDetail>> {
+  try {
+    const actor = await requireHrViewer()
+    const schoolId = await actorSchool(actor)
+
+    const type = await prisma.deductionType.findFirst({
+      where: { id: typeId, schoolId },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        value: true,
+        timing: true,
+        isRecurring: true,
+        isActive: true,
+        createdAt: true,
+      },
+    })
+    if (!type) throw new Error("Deduction not found in this school")
+
+    const [names, assignments] = await Promise.all([
+      prisma.deductionType.findMany({ where: { schoolId }, select: { id: true, name: true } }),
+      prisma.staffDeduction.findMany({
+        where: { deductionTypeId: typeId, isActive: true },
+        select: {
+          valueOverride: true,
+          staff: { select: { id: true, staffNo: true, firstName: true, lastName: true } },
+        },
+      }),
+    ])
+
+    return {
+      success: true,
+      data: {
+        id: type.id,
+        name: type.name,
+        kind: type.kind,
+        value: moneyString(type.value),
+        timing: type.timing,
+        isRecurring: type.isRecurring,
+        isActive: type.isActive,
+        assignedCount: assignments.length,
+        createdAt: type.createdAt.toISOString(),
+        takenNames: names,
+        staff: assignments.map((assignment) => ({
+          id: assignment.staff.id,
+          staffNo: assignment.staff.staffNo,
+          name: `${assignment.staff.firstName} ${assignment.staff.lastName}`,
+          value: moneyString(assignment.valueOverride ?? type.value),
+        })),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the deduction")
+  }
+}
+
+export async function updateAllowanceType(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireHrManager()
+    const schoolId = await actorSchool(actor)
+    const data = allowanceTypeSchema.extend({ id: z.string().min(1), isActive: z.boolean() }).parse(input)
+
+    const type = await prisma.allowanceType.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true, isActive: true, value: true },
+    })
+    if (!type) throw new Error("Allowance not found in this school")
+
+    const names = await prisma.allowanceType.findMany({ where: { schoolId }, select: { id: true, name: true } })
+    const naming = canUseComponentName(data.name, names, "allowance", data.id)
+    if (!naming.allowed) throw new Error(naming.reason)
+
+    await prisma.allowanceType.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        kind: data.kind,
+        value: money(data.value),
+        isTaxable: data.isTaxable,
+        isRecurring: data.isRecurring,
+        isActive: data.isActive,
+      },
+    })
+
+    await recordAudit({
+      actor,
+      action: "hr.allowance.update",
+      entityType: "AllowanceType",
+      entityId: data.id,
+      summary: `Updated the allowance ${data.name}`,
+      before: { name: type.name, value: moneyString(type.value), isActive: type.isActive },
+      after: { name: data.name, value: moneyString(data.value), isActive: data.isActive },
+    })
+
+    revalidateHr("/allowances", `/allowances/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to update the allowance")
+  }
+}
+
+export async function updateDeductionType(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireHrManager()
+    const schoolId = await actorSchool(actor)
+    const data = deductionTypeSchema.extend({ id: z.string().min(1), isActive: z.boolean() }).parse(input)
+
+    const type = await prisma.deductionType.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true, isActive: true, value: true },
+    })
+    if (!type) throw new Error("Deduction not found in this school")
+
+    const names = await prisma.deductionType.findMany({ where: { schoolId }, select: { id: true, name: true } })
+    const naming = canUseComponentName(data.name, names, "deduction", data.id)
+    if (!naming.allowed) throw new Error(naming.reason)
+
+    await prisma.deductionType.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        kind: data.kind,
+        value: money(data.value),
+        timing: data.timing,
+        isRecurring: data.isRecurring,
+        isActive: data.isActive,
+      },
+    })
+
+    await recordAudit({
+      actor,
+      action: "hr.deduction.update",
+      entityType: "DeductionType",
+      entityId: data.id,
+      summary: `Updated the deduction ${data.name}`,
+      before: { name: type.name, value: moneyString(type.value), isActive: type.isActive },
+      after: { name: data.name, value: moneyString(data.value), isActive: data.isActive },
+    })
+
+    revalidateHr("/deductions", `/deductions/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to update the deduction")
+  }
+}
+
+/**
+ * Deletes an allowance or deduction type nobody has ever been assigned.
+ *
+ * Anything else is retired: the name is on payslips already issued and in the allowance and
+ * deduction reports, and those have to keep resolving.
+ */
+export async function deletePayComponent(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireHrManager()
+    const schoolId = await actorSchool(actor)
+    const data = z
+      .object({ id: z.string().min(1), kind: z.enum(["allowance", "deduction"]) })
+      .parse(input)
+
+    if (data.kind === "allowance") {
+      const type = await prisma.allowanceType.findFirst({
+        where: { id: data.id, schoolId },
+        select: { id: true, name: true },
+      })
+      if (!type) throw new Error("Allowance not found in this school")
+
+      const assignedCount = await prisma.staffAllowance.count({ where: { allowanceTypeId: data.id } })
+      const removal = canDeletePayComponent({ assignedCount }, "allowance")
+      if (!removal.allowed) throw new Error(removal.reason)
+
+      await prisma.allowanceType.delete({ where: { id: data.id } })
+      await recordAudit({
+        actor,
+        action: "hr.allowance.delete",
+        entityType: "AllowanceType",
+        entityId: data.id,
+        summary: `Deleted the allowance ${type.name}, which had never been assigned`,
+        before: { name: type.name },
+      })
+      revalidateHr("/allowances", `/allowances/${data.id}`)
+      return { success: true, data: { id: data.id } }
+    }
+
+    const type = await prisma.deductionType.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true },
+    })
+    if (!type) throw new Error("Deduction not found in this school")
+
+    const assignedCount = await prisma.staffDeduction.count({ where: { deductionTypeId: data.id } })
+    const removal = canDeletePayComponent({ assignedCount }, "deduction")
+    if (!removal.allowed) throw new Error(removal.reason)
+
+    await prisma.deductionType.delete({ where: { id: data.id } })
+    await recordAudit({
+      actor,
+      action: "hr.deduction.delete",
+      entityType: "DeductionType",
+      entityId: data.id,
+      summary: `Deleted the deduction ${type.name}, which had never been assigned`,
+      before: { name: type.name },
+    })
+    revalidateHr("/deductions", `/deductions/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to delete it")
+  }
+}
+
 export async function createAllowanceType(input: unknown): Promise<ActionResult<{ id: string }>> {
   try {
     const actor = await requireHrManager()
@@ -1035,6 +1514,10 @@ export async function createAllowanceType(input: unknown): Promise<ActionResult<
     if (data.kind === "PERCENTAGE" && data.value > 100) {
       throw new Error("A percentage allowance cannot be more than 100% of base salary")
     }
+
+    const names = await prisma.allowanceType.findMany({ where: { schoolId }, select: { id: true, name: true } })
+    const naming = canUseComponentName(data.name, names, "allowance")
+    if (!naming.allowed) throw new Error(naming.reason)
 
     const type = await prisma.allowanceType.create({
       data: {
@@ -1064,6 +1547,10 @@ export async function createDeductionType(input: unknown): Promise<ActionResult<
     if (data.kind === "PERCENTAGE" && data.value > 100) {
       throw new Error("A percentage deduction cannot be more than 100%")
     }
+
+    const names = await prisma.deductionType.findMany({ where: { schoolId }, select: { id: true, name: true } })
+    const naming = canUseComponentName(data.name, names, "deduction")
+    if (!naming.allowed) throw new Error(naming.reason)
 
     const type = await prisma.deductionType.create({
       data: {
@@ -1489,16 +1976,19 @@ export async function generatePayroll(input: unknown): Promise<ActionResult<{
     const data = payrollPeriodSchema.parse(input)
     const config = await hrConfig(schoolId)
 
-    const existing = await prisma.payrollRun.findUnique({
-      where: { schoolId_year_month: { schoolId, year: data.year, month: data.month } },
-      select: { id: true, status: true },
+    // Which months are already spoken for, and which month it actually is. The predicate is
+    // the same one the Generate Payroll screen greys its button out with, so the refusal the
+    // server gives is the refusal the screen already showed.
+    const existing = await prisma.payrollRun.findMany({
+      where: { schoolId },
+      select: { year: true, month: true, status: true },
     })
-    if (existing) {
-      throw new Error(
-        `Payroll for ${data.year}-${String(data.month).padStart(2, "0")} already exists and is ` +
-          `${existing.status.toLowerCase().replace("_", " ")}. Cancel it before generating again.`,
-      )
-    }
+    const now = new Date()
+    const verdict = canGeneratePayroll(
+      { year: data.year, month: data.month },
+      { existing, today: { year: now.getFullYear(), month: now.getMonth() + 1 } },
+    )
+    if (!verdict.allowed) throw new Error(verdict.reason)
 
     if (data.sessionId) {
       const session = await prisma.session.findFirst({
@@ -1697,6 +2187,7 @@ async function scopedRun(runId: string, schoolId: string) {
       totalNet: true,
       sessionId: true,
       generatedBy: true,
+      payments: { select: { id: true, amount: true, expenseId: true } },
     },
   })
   if (!run) throw new Error("Payroll run not found")
@@ -1803,7 +2294,7 @@ export async function reopenPayroll(input: unknown): Promise<ActionResult<{ stat
 }
 
 /**
- * Cancels a run, including one already paid.
+ * Cancels an unpaid run or posts explicit payroll and expenditure reversals for a paid run.
  *
  * Nothing is deleted and no figure is rewritten. The run and its payslips stay, carry who
  * cancelled them and why, and drop out of the payroll totals — so the correction is as
@@ -1816,28 +2307,68 @@ export async function cancelPayroll(input: unknown): Promise<ActionResult<{ stat
     const data = decisionSchema.parse(input)
 
     const run = await scopedRun(data.runId, schoolId)
-    assertRunTransition(run.status, ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PAID"], "cancel")
+    assertRunTransition(run.status, ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PAID"], "cancel or reverse")
+    const nextStatus: PayrollStatus = run.status === "PAID" ? "REVERSED" : "CANCELLED"
 
-    await prisma.payrollRun.update({
-      where: { id: run.id },
-      data: { status: "CANCELLED", decisionReason: data.reason },
+    await prisma.$transaction(async (tx) => {
+      const changed = await tx.payrollRun.updateMany({
+        where: { id: run.id, schoolId, status: run.status },
+        data: { status: nextStatus, decisionReason: data.reason },
+      })
+      if (changed.count !== 1) throw new Error("This payroll run changed. Refresh and try again.")
+
+      if (nextStatus === "REVERSED") {
+        await tx.payrollItem.updateMany({
+          where: { runId: run.id, status: "PAID" },
+          data: { status: "REVERSED" },
+        })
+        await tx.accountingReversal.create({
+          data: {
+            schoolId,
+            targetType: "PAYROLL",
+            payrollRunId: run.id,
+            amount: run.totalNet,
+            reason: data.reason,
+            createdBy: actor.userId,
+          },
+        })
+        for (const payment of run.payments) {
+          if (!payment.expenseId) continue
+          const reversedExpense = await tx.expense.updateMany({
+            where: { id: payment.expenseId, schoolId, status: "PAID" },
+            data: { status: "REVERSED", decisionReason: data.reason },
+          })
+          if (reversedExpense.count !== 1) {
+            throw new Error("The linked payroll expense is not in a reversible state")
+          }
+          await tx.accountingReversal.create({
+            data: {
+              schoolId,
+              targetType: "EXPENSE",
+              expenseId: payment.expenseId,
+              amount: payment.amount,
+              reason: `Payroll reversal: ${data.reason}`,
+              createdBy: actor.userId,
+            },
+          })
+        }
+      }
     })
 
     await recordAudit({
       actor,
-      action: "payroll.cancel",
+      action: nextStatus === "REVERSED" ? "payroll.reverse" : "payroll.cancel",
       entityType: "PayrollRun",
       entityId: run.id,
       summary:
-        `Cancelled payroll for ${periodLabel(run.year, run.month)}` +
-        (run.status === "PAID" ? ", reversing salaries already paid" : "") +
+        `${nextStatus === "REVERSED" ? "Reversed" : "Cancelled"} payroll for ${periodLabel(run.year, run.month)}` +
         `: ${data.reason}`,
       before: { status: run.status },
-      after: { status: "CANCELLED", reason: data.reason },
+      after: { status: nextStatus, reason: data.reason },
     })
 
     revalidateHr("/payroll", `/payroll/${run.id}`)
-    return { success: true, data: { status: "CANCELLED" } }
+    return { success: true, data: { status: nextStatus } }
   } catch (error) {
     return toError(error, "Failed to cancel the payroll run")
   }
@@ -1920,6 +2451,14 @@ export async function payPayroll(input: unknown): Promise<ActionResult<{
     const label = periodLabel(run.year, run.month)
 
     const result = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.payrollRun.updateMany({
+        where: { id: run.id, schoolId, status: "APPROVED" },
+        data: { status: "PAID", paidBy: actor.userId, paidAt },
+      })
+      if (claimed.count !== 1) {
+        throw new Error("This payroll run has already been paid or changed. Refresh and try again.")
+      }
+
       const sequence = await tx.expenseVoucherSequence.upsert({
         where: { schoolId_year: { schoolId, year: paidAt.getFullYear() } },
         create: { schoolId, year: paidAt.getFullYear(), lastSequence: 1 },
@@ -1954,10 +2493,6 @@ export async function payPayroll(input: unknown): Promise<ActionResult<{
         select: { id: true, voucherNo: true },
       })
 
-      await tx.payrollRun.update({
-        where: { id: run.id },
-        data: { status: "PAID", paidBy: actor.userId, paidAt },
-      })
       await tx.payrollItem.updateMany({
         where: { runId: run.id, status: "PENDING" },
         data: { status: "PAID", paidAt },
@@ -2320,12 +2855,25 @@ export async function getHrOverview(): Promise<ActionResult<{
   byEmploymentType: Array<{ employmentType: string; count: number }>
   recentPayments: Array<{ id: string; period: string; amount: string; paidAt: string; accountName: string | null }>
   withoutSalary: number
+  /** The last twelve runs in calendar order, for the trend. Cancelled ones are left out. */
+  payrollTrend: Array<{ id: string; period: string; gross: string; deductions: string; net: string }>
+  /**
+   * What the school still owes its staff: the net of every approved run that has not been
+   * paid. This is the figure a head teacher needs and the one the old dashboard buried
+   * inside "0 paid · 12 unpaid" on a single card.
+   */
+  owed: { amount: string; runs: number; people: number }
+  /** Runs sitting with the approver. Nobody is paid until these move. */
+  awaitingApproval: { amount: string; runs: number }
+  /** Salaries paid this session, and what share of all school spending that is. */
+  session: { name: string | null; salaries: string; expenditure: string; share: number }
 }>> {
   try {
     const actor = await requireHrViewer()
     const schoolId = await actorSchool(actor)
 
-    const [counts, byDepartment, byEmploymentType, latest, recentPayments, withoutSalary] = await Promise.all([
+    const [counts, byDepartment, byEmploymentType, latest, recentPayments, withoutSalary, runs, currentSession] =
+      await Promise.all([
       prisma.staff.groupBy({ by: ["employmentStatus"], where: { schoolId }, _count: { _all: true } }),
       prisma.staff.groupBy({
         by: ["department"],
@@ -2367,15 +2915,58 @@ export async function getHrOverview(): Promise<ActionResult<{
       prisma.staff.count({
         where: { schoolId, employmentStatus: "ACTIVE", salaries: { none: { isActive: true } } },
       }),
+      prisma.payrollRun.findMany({
+        where: { schoolId, status: { not: "CANCELLED" } },
+        orderBy: [{ year: "desc" }, { month: "desc" }],
+        take: 12,
+        select: {
+          id: true,
+          year: true,
+          month: true,
+          status: true,
+          totalGross: true,
+          totalDeductions: true,
+          totalNet: true,
+          items: { select: { status: true, netPay: true } },
+        },
+      }),
+      prisma.session.findFirst({ where: { schoolId, isCurrent: true }, select: { id: true, name: true } }),
     ])
 
     const statusCount = (status: EmploymentStatus) =>
       counts.find((row) => row.employmentStatus === status)?._count._all ?? 0
 
-    const [teaching, nonTeaching] = await Promise.all([
+    const [teaching, nonTeaching, sessionSalaries, sessionSpend] = await Promise.all([
       prisma.staff.count({ where: { schoolId, employmentStatus: "ACTIVE", staffType: "TEACHER" } }),
       prisma.staff.count({ where: { schoolId, employmentStatus: "ACTIVE", staffType: { not: "TEACHER" } } }),
+      // Payroll leaves the school as expenditure, so both sides are read the same way: only
+      // money actually paid counts.
+      currentSession
+        ? prisma.salaryPayment.aggregate({
+            where: { schoolId, run: { sessionId: currentSession.id } },
+            _sum: { amount: true },
+          })
+        : null,
+      currentSession
+        ? prisma.expense.aggregate({
+            where: { schoolId, sessionId: currentSession.id, status: "PAID" },
+            _sum: { amount: true },
+          })
+        : null,
     ])
+
+    // An approved run that has not been paid is money the school owes today; one still with
+    // the approver is not owed yet, but nobody gets paid until it moves.
+    const approvedUnpaid = runs.filter((run) => run.status === "APPROVED")
+    const pendingRuns = runs.filter((run) => run.status === "PENDING_APPROVAL")
+
+    const owedItems = approvedUnpaid.flatMap((run) => run.items.filter((item) => item.status !== "PAID"))
+    const owedAmount = owedItems.reduce((total, item) => total.plus(item.netPay), money(0))
+    const pendingAmount = pendingRuns.reduce((total, run) => total.plus(run.totalNet), money(0))
+
+    const salaries = money(sessionSalaries?._sum.amount ?? 0)
+    const spend = money(sessionSpend?._sum.amount ?? 0)
+    const share = spend.isZero() ? 0 : Math.round(salaries.div(spend).times(1000).toNumber()) / 10
 
     return {
       success: true,
@@ -2415,6 +3006,26 @@ export async function getHrOverview(): Promise<ActionResult<{
           accountName: payment.account?.name ?? null,
         })),
         withoutSalary,
+        // Oldest first: a trend is read left to right.
+        payrollTrend: [...runs].reverse().map((run) => ({
+          id: run.id,
+          period: periodLabel(run.year, run.month),
+          gross: moneyString(run.totalGross),
+          deductions: moneyString(run.totalDeductions),
+          net: moneyString(run.totalNet),
+        })),
+        owed: {
+          amount: moneyString(owedAmount),
+          runs: approvedUnpaid.length,
+          people: owedItems.length,
+        },
+        awaitingApproval: { amount: moneyString(pendingAmount), runs: pendingRuns.length },
+        session: {
+          name: currentSession?.name ?? null,
+          salaries: moneyString(salaries),
+          expenditure: moneyString(spend),
+          share,
+        },
       },
     }
   } catch (error) {

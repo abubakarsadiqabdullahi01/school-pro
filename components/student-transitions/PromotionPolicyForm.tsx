@@ -17,6 +17,8 @@ export type PromotionPolicyValues = {
   usePromotionCriteria: boolean
   minAverage: number | null
   minSubjectsPassed: number | null
+  minCreditsRequired: number | null
+  creditMark: number
 }
 
 /**
@@ -35,6 +37,8 @@ export function PromotionPolicyForm({ policy }: { policy: PromotionPolicyValues 
   const [useCriteria, setUseCriteria] = useState(policy.usePromotionCriteria)
   const [minAverage, setMinAverage] = useState(policy.minAverage?.toString() ?? "")
   const [minPassed, setMinPassed] = useState(policy.minSubjectsPassed?.toString() ?? "")
+  const [minCredits, setMinCredits] = useState(policy.minCreditsRequired?.toString() ?? "")
+  const [creditMark, setCreditMark] = useState(policy.creditMark?.toString() ?? "50")
 
   function save() {
     startTransition(async () => {
@@ -43,6 +47,8 @@ export function PromotionPolicyForm({ policy }: { policy: PromotionPolicyValues 
         usePromotionCriteria: useCriteria,
         minAverage: minAverage.trim() === "" ? null : Number(minAverage),
         minSubjectsPassed: minPassed.trim() === "" ? null : Number(minPassed),
+        minCreditsRequired: minCredits.trim() === "" ? null : Number(minCredits),
+        creditMark: creditMark.trim() === "" ? 50 : Number(creditMark),
       })
 
       if (!result.success) {
@@ -54,7 +60,8 @@ export function PromotionPolicyForm({ policy }: { policy: PromotionPolicyValues 
     })
   }
 
-  const noBarSet = useCriteria && minAverage.trim() === "" && minPassed.trim() === ""
+  const noBarSet =
+    useCriteria && minAverage.trim() === "" && minPassed.trim() === "" && minCredits.trim() === ""
 
   return (
     <Card className="print:hidden">
@@ -122,12 +129,41 @@ export function PromotionPolicyForm({ policy }: { policy: PromotionPolicyValues 
                   Counted against the grading system&apos;s pass mark.
                 </p>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="minCredits">Minimum credits</Label>
+                <Input
+                  id="minCredits"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={minCredits}
+                  onChange={(event) => setMinCredits(event.target.value)}
+                  placeholder="Leave blank to not count credits"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="creditMark">A credit is a score of (%)</Label>
+                <Input
+                  id="creditMark"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={creditMark}
+                  onChange={(event) => setCreditMark(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Stricter than a pass. With a pass mark of 40, a subject scored 45 is a pass
+                  and is <strong>not</strong> a credit.
+                </p>
+              </div>
             </div>
           )}
 
           {noBarSet && (
             <p className="mt-3 text-sm text-destructive">
-              Set an average or a number of subjects — a bar with neither would pass everyone.
+              Set an average, a number of subjects, or a number of credits — a bar with
+              none of them would pass everyone.
             </p>
           )}
         </div>

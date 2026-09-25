@@ -19,14 +19,28 @@ export async function GET(_request: Request, { params }: { params: Promise<{ key
       if (!attachment) return new NextResponse("Not found", { status: 404 })
       assertSchoolAccess(actor, attachment.expense.schoolId)
     }
+    // A staff member's ID card, contract or medical report. Guarded like a receipt and for
+    // stronger reasons: this is personal data about an employee, and an unguessable key is
+    // not an access control.
+    const staffDocument = key.startsWith("staff-documents/")
+    if (staffDocument) {
+      const actor = await requirePermission("payroll.manage")
+      const document = await prisma.staffDocument.findFirst({
+        where: { storageKey: `${FILE_URL_PREFIX}${key}` },
+        select: { staff: { select: { schoolId: true } } },
+      })
+      if (!document) return new NextResponse("Not found", { status: 404 })
+      assertSchoolAccess(actor, document.staff.schoolId)
+    }
+    const private_ = receipt || staffDocument
     const bytes = await readStoredFile(key)
     return new NextResponse(new Uint8Array(bytes), { headers: {
       "Content-Type": fileContentType(key),
       "Content-Length": String(bytes.length),
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
-      "Content-Disposition": `${receipt ? "attachment" : "inline"}; filename="${key.split("/").pop()}"`,
-      "Cache-Control": receipt ? "private, no-store" : "public, max-age=3600",
+      "Content-Disposition": `${private_ ? "attachment" : "inline"}; filename="${key.split("/").pop()}"`,
+      "Cache-Control": private_ ? "private, no-store" : "public, max-age=3600",
     } })
   } catch (error) {
     if (error instanceof AuthorizationError) return new NextResponse("Forbidden", { status: 403 })

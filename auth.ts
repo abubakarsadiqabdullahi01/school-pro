@@ -212,6 +212,27 @@ async function logLoginAttempt({
   }
 }
 
+/**
+ * The configured maximum session length in days, or 30 if nothing is set.
+ *
+ * Reads the platform row directly rather than through `lib/session-activity.server.ts`:
+ * that module is cached per school, and at this point in the sign-in there is no school
+ * resolved yet. The per-school value is applied on every subsequent request.
+ */
+async function configuredSessionDays(): Promise<number> {
+  try {
+    const row = await prisma.systemConfiguration.findFirst({
+      where: { schoolId: null, configKey: "defaultSessionDurationDays", isActive: true },
+      select: { configValue: true },
+    })
+    const parsed = Number(row?.configValue)
+    return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 30
+  } catch (error) {
+    console.error("Failed to read the configured session length; using 30 days", error)
+    return 30
+  }
+}
+
 // Helper function to create login session
 async function createLoginSession({
   userId,
@@ -227,8 +248,15 @@ async function createLoginSession({
   deviceId?: string | null
 }) {
   try {
+    // `defaultSessionDurationDays` has existed as a platform setting since settings were
+    // introduced and was read by nothing — the real number was this hardcoded 30. Reading
+    // it here is what makes that screen mean something.
+    //
+    // Falling back rather than failing: a sign-in must not be refused because a settings
+    // row could not be read, and `evaluateSessionFreshness` applies the configured ceiling
+    // on every request anyway, so a stale `expiresAt` cannot extend anybody's session.
     const expiresAt = new Date()
-    expiresAt.setDate(expiresAt.getDate() + 30) // 30 days from now
+    expiresAt.setDate(expiresAt.getDate() + (await configuredSessionDays()))
 
     return await prisma.loginSession.create({
       data: {

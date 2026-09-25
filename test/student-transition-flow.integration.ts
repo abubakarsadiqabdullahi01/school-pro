@@ -9,7 +9,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
  * billing above all, plus class lists and headcounts) then follows the mistake.
  */
 
-vi.mock("next/cache", () => ({ revalidatePath: () => {} }))
+vi.mock("next/cache", () => ({ revalidatePath: () => {},
+  // `lib/authz` reaches session expiry, which caches the school's idle limits.
+  unstable_cache: <T>(loader: T) => loader,
+}))
 vi.mock("@/lib/school-context.server", () => ({ getActiveSchool: async () => null }))
 vi.mock("@/auth", () => ({ auth: vi.fn() }))
 

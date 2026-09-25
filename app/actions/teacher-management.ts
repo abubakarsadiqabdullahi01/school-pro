@@ -5,6 +5,11 @@ import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import type { Gender, CredentialType } from "@prisma/client";
+import { generateTemporaryPassword } from "@/lib/temporary-password";
+import { revokeAllSessionsForUser } from "@/lib/sessions.server";
+import { assertScoresWithinScheme } from "@/lib/assessment-scheme";
+import { loadAssessmentScheme } from "@/lib/assessment-scheme.server";
+import { provisionStaffForTeacher } from "@/lib/hr/staff-provisioning";
 
 async function requireTeacherManager(schoolId?: string | null) {
   const actor = await requirePermission("teachers.manage");
@@ -91,6 +96,10 @@ export async function searchTeachers(query = "") {
           ? teacher.user.credentials[0].value
           : "",
       phone: teacher.user.phone || "",
+      // The query selected avatarUrl but the mapping dropped it, so the table's
+      // <AvatarImage> always received undefined and every row fell back to initials —
+      // a photo could be uploaded and would never appear in the list.
+      avatarUrl: teacher.user.avatarUrl || "",
       staffId: teacher.staffId,
       department: teacher.department || "",
       gender: teacher.user.gender,
@@ -182,6 +191,15 @@ export async function createTeacher(data: {
       }
     }
 
+    const requestedPassword = data.credentials?.[0]?.passwordHash ?? "";
+    const temporaryPassword =
+      requestedPassword.length >= 8 &&
+      /[a-z]/.test(requestedPassword) &&
+      /[A-Z]/.test(requestedPassword) &&
+      /[0-9]/.test(requestedPassword)
+        ? requestedPassword
+        : generateTemporaryPassword();
+
     // Start a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create a new user for the teacher
@@ -206,7 +224,7 @@ export async function createTeacher(data: {
       if (data.credentials && data.credentials.length > 0) {
         for (const cred of data.credentials) {
           // Hash the password using bcrypt
-          const passwordHash = await bcrypt.hash(cred.passwordHash, 10);
+          const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
           await tx.credential.create({
             data: {
@@ -242,6 +260,30 @@ export async function createTeacher(data: {
         }
       }
 
+      // Tell HR there is somebody new.
+      //
+      // Before this, adding a teacher created a login and a Teacher row and nothing else:
+      // they had no staff record, could not be put on payroll, and nothing anywhere said
+      // so. The record starts NOT_STARTED rather than looking complete, because all it has
+      // is a name — `lib/hr/staff-onboarding.ts` decides when it is actually finished.
+      //
+      // This never throws: a school with HR not yet configured must still be able to add a
+      // teacher, and `unlinkedTeachers` catches anyone this misses.
+      const provisioned = await provisionStaffForTeacher(tx, {
+        schoolId,
+        userId: teacherUser.id,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        preferredStaffNo: data.staffId,
+        phone: data.phone,
+        email: email || null,
+        gender: data.gender as "MALE" | "FEMALE" | "OTHER" | null,
+        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+        address: data.address,
+        department: data.department,
+        qualification: data.qualification,
+      });
+
       return {
         id: teacher.id,
         userId: teacherUser.id,
@@ -257,6 +299,9 @@ export async function createTeacher(data: {
         lga: teacherUser.lga,
         address: teacherUser.address,
         dateOfBirth: teacherUser.dateOfBirth,
+        temporaryPassword,
+        /** Null when HR provisioning could not run — the onboarding queue will catch it. */
+        staffNo: provisioned.created ? provisioned.staffNo : null,
       };
     });
 
@@ -715,14 +760,19 @@ export async function updateTeacher(data: {
           }
 
           // Create new email credential
-          const currentYear = new Date().getFullYear().toString();
-          const passwordHash = await bcrypt.hash(currentYear, 10);
+          const existingLogin = await tx.credential.findFirst({
+            where: { userId: data.userId },
+            select: { passwordHash: true },
+          });
+          if (!existingLogin?.passwordHash) {
+            throw new Error("Reset this teacher's password before adding a new login method");
+          }
           await tx.credential.create({
             data: {
               userId: data.userId,
               type: "EMAIL",
               value: data.email,
-              passwordHash,
+              passwordHash: existingLogin.passwordHash,
               isPrimary: true,
             },
           });
@@ -1051,7 +1101,7 @@ export async function getSubjectAssessments(
       where: {
         subjectId,
         termId,
-        studentClassTermId: classTermId,
+        studentClassTerm: { classTermId },
       },
       include: {
         student: {
@@ -1122,6 +1172,30 @@ export async function updateAssessment(data: {
         error: "You are not assigned to teach this subject",
       };
     }
+
+    const enrollment = await prisma.studentClassTerm.findFirst({
+      where: {
+        id: data.studentClassTermId,
+        studentId: data.studentId,
+        termId: data.termId,
+        status: { in: ["ACTIVE", "COMPLETED"] },
+        classTerm: {
+          termId: data.termId,
+          class: { schoolId: actor.schoolId! },
+          teachers: { some: { teacherId: teacher.id } },
+          classSubjects: { some: { subjectId: data.subjectId } },
+        },
+      },
+      select: { classTerm: { select: { resultWorkflow: { select: { status: true } } } } },
+    });
+    if (!enrollment) return { success: false, error: "Student, class, and subject assignment do not match" };
+    if (
+      enrollment.classTerm.resultWorkflow?.status === "LOCKED" ||
+      enrollment.classTerm.resultWorkflow?.status === "PUBLISHED"
+    ) {
+      return { success: false, error: "Published or locked results must be withdrawn before editing" };
+    }
+    assertScoresWithinScheme(data, await loadAssessmentScheme(actor.schoolId!));
 
     const assessment = await prisma.assessment.upsert({
       where: {
@@ -1209,7 +1283,7 @@ export async function markAttendance(data: {
           },
         },
       },
-      select: { id: true },
+      select: { id: true, termId: true, term: { select: { startDate: true, endDate: true } } },
     });
 
     if (!authorizedEnrollment) {
@@ -1229,6 +1303,14 @@ export async function markAttendance(data: {
       targetDate.getMonth(),
       targetDate.getDate() + 1,
     );
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (dayStart > today) {
+      return { success: false, error: "Attendance cannot be marked for a future date" };
+    }
+    if (dayStart < authorizedEnrollment.term.startDate || dayStart > authorizedEnrollment.term.endDate) {
+      return { success: false, error: "Attendance date must fall within the class term" };
+    }
 
     const attendance = await prisma.$transaction(async (tx) => {
       const existingAttendance = await tx.attendance.findFirst({
@@ -1247,6 +1329,9 @@ export async function markAttendance(data: {
           data: {
             date: dayStart,
             status: data.status,
+            classTermId: data.classTermId,
+            termId: authorizedEnrollment.termId,
+            markedBy: actor.userId,
           },
         });
       }
@@ -1254,6 +1339,9 @@ export async function markAttendance(data: {
       return tx.attendance.create({
         data: {
           studentId: data.studentId,
+          classTermId: data.classTermId,
+          termId: authorizedEnrollment.termId,
+          markedBy: actor.userId,
           date: dayStart,
           status: data.status,
         },
@@ -1364,19 +1452,19 @@ export async function resetTeacherPassword(teacherId: string) {
       };
     }
 
-    // Generate a new temporary password (current year)
-    const currentYear = new Date().getFullYear().toString();
-    const hashedPassword = await bcrypt.hash(currentYear, 10);
+    const temporaryPassword = generateTemporaryPassword();
+    const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
 
     // Update all credentials for this teacher
     await prisma.credential.updateMany({
       where: { userId: teacher.userId },
       data: { passwordHash: hashedPassword },
     });
+    await revokeAllSessionsForUser(teacher.userId);
 
     return {
       success: true,
-      data: { newPassword: currentYear },
+      data: { newPassword: temporaryPassword },
     };
   } catch (error) {
     console.error("Error resetting teacher password:", error);

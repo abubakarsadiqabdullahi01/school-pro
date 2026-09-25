@@ -140,6 +140,35 @@ describe("both criteria together", () => {
   })
 })
 
+describe("configured subject requirements", () => {
+  it("blocks promotion when an offered subject is missing", () => {
+    const verdict = evaluatePromotionEligibility(
+      student({ missingSubjectIds: ["math"] }),
+      policy({ requireAllSubjectsEntered: true }),
+    )
+    expect(verdict.eligible).toBe(false)
+    expect(verdict.reasons).toContain("1 offered subject result(s) are missing")
+  })
+
+  it("enforces the minimum number of passed core subjects", () => {
+    const verdict = evaluatePromotionEligibility(
+      student({
+        subjectResults: [
+          { subjectId: "math", passed: true, score: 72 },
+          { subjectId: "english", passed: false, score: 31 },
+        ],
+      }),
+      policy({
+        usePromotionCriteria: true,
+        requiredSubjectIds: ["math", "english"],
+        minCoreSubjectsPassed: 2,
+      }),
+    )
+    expect(verdict.eligible).toBe(false)
+    expect(verdict.reasons).toContain("Passed 1 core subject, below the required 2")
+  })
+})
+
 describe("both switches on", () => {
   const p = policy({
     requireResultsPublished: true,

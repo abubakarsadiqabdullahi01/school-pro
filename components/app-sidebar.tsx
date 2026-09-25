@@ -12,6 +12,7 @@ import {
   ClipboardList,
   DollarSign,
   FileText,
+  CalendarCheck,
   GraduationCap,
   LayoutDashboard,
   LogOut,
@@ -33,8 +34,10 @@ import {
   Briefcase,
   IdCard,
   Wallet2,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
+import { signOut } from "next-auth/react";
 import type { PermissionKey } from "@/lib/permissions";
 import {
   Sidebar,
@@ -52,7 +55,7 @@ import {
 } from "@/components/ui/sidebar";
 import { SidebarMenuButton } from "@/components/ui/sidebar-menu-button";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -67,17 +70,38 @@ interface AppSidebarProps {
     logoUrl?: string | null;
   } | null;
   permissions?: PermissionKey[];
+  /**
+   * Super admin only — the school currently in focus, or null for "All schools".
+   *
+   * Drives which half of the sidebar is shown. Everyone else is pinned to one school by
+   * their own record and never sees the switcher, so this stays null for them.
+   */
+  activeSchool?: { id: string; name: string; code: string } | null;
 }
 
-export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSidebarProps) {
+export function AppSidebar({
+  userRole,
+  schoolInfo,
+  permissions = [],
+  activeSchool = null,
+}: AppSidebarProps) {
   const pathname = usePathname();
+  /**
+   * The child whose pages are open, taken from the path.
+   *
+   * Read rather than fetched because the sidebar renders on every screen and a request per
+   * navigation to name one child would be a poor trade. The id only ever produces links;
+   * every page behind them re-checks that the child is actually linked to this parent.
+   */
+  const openChildId = pathname.match(/^\/dashboard\/parent\/children\/([^/]+)/)?.[1] ?? null
+
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     overview: true,
     administration: true,
     schoolManagement: true,
     teaching: true,
-    academics: true,
     children: true,
+    academics: true,
     account: true,
     resultsCompilation: true,
     finance: true,
@@ -93,6 +117,24 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
   };
 
   const roleString = getRoleString(userRole);
+
+  // Straight to the role's own dashboard rather than /dashboard, which is only a
+  // client-side redirect to exactly this route. Going through it cost a spinner
+  // on every click, and left the entry permanently unhighlighted, because the
+  // pathname the user lands on is never the /dashboard the link pointed at.
+  const dashboardHref = roleString ? `/dashboard/${roleString}` : "/dashboard";
+
+  /**
+   * A super admin looking at the whole platform rather than one school.
+   *
+   * Everything under School Management — and Finance, Expenditure and HR & Payroll, which
+   * point at /dashboard/admin/* — needs a school to mean anything. Offering them while no
+   * school is selected invites a click that lands on a page with nothing to show, or worse,
+   * on another school's figures. Sessions, Terms, Schools Management, User Management,
+   * System Settings and Analytics stay: those pages already aggregate across schools.
+   */
+  const isPlatformView = roleString === "super-admin" && !activeSchool;
+
   const permissionSet = new Set(permissions);
   const can = (permission: PermissionKey) => permissionSet.has(permission);
   const canAny = (...items: PermissionKey[]) => items.some((permission) => can(permission));
@@ -121,8 +163,11 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
     }));
   };
 
+  // A plain GET to /api/auth/signout only renders NextAuth's own unstyled
+  // confirmation page, so signing out took two clicks and left the app's
+  // theming behind. signOut() POSTs the request itself and returns here.
   const handleLogout = async () => {
-    window.location.href = "/api/auth/signout?callbackUrl=/auth/login";
+    await signOut({ callbackUrl: "/auth/login" });
   };
 
   // Generate school abbreviation from school name
@@ -214,8 +259,8 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                 <SidebarMenu>
                   <SidebarMenuItem>
                     <SidebarMenuButton
-                      href="/dashboard"
-                      isActive={pathname === "/dashboard"}
+                      href={dashboardHref}
+                      isActive={pathname === dashboardHref}
                     >
                       <LayoutDashboard className="h-4 w-4" />
                       <span>Dashboard</span>
@@ -245,13 +290,13 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/super-admin/sessions", "/dashboard/super-admin/sessions/create"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/super-admin/sessions", "/dashboard/super-admin/sessions/create"])}>
                             <div className="flex items-center">
                               <Calendar className="h-4 w-4 mr-2" />
-                              <span>Sessions</span>
+                              <span>Academic Sessions</span>
                             </div>
                             <ChevronDown className="h-4 w-4 ml-2" />
                           </SidebarMenuButton>
@@ -286,36 +331,42 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
 
-                    <MoneyNavGroup
-                      pathname={pathname}
-                      label="Finance"
-                      icon={DollarSign}
-                      links={financeLinks("/dashboard/admin/finance", true)}
-                    />
+                    {/* School money. Hidden while no school is in focus, because these
+                        routes read the admin school context rather than the switcher. */}
+                    {!isPlatformView && (
+                      <>
+                        <MoneyNavGroup
+                          pathname={pathname}
+                          label="Finance"
+                          icon={DollarSign}
+                          links={financeLinks("/dashboard/admin/finance", true)}
+                        />
 
-                    <MoneyNavGroup
-                      pathname={pathname}
-                      label="Expenditure"
-                      icon={Banknote}
-                      links={expenditureLinks("/dashboard/admin/expenditure", true)}
-                    />
+                        <MoneyNavGroup
+                          pathname={pathname}
+                          label="Expenditure"
+                          icon={Banknote}
+                          links={expenditureLinks("/dashboard/admin/expenditure", true)}
+                        />
 
-                    <MoneyNavGroup
-                      pathname={pathname}
-                      label="HR & Payroll"
-                      icon={Briefcase}
-                      links={hrLinks("/dashboard/admin/hr", true)}
-                    />
+                        <MoneyNavGroup
+                          pathname={pathname}
+                          label="HR & Payroll"
+                          icon={Briefcase}
+                          links={hrLinks("/dashboard/admin/hr", true)}
+                        />
+                      </>
+                    )}
 
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/super-admin/terms", "/dashboard/super-admin/terms/create"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/super-admin/terms", "/dashboard/super-admin/terms/create"])}>
                             <div className="flex items-center">
                               <BookOpen className="h-4 w-4 mr-2" />
-                              <span>Terms</span>
+                              <span>Academic Terms</span>
                             </div>
                             <ChevronDown className="h-4 w-4 ml-2" />
                           </SidebarMenuButton>
@@ -350,12 +401,12 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
 
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/super-admin/schools", "/dashboard/super-admin/schools/add"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/super-admin/schools", "/dashboard/super-admin/schools/add"])}>
                             <div className="flex items-center">
                               <School className="h-4 w-4 mr-2" />
                               <span>Schools Management</span>
@@ -393,12 +444,12 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
 
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/super-admin/users/admins", "/dashboard/super-admin/users/teachers", "/dashboard/super-admin/users/parents"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/super-admin/users/admins", "/dashboard/super-admin/users/teachers", "/dashboard/super-admin/users/parents"])}>
                             <div className="flex items-center">
                               <UserCog className="h-4 w-4 mr-2" />
                               <span>User Management</span>
@@ -440,7 +491,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
 
                     <SidebarMenuItem>
                       <SidebarMenuButton
@@ -470,7 +521,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
           </Collapsible>
         )}
 
-        {canSeeSchoolManagement && (
+        {canSeeSchoolManagement && !isPlatformView && (
           <Collapsible
             open={openGroups.schoolManagement}
             onOpenChange={() => toggleGroup("schoolManagement")}
@@ -500,10 +551,10 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                     )}
 
                     {can("teachers.manage") && (
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/teachers", "/dashboard/admin/teachers/new"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/teachers", "/dashboard/admin/teachers/new"])}>
                             <div className="flex items-center">
                               <User2 className="h-4 w-4 mr-2" />
                               <span>Teachers</span>
@@ -540,14 +591,14 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
                     )}
 
                     {can("students.manage") && (
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/students", "/dashboard/admin/students/create", "/dashboard/admin/compiler/student-transitions"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/students", "/dashboard/admin/students/create", "/dashboard/admin/compiler/student-transitions"])}>
                             <div className="flex items-center">
                               <GraduationCap className="h-4 w-4 mr-2" />
                               <span>Students</span>
@@ -596,13 +647,13 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
                     )}
 
-                    {/* <Collapsible>
+                    {/* <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/school-sessions", "/dashboard/admin/school-sessions/create"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/school-sessions", "/dashboard/admin/school-sessions/create"])}>
                             <div className="flex items-center">
                               <Calendar className="h-4 w-4 mr-2" />
                               <span>Sessions</span>
@@ -628,13 +679,13 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible> */}
+                    </NavGroup> */}
 
                     {can("compiler.review_results") && (
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/compiler/subject-results/entry", "/dashboard/admin/compiler/class-results", "/dashboard/admin/compiler/continuous-assessments", "/dashboard/admin/compiler/student-reports"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/compiler/subject-results/entry", "/dashboard/admin/compiler/class-results", "/dashboard/admin/compiler/continuous-assessments", "/dashboard/admin/compiler/student-reports"])}>
                             <div className="flex items-center">
                               <ScreenShare className="h-4 w-4 mr-2" />
                               <span>Compiler</span>
@@ -675,6 +726,45 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                                 asChild
                                 isActive={
                                   pathname ===
+                                  "/dashboard/admin/compiler/class-results/sessional"
+                                }
+                              >
+                                <Link href="/dashboard/admin/compiler/class-results/sessional">
+                                  Sessional Results
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/compiler/annual-results"
+                                }
+                              >
+                                <Link href="/dashboard/admin/compiler/annual-results">
+                                  Annual Results
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname ===
+                                  "/dashboard/admin/compiler/promotion-policies"
+                                }
+                              >
+                                <Link href="/dashboard/admin/compiler/promotion-policies">
+                                  Promotion Rules
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname ===
                                   "/dashboard/admin/compiler/continuous-assessments"
                                 }
                               >
@@ -700,14 +790,14 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
                     )}
 
                     {can("academics.manage") && (
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/school-terms", "/dashboard/admin/class-terms", "/dashboard/admin/school-terms/create"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/school-terms", "/dashboard/admin/class-terms", "/dashboard/admin/school-terms/create"])}>
                             <div className="flex items-center">
                               <BookOpen className="h-4 w-4 mr-2" />
                               <span>Terms</span>
@@ -756,14 +846,14 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
                     )}
 
                     {can("academics.manage") && (
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/classes", "/dashboard/admin/classes/create"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/classes", "/dashboard/admin/classes/create"])}>
                             <div className="flex items-center">
                               <BookOpen className="h-4 w-4 mr-2" />
                               <span>Classes</span>
@@ -800,13 +890,13 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
                     )}
                     {can("academics.manage") && (
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/subjects", "/dashboard/admin/subjects/create"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/subjects", "/dashboard/admin/subjects/create"])}>
                             <div className="flex items-center">
                               <FileText className="h-4 w-4 mr-2" />
                               <span>Subjects</span>
@@ -844,14 +934,14 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
                     )}
 
                     {can("parents.manage") && (
-                    <Collapsible>
+                    <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/parents", "/dashboard/admin/parents/create"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
-                          <SidebarMenuButton className="justify-between">
+                          <SidebarMenuButton className="justify-between" isActive={isInsideGroup(pathname, ["/dashboard/admin/parents", "/dashboard/admin/parents/create"])}>
                             <div className="flex items-center">
                               <Users className="h-4 w-4 mr-2" />
                               <span>Parents</span>
@@ -888,7 +978,7 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
-                    </Collapsible>
+                    </NavGroup>
                     )}
 
                     {canUseFinance && (
@@ -926,6 +1016,18 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                       >
                         <UserCog className="h-4 w-4" />
                         <span>Permissions</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    )}
+
+                    {can("school.manage") && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/admin/integrity"
+                        isActive={pathname.startsWith("/dashboard/admin/integrity")}
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        <span>System Integrity</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     )}
@@ -1126,6 +1228,10 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
           </Collapsible>
         )}
 
+        {/* The Academics group came back when a second student page did. It was cut
+            when it held one "My Results" entry pointing at /dashboard/student, the
+            page Dashboard already linked to; "My Record" is a different page, so the
+            group now names something the Dashboard entry does not. */}
         {roleString === "student" && (
           <Collapsible
             open={openGroups.academics}
@@ -1143,18 +1249,31 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {/* One entry, because there is one page. This group previously listed
-                        My Classes, Grades, Attendance and Timetable — four links that all
-                        resolved to this same route, which read as a half-built product.
-                        Timetable is gone entirely: there is no timetable model, action or
-                        page behind it. Add entries back as real pages are built. */}
                     <SidebarMenuItem>
                       <SidebarMenuButton
-                        href="/dashboard/student"
-                        isActive={pathname === "/dashboard/student"}
+                        href="/dashboard/student/records"
+                        isActive={pathname === "/dashboard/student/records"}
                       >
-                        <BookOpenCheck className="h-4 w-4" />
-                        <span>My Results</span>
+                        <GraduationCap className="h-4 w-4" />
+                        <span>My Record</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/student/attendance"
+                        isActive={pathname === "/dashboard/student/attendance"}
+                      >
+                        <CalendarCheck className="h-4 w-4" />
+                        <span>Attendance</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/student/fees"
+                        isActive={pathname === "/dashboard/student/fees"}
+                      >
+                        <Receipt className="h-4 w-4" />
+                        <span>Fees & Receipts</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   </SidebarMenu>
@@ -1188,12 +1307,52 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         href="/dashboard/parent/children"
-                        isActive={pathname.startsWith("/dashboard/parent/children")}
+                        isActive={pathname === "/dashboard/parent/children"}
                       >
                         <Users className="h-4 w-4" />
                         <span>My Children</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+
+                    {/* A parent's screens all belong to one child, so there is nothing
+                        useful to link to until one is open. Once a child is, their pages
+                        appear here — the same three the student portal offers, reached the
+                        same way, instead of going back to the list each time. */}
+                    {openChildId ? (
+                      <>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            href={`/dashboard/parent/children/${openChildId}`}
+                            isActive={pathname === `/dashboard/parent/children/${openChildId}`}
+                          >
+                            <LayoutDashboard className="h-4 w-4" />
+                            <span>Overview</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            href={`/dashboard/parent/children/${openChildId}/records`}
+                            isActive={pathname.startsWith(
+                              `/dashboard/parent/children/${openChildId}/records`,
+                            )}
+                          >
+                            <GraduationCap className="h-4 w-4" />
+                            <span>Academic Record</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            href={`/dashboard/parent/children/${openChildId}/fees`}
+                            isActive={pathname.startsWith(
+                              `/dashboard/parent/children/${openChildId}/fees`,
+                            )}
+                          >
+                            <Receipt className="h-4 w-4" />
+                            <span>Fees & Receipts</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      </>
+                    ) : null}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -1256,11 +1415,45 @@ export function AppSidebar({ userRole, schoolInfo, permissions = [] }: AppSideba
   );
 }
 
+/**
+ * Whether the page on screen lives inside this group of links.
+ *
+ * Matched by prefix, not equality: a detail page like `/classes/abc/edit` is still inside
+ * Classes, and a menu that closes the moment you open a record is a menu that has stopped
+ * telling you where you are.
+ */
+function isInsideGroup(pathname: string, hrefs: string[]): boolean {
+  return hrefs.some((href) => pathname === href || pathname.startsWith(`${href}/`))
+}
+
+/**
+ * A sidebar group that opens itself around the page you are on.
+ *
+ * Every group used to start closed on each page load, so arriving at Discounts showed a
+ * collapsed Finance and no sign of where you were. It stays controlled rather than using
+ * `defaultOpen` because the sidebar is not remounted between pages — without the effect, a
+ * link followed from elsewhere in the app would land inside a group that is still shut.
+ * Closing one by hand still works; the next navigation into it opens it again.
+ */
+function NavGroup({ active, children }: { active: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(active);
+
+  useEffect(() => {
+    if (active) setOpen(true);
+  }, [active]);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      {children}
+    </Collapsible>
+  );
+}
+
 type FinanceLink = {
   href: string;
   label: string;
   icon: LucideIcon;
-  /** Fee Setup has child routes (/fees/create), so it matches by prefix. */
+  /** Fee Setup has child routes (categories, schedules, the two new-forms), so it matches by prefix. */
   exact: boolean;
 };
 
@@ -1324,8 +1517,8 @@ function expenditureLinks(basePath: string, canManage: boolean): FinanceLink[] {
     { href: basePath, label: "Dashboard", icon: LayoutDashboard, exact: true },
     ...(canManage
       ? [
-          { href: `${basePath}/categories`, label: "Categories", icon: ReceiptText, exact: true },
-          { href: `${basePath}/accounts`, label: "Payment Chart", icon: Wallet, exact: true },
+          { href: `${basePath}/categories`, label: "Categories", icon: ReceiptText, exact: false },
+          { href: `${basePath}/accounts`, label: "Payment Chart", icon: Wallet, exact: false },
         ]
       : []),
     { href: `${basePath}/new`, label: "Record Expense", icon: Banknote, exact: true },
@@ -1349,6 +1542,7 @@ function hrLinks(basePath: string, canManage: boolean): FinanceLink[] {
     { href: `${basePath}/staff`, label: "Staff", icon: IdCard, exact: false },
     ...(canManage
       ? [
+          { href: `${basePath}/onboarding`, label: "Onboarding", icon: ClipboardList, exact: true },
           { href: `${basePath}/salary-scales`, label: "Salary Scales", icon: Scale, exact: true },
           { href: `${basePath}/allowances`, label: "Allowances", icon: Wallet2, exact: true },
           { href: `${basePath}/deductions`, label: "Deductions", icon: Percent, exact: true },
@@ -1372,11 +1566,17 @@ function MoneyNavGroup({
   icon: LucideIcon;
   links: FinanceLink[];
 }) {
+  const active = links.some((link) =>
+    link.exact ? pathname === link.href : pathname.startsWith(link.href),
+  );
+
   return (
-    <Collapsible>
+    <NavGroup active={active}>
       <SidebarMenuItem>
         <CollapsibleTrigger asChild>
-          <SidebarMenuButton className="justify-between">
+          {/* Marked active while the group is shut, so somebody who has collapsed Finance by
+              hand can still see that the page they are on is inside it. */}
+          <SidebarMenuButton className="justify-between" isActive={active}>
             <div className="flex items-center">
               <Icon className="h-4 w-4 mr-2" />
               <span>{label}</span>
@@ -1403,6 +1603,6 @@ function MoneyNavGroup({
           </SidebarMenuSub>
         </CollapsibleContent>
       </SidebarMenuItem>
-    </Collapsible>
+    </NavGroup>
   );
 }
