@@ -291,8 +291,14 @@ describe("payroll generation", () => {
 
   it("refuses a second payroll for the same month", async () => {
     // The duplicate-payroll guard, enforced by a unique index and surfaced in words.
+    //
+    // Matched on "already", not on a whole sentence. The message now names the month and
+    // says what to do about it - "July 2019 has already been generated and is still a
+    // draft. A month is generated once; open that run to change it." - which is a better
+    // message than the one this used to pin, and there is no reason a rewording of it
+    // should read as a broken guard.
     const message = err(await generatePayroll({ year: YEAR, month: MONTH }), "duplicate payroll")
-    expect(message).toContain("already exists")
+    expect(message).toMatch(/already/i)
   })
 
   it("refuses to generate when deductions would exceed pay", async () => {
@@ -442,7 +448,25 @@ describe("the payroll workflow", () => {
   })
 })
 
+/**
+ * What a refusal looks like.
+ *
+ * Matches the shape of an authorization failure rather than one exact sentence. These
+ * pinned the literal word "Unauthorized", which stopped matching once the permission
+ * system began naming the permission it wanted ("Missing permission: payroll.manage").
+ * The refusal was working; the message had got clearer.
+ *
+ * That mattered more than a red tick: the assertion failed before the test could hand the
+ * admin identity back, so every test after it in the file ran as the accountant and failed
+ * for a reason that had nothing to do with what it was testing.
+ */
+const REFUSAL = /unauthor|missing permission|not permitted|forbidden/i
+
 describe("segregation of duties", () => {
+  // Runs even when an expectation above fails. Without this, a single failure leaves the
+  // accountant signed in for every remaining test in the file.
+  afterAll(() => actAs(adminUserId))
+
   it("lets an accountant generate and pay, but never approve or change a salary", async () => {
     const officer = ok(
       await createFinanceOfficer({
@@ -460,16 +484,16 @@ describe("segregation of duties", () => {
     created.runIds.push(run.id)
 
     // Approving, and changing what anybody earns, are not.
-    expect(err(await approvePayroll({ runId: run.id }), "accountant approves")).toContain("Unauthorized")
+    expect(err(await approvePayroll({ runId: run.id }), "accountant approves")).toMatch(REFUSAL)
     expect(
       err(
         await assignStaffSalary({ staffId: mainStaffId, baseSalary: 9_000_000, effectiveFrom: "2020-01-01" }),
         "accountant raises their own salary",
       ),
-    ).toContain("Unauthorized")
+    ).toMatch(REFUSAL)
     expect(
       err(await createSalaryScale({ name: `${STAMP} Sneaky`, baseSalary: 1 }), "accountant creates a scale"),
-    ).toContain("Unauthorized")
+    ).toMatch(REFUSAL)
 
     // Reading is the job, so that must still work.
     expect(ok(await getHrOverview(), "accountant reads the overview").staff.total).toBeGreaterThan(0)

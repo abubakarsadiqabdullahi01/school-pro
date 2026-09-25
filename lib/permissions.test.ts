@@ -46,4 +46,17 @@ describe("permission profile resolution", () => {
     expect(permissions.has("students.manage")).toBe(false)
     expect(permissions.has("compiler.lock_results")).toBe(false)
   })
+
+  it("lets an accountant spend and pay, but never approve their own work", () => {
+    // The split the expenditure and payroll modules are built around, and the reason an
+    // accountant has their own /dashboard/accountant/expenditure and .../hr routes at all.
+    // Recording a voucher and approving it must not be the same pair of hands.
+    const permissions = resolveEffectivePermissions("ACCOUNTANT")
+
+    expect(permissions.has("expenditure.manage")).toBe(true)
+    expect(permissions.has("expenditure.approve")).toBe(false)
+
+    expect(permissions.has("payroll.pay")).toBe(true)
+    expect(permissions.has("payroll.manage")).toBe(false)
+  })
 })

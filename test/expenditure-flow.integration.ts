@@ -297,7 +297,25 @@ describe("the account cannot be quietly overdrawn", () => {
   })
 })
 
+/**
+ * What a refusal looks like.
+ *
+ * Matches the shape of an authorization failure rather than one exact sentence. These
+ * pinned the literal word "Unauthorized", which stopped matching once the permission
+ * system began naming the permission it wanted ("Missing permission: payroll.manage").
+ * The refusal was working; the message had got clearer.
+ *
+ * That mattered more than a red tick: the assertion failed before the test could hand the
+ * admin identity back, so every test after it in the file ran as the accountant and failed
+ * for a reason that had nothing to do with what it was testing.
+ */
+const REFUSAL = /unauthor|missing permission|not permitted|forbidden/i
+
 describe("segregation of duties", () => {
+  // Runs even when an expectation above fails. Without this, a single failure leaves the
+  // accountant signed in for every remaining test in the file.
+  afterAll(() => actAs(adminUserId))
+
   it("lets an accountant record but not approve", async () => {
     const officer = ok(
       await createFinanceOfficer({
@@ -316,10 +334,10 @@ describe("segregation of duties", () => {
     expect(recorded.status).toBe("PENDING_APPROVAL")
 
     // Approving is not, and neither is setting up the chart.
-    expect(err(await approveExpense({ expenseId: recorded.id }), "accountant approves")).toContain("Unauthorized")
+    expect(err(await approveExpense({ expenseId: recorded.id }), "accountant approves")).toMatch(REFUSAL)
     expect(
       err(await createExpenseCategory({ name: `${STAMP} Sneaky` }), "accountant creates a category"),
-    ).toContain("Unauthorized")
+    ).toMatch(REFUSAL)
 
     // ...but they can still read every report, which is the job.
     expect(ok(await getExpenditureOverview(), "accountant reads the overview").sessionTotal).toBeTruthy()

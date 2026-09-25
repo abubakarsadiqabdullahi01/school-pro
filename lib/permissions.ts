@@ -13,6 +13,7 @@ export const PERMISSIONS = [
   "compiler.lock_results",
   "compiler.configure_policy",
   "finance.setup",
+  "finance.manage_gateway",
   "finance.collect_payments",
   "finance.view_reports",
   "expenditure.manage",
@@ -43,6 +44,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   "compiler.lock_results": "Lock results",
   "compiler.configure_policy": "Configure promotion policy",
   "finance.setup": "Configure finance",
+  "finance.manage_gateway": "Manage online payment gateway",
   "finance.collect_payments": "Collect payments",
   "finance.view_reports": "View finance reports",
   "expenditure.manage": "Manage expenditure",
@@ -78,6 +80,7 @@ export const PERMISSION_GROUPS: Array<{ name: string; permissions: PermissionKey
     name: "Money",
     permissions: [
       "finance.setup",
+      "finance.manage_gateway",
       "finance.collect_payments",
       "finance.view_reports",
       "expenditure.manage",
@@ -114,9 +117,29 @@ export const SYSTEM_PERMISSION_PROFILES: Record<
       "reports.export",
     ],
   },
+  /**
+   * What a bursar actually does.
+   *
+   * Money in, money out, and the payroll run - but never their own approval. The
+   * expenditure and payroll modules are built around that split, and the integration
+   * suites state it outright: "lets an accountant record but not approve", and "lets an
+   * accountant generate and pay, but never approve or change a salary". So this grants
+   * `expenditure.manage` without `expenditure.approve`, and `payroll.pay` without
+   * `payroll.manage`.
+   *
+   * Those two were missing, which left an accountant looking at expenditure and payroll
+   * menus in their own sidebar and being refused by every one of them.
+   */
   FINANCE: {
     name: "Finance Officer",
-    permissions: ["finance.setup", "finance.collect_payments", "finance.view_reports", "reports.export"],
+    permissions: [
+      "finance.setup",
+      "finance.collect_payments",
+      "finance.view_reports",
+      "expenditure.manage",
+      "payroll.pay",
+      "reports.export",
+    ],
   },
   HR: {
     name: "HR and Payroll Officer",
