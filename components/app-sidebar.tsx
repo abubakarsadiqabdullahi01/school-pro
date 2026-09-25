@@ -765,6 +765,19 @@ export function AppSidebar({
                                 asChild
                                 isActive={
                                   pathname ===
+                                  "/dashboard/admin/compiler/notifications"
+                                }
+                              >
+                                <Link href="/dashboard/admin/compiler/notifications">
+                                  Notifications
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={
+                                  pathname ===
                                   "/dashboard/admin/compiler/continuous-assessments"
                                 }
                               >

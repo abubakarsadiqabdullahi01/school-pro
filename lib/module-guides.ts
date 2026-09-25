@@ -876,6 +876,31 @@ export const MODULE_GUIDES = {
     sourceOfTruth: "lib/results/session-report.server.ts · lib/pdf/student-report-card-generator.tsx",
   },
 
+  "compiler.notifications": {
+    title: "Result Notifications",
+    location: ["Compiler", "Notifications"],
+    purpose:
+      "Telling families a term\u2019s results are ready, by text message or email, without putting the results themselves in the message.",
+    example: {
+      doing: "Let JSS 2A\u2019s parents know first term results are out.",
+      then: "You are shown how many people it reaches, how many text messages that is, the exact wording they will get, and every learner nobody can be told about \u2014 before anything is sent. Pressing send queues the messages; a scheduled job delivers them.",
+    },
+    onSave: [
+      "Each message is queued rather than sent from your browser, so a send of four hundred does not depend on the page staying open.",
+      "Every message carries a key made from the class, the learner, the recipient and the channel, so sending again reaches anyone who was missed and nobody twice.",
+    ],
+    rules: [
+      "A result never travels in the message. A text sits on a lock screen and passes through a provider, so the notice links to the portal and the reader has to sign in.",
+      "Nothing is sent until the recipient count and the message have been shown. A mis-click that texts four hundred families is real money.",
+      "Anyone who has turned notifications off, or whose number or address is unusable, produces no message at all \u2014 and is listed so the school knows who was not told.",
+      "Messages go to the guardians linked to that particular learner, never to everybody in the school.",
+      "With no provider configured, messages are written to the server log instead of being delivered, and every screen says so plainly rather than looking successful.",
+    ],
+    permissions: ["compiler.publish_results"],
+    sourceOfTruth:
+      "app/actions/notifications.ts \u00b7 lib/notifications/outbox.server.ts \u00b7 scripts/drain-notification-outbox.ts",
+  },
+
   "compiler.annualResults": {
     title: "Annual Results",
     location: ["Compiler", "Annual Results"],

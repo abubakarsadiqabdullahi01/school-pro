@@ -10,18 +10,29 @@ datasource db {
 }
 
 model User {
-  id                         String                     @id @default(uuid())
-  firstName                  String
-  lastName                   String
-  role                       Role                       @default(STUDENT)
-  avatarUrl                  String?
-  dateOfBirth                DateTime?
-  phone                      String?
-  gender                     Gender?
-  state                      String?
-  lga                        String?
-  address                    String?
-  isActive                   Boolean                    @default(true)
+  id          String    @id @default(uuid())
+  firstName   String
+  lastName    String
+  role        Role      @default(STUDENT)
+  avatarUrl   String?
+  dateOfBirth DateTime?
+  phone       String?
+  gender      Gender?
+  state       String?
+  lga         String?
+  address     String?
+  isActive    Boolean   @default(true)
+
+  /// Whether this person may be messaged, per channel.
+  ///
+  /// Default true, because every existing account was created on the understanding that
+  /// the school may contact them, and defaulting to false would silently mute a whole
+  /// school the day notifications ship. Turning one off is a deliberate act by the person
+  /// or by an administrator, and `resolveRecipients` refuses a muted channel outright
+  /// rather than queueing a message nobody will look at.
+  notifyBySms   Boolean @default(true)
+  notifyByEmail Boolean @default(true)
+
   credentials                Credential[]               @relation("UserCredentials")
   loginAttempts              LoginAttempt[]
   sessions                   LoginSession[]
@@ -473,6 +484,8 @@ model School {
   transitionPolicy       TransitionPolicy?
   classPromotionPolicies ClassPromotionPolicy[]
   annualDecisions        AnnualResultDecision[]
+  notifications          NotificationOutbox[]
+  notificationTemplates  NotificationTemplate[]
   assessmentScheme       AssessmentScheme?
   permissionProfiles     PermissionProfile[]
   traitRatings           StudentTraitRating[]
@@ -482,6 +495,7 @@ model School {
   paymentConfigurations  SchoolPaymentConfiguration[]
   gatewayTransactions    GatewayTransaction[]
   gatewayEvents          GatewayEvent[]
+  gatewayNotifications   GatewayNotificationOutbox[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1115,6 +1129,7 @@ model GatewayTransaction {
   payment       Payment?                       @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   allocations   GatewayTransactionAllocation[]
   events        GatewayEvent[]
+  notifications GatewayNotificationOutbox[]
 
   @@unique([provider, reference])
   @@index([schoolId, status, createdAt])
@@ -1170,6 +1185,30 @@ model GatewayEvent {
   @@index([reference])
   @@index([schoolId, receivedAt])
   @@index([gatewayTransactionId])
+}
+
+/// A durable request to notify a family after a gateway payment is posted. Sending is a
+/// separate concern, but the unique key guarantees webhook retries cannot request it twice.
+model GatewayNotificationOutbox {
+  id                   String    @id @default(uuid())
+  schoolId             String
+  gatewayTransactionId String
+  kind                 String    @default("PAYMENT_RECEIPT") @db.VarChar(50)
+  status               String    @default("PENDING") @db.VarChar(20)
+  payload              Json?
+  attempts             Int       @default(0)
+  nextAttemptAt        DateTime?
+  sentAt               DateTime?
+  lastError            String?   @db.Text
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  school             School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  gatewayTransaction GatewayTransaction @relation(fields: [gatewayTransactionId], references: [id], onDelete: Cascade)
+
+  @@unique([gatewayTransactionId, kind])
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([schoolId, createdAt])
 }
 
 model Discount {
@@ -2118,6 +2157,102 @@ model StaffDocument {
   @@index([expiresAt])
 }
 
+/// One message, queued rather than sent inline.
+///
+/// cPanel has no persistent worker, so nothing can sit in memory waiting to send - and the
+/// outbox is the better shape anyway. A bursar pressing "send reminders" for four hundred
+/// families must not hold their browser open for four hundred provider round trips, and
+/// when it fails halfway there has to be a record of exactly who was reached.
+///
+/// `dedupeKey` is what makes a retry safe. Publishing a class's results twice, or a cron
+/// overlapping itself, must not text every family twice; the unique constraint on
+/// (schoolId, dedupeKey) turns the second attempt into a no-op at the database rather than
+/// relying on the caller to remember.
+model NotificationOutbox {
+  id       String @id @default(uuid())
+  schoolId String
+
+  channel         NotificationChannel
+  /// A phone number in +234 form, or an email address. One column because `channel` says
+  /// which it is, and a message only ever has one destination.
+  recipient       String
+  recipientUserId String?
+  /// Who the message is about, so a school can answer "what did we send about this child".
+  studentId       String?
+
+  /// Email only; null on a text.
+  subject     String?
+  body        String  @db.Text
+  templateKey String?
+
+  /// Null means "this message is allowed to repeat" - a manual one-off, say.
+  dedupeKey String?
+
+  status      NotificationStatus @default(QUEUED)
+  attempts    Int                @default(0)
+  maxAttempts Int                @default(3)
+
+  provider          String?
+  providerMessageId String?
+  lastError         String? @db.Text
+
+  /// Segments for a text, always 1 for an email. Frozen at queue time so a school can
+  /// reconcile a provider bill against what it actually asked for.
+  units Int @default(1)
+
+  queuedAt    DateTime  @default(now())
+  /// Not before this. A failed attempt pushes it forward so retries back off instead of
+  /// hammering a provider that is already refusing.
+  availableAt DateTime  @default(now())
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+
+  /// User id without a relation: who caused a message to be sent must survive that member
+  /// of staff being deleted, the same reasoning as `Assessment.publishedBy`.
+  triggeredBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, dedupeKey])
+  /// The worker's query: what is due to go out, oldest first.
+  @@index([status, availableAt])
+  @@index([schoolId, channel, status])
+  @@index([studentId])
+  @@index([queuedAt])
+}
+
+/// A school's own wording for a kind of message.
+///
+/// Wording is data, not code: a school says "Dear Parent" or "Good day" in its own voice,
+/// and neither belongs in a deployment. A school with no row here falls back to the
+/// built-in default in `lib/notifications/templates.ts`, so notifications work before
+/// anybody has configured anything.
+model NotificationTemplate {
+  id       String @id @default(uuid())
+  schoolId String
+
+  /// Which trigger this wording is for - `results.published` and so on.
+  templateKey String
+  channel     NotificationChannel
+
+  /// Email only.
+  subject  String?
+  body     String  @db.Text
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, templateKey, channel])
+  @@index([schoolId, isActive])
+}
+
 // Enums remain the same
 enum Role {
   SUPER_ADMIN
@@ -2292,6 +2427,26 @@ enum AnnualPromotionDecision {
   PROMOTED
   REPEATED
   GRADUATED
+}
+
+enum NotificationChannel {
+  SMS
+  EMAIL
+}
+
+/// The life of one queued message.
+///
+/// SENT and DELIVERED are deliberately different states. SENT means the provider accepted
+/// it; DELIVERED means the network said it arrived. On Nigerian networks the gap between
+/// those two is where DND blocking lives - a message charged for, accepted, and never
+/// delivered - so collapsing them would hide exactly the failure a school needs to see.
+enum NotificationStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+  CANCELLED
 }
 
 enum StaffOnboardingStatus {
