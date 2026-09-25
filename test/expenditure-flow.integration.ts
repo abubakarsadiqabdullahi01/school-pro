@@ -99,6 +99,14 @@ beforeAll(async () => {
 afterAll(async () => {
   if (created.expenseIds.length > 0) {
     await prisma.expenseAttachment.deleteMany({ where: { expenseId: { in: created.expenseIds } } })
+    // `AccountingReversal.expenseId` is ON DELETE RESTRICT — a correction outlives a
+    // careless delete of the thing it corrects. Without this the expense delete throws,
+    // this hook dies before it reaches the category and account below, and the next run
+    // collides with the leftovers on `ExpenseCategory_schoolId_name_key`. That is how a
+    // suite ends up permanently red after one bad run.
+    await prisma.accountingReversal.deleteMany({
+      where: { expenseId: { in: created.expenseIds } },
+    })
     await prisma.expense.deleteMany({ where: { id: { in: created.expenseIds } } })
   }
   if (created.categoryId) await prisma.expenseCategory.deleteMany({ where: { id: created.categoryId } })

@@ -130,6 +130,17 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
+/**
+ * What a refusal looks like.
+ *
+ * Matches the shape of an authorization failure rather than one exact sentence. These
+ * assertions used to pin `/unauthor/i`, which stopped matching when the permission system
+ * started naming the permission it wanted ("Missing permission: students.manage") - a
+ * clearer message that read as five broken tests. What matters is that the action was
+ * refused on authorization grounds, not the prose it was refused in.
+ */
+const REFUSAL = /unauthor|missing permission|not permitted|forbidden/i
+
 describe("an accountant cannot reach the student module", () => {
   beforeAll(async () => actAs(accountantUserId))
 
@@ -144,7 +155,7 @@ describe("an accountant cannot reach the student module", () => {
         termId: "any",
       }),
     )
-    expect(message).toMatch(/unauthor/i)
+    expect(message).toMatch(REFUSAL)
   })
 
   it("cannot update a student", async () => {
@@ -155,19 +166,19 @@ describe("an accountant cannot reach the student module", () => {
         data: { firstName: "Tampered", lastName: "Tampered" },
       }),
     )
-    expect(message).toMatch(/unauthor/i)
+    expect(message).toMatch(REFUSAL)
   })
 
   it("cannot delete a student", async () => {
     if (!victimStudentId) return
     const message = await refused(() => deleteStudent(victimStudentId))
-    expect(message).toMatch(/unauthor/i)
+    expect(message).toMatch(REFUSAL)
   })
 
   it("cannot deactivate a student", async () => {
     if (!victimStudentId) return
     const message = await refused(() => toggleStudentStatus(victimStudentId))
-    expect(message).toMatch(/unauthor/i)
+    expect(message).toMatch(REFUSAL)
   })
 
   it("cannot create a parent", async () => {
@@ -178,7 +189,7 @@ describe("an accountant cannot reach the student module", () => {
         email: `zz.nope.${Date.now()}@example.test`,
       }),
     )
-    expect(message).toMatch(/unauthor/i)
+    expect(message).toMatch(REFUSAL)
   })
 
   it("leaves the student untouched after all of that", async () => {
