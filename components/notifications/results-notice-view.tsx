@@ -180,6 +180,17 @@ export function ResultsNoticeView({ classTerms }: { classTerms: ClassTermOption[
               </p>
             )}
 
+            {preview.brokenPortalLink && (
+              <p className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  The site address is not configured, so the link below is a relative path
+                  and will not work in a text message. Set <code>NEXT_PUBLIC_APP_URL</code>{" "}
+                  before sending.
+                </span>
+              </p>
+            )}
+
             <div className="grid gap-3 sm:grid-cols-3">
               <Figure label="Learners" value={preview.learners} />
               <Figure

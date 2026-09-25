@@ -210,6 +210,15 @@ function describePolicy(policy: PromotionPolicy, hasOverride: boolean): string {
   return `${source} — ${parts.join(", ")} on ${scope}${graduating}`
 }
 
+/** One entry per subject, in the order a person reads a list. */
+function dedupeSubjects<T extends { id: string; name: string }>(subjects: T[]): T[] {
+  const byId = new Map<string, T>()
+  for (const subject of subjects) {
+    if (!byId.has(subject.id)) byId.set(subject.id, subject)
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
 export type ClassPolicyDetail = {
   classId: string
   className: string
@@ -252,7 +261,11 @@ export async function getClassPromotionPolicy(
         hasOverride: Boolean(override),
         policy: resolved.policy,
         schoolDefault: school,
-        subjects: classRow.subjects.map((row) => row.subject),
+        // Deduplicated by subject. `ClassSubject` is unique on
+        // [classId, subjectId, classTermId] — one row per *term* — so a class that teaches
+        // Mathematics in all three terms has three rows for it, and listing them straight
+        // through put every subject on the core-subject picker two or three times over.
+        subjects: dedupeSubjects(classRow.subjects.map((row) => row.subject)),
       },
     }
   } catch (error) {

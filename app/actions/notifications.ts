@@ -92,9 +92,24 @@ async function resolveTemplate(
  * that opened a result without a sign-in would put a child's marks behind nothing but a
  * forwarded text.
  */
+function portalBase(): string {
+  return process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ?? ""
+}
+
 function portalLink(): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? ""
-  return `${base}/auth/login`
+  return `${portalBase()}/auth/login`
+}
+
+/**
+ * Whether the link in a message would actually be usable.
+ *
+ * With `NEXT_PUBLIC_APP_URL` unset this renders as `/auth/login` — a relative path, which
+ * is meaningless in a text message and unclickable in an email. Four hundred families
+ * would be told to visit a path that goes nowhere, and the school would be billed for it.
+ * Cheap to detect and worth refusing over.
+ */
+function portalLinkUsable(): boolean {
+  return /^https?:\/\//.test(portalBase())
 }
 
 const noticeSchema = z.object({
@@ -157,6 +172,11 @@ export type NoticePreview = {
   unreachable: Array<{ studentName: string; problem: string }>
   /** True when no real provider is configured, so nothing would actually be delivered. */
   usingLogFallback: boolean
+  /**
+   * True when the wording contains `{{portalLink}}` and there is no site address to build
+   * one from, so the message would tell families to visit a relative path.
+   */
+  brokenPortalLink: boolean
 }
 
 /**
@@ -209,6 +229,7 @@ export async function previewResultsNotice(
           .filter((group) => group.problem !== null)
           .map((group) => ({ studentName: group.studentName, problem: group.problem! })),
         usingLogFallback: resolveProviders().usingLogFallback,
+        brokenPortalLink: sampleText.includes("/auth/login") && !portalLinkUsable(),
       },
     }
   } catch (error) {
@@ -237,6 +258,19 @@ export async function sendResultsNotice(
     const templates = {
       SMS: await resolveTemplate(schoolId, "results.published", "SMS"),
       EMAIL: await resolveTemplate(schoolId, "results.published", "EMAIL"),
+    }
+
+    // Refuse rather than send a link that goes nowhere. A school paying for four hundred
+    // texts that read "Sign in to view: /auth/login" has been failed twice over — by the
+    // message and by the bill — and the check costs nothing.
+    const usesLink = data.channels.some((channel) =>
+      templates[channel].body.includes("{{portalLink}}"),
+    )
+    if (usesLink && !portalLinkUsable()) {
+      throw new Error(
+        "The site address is not configured, so the link in the message would not work. " +
+          "Set NEXT_PUBLIC_APP_URL, or remove {{portalLink}} from the wording.",
+      )
     }
 
     const requests: QueueRequest[] = []
