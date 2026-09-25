@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { GraduationCap, BarChart3, School, ChevronRight, Users, Calendar, FileText, ClipboardList } from "lucide-react"
+import { GraduationCap, BarChart3, School, ChevronRight, Users, Calendar, FileText, ClipboardList, CreditCard, MessageSquare } from "lucide-react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 
@@ -80,6 +80,18 @@ export function SchoolSettingsOverview({ data }: SchoolSettingsOverviewProps) {
         : ["No grading system configured", "Default system will be used"],
     },
     {
+      title: "Notification Wording",
+      description: "What families read when the school texts or emails them",
+      icon: MessageSquare,
+      href: "/dashboard/admin/school-settings/notifications",
+      status: "Configurable",
+      details: [
+        "Separate text and email wording",
+        "A result is never put in the message",
+        "The cost of a text is counted as you type",
+      ],
+    },
+    {
       title: "Assessment Scheme",
       description: "Set how a subject's marks are split between CA and exam",
       icon: ClipboardList,
@@ -103,6 +115,18 @@ export function SchoolSettingsOverview({ data }: SchoolSettingsOverviewProps) {
         `Code: ${data.school.code}`,
         `Students: ${data.stats.totalStudents}`,
         `Teachers: ${data.stats.totalTeachers}`,
+      ],
+    },
+    {
+      title: "Online Payments",
+      description: "Choose offline, DigiSchool-managed, or school-owned Paystack collection",
+      icon: CreditCard,
+      href: "/dashboard/admin/school-settings/payments",
+      status: "Setup",
+      details: [
+        "School-owned settlement account",
+        "Test before live activation",
+        "Card and Pay with Transfer",
       ],
     },
     {

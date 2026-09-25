@@ -876,6 +876,25 @@ export const MODULE_GUIDES = {
     sourceOfTruth: "lib/results/session-report.server.ts · lib/pdf/student-report-card-generator.tsx",
   },
 
+  "school.notificationWording": {
+    title: "Notification Wording",
+    location: ["School Settings", "Notification Wording"],
+    purpose:
+      "What families actually read when the school writes to them, in the school\u2019s own voice rather than ours.",
+    example: {
+      doing: "Reword the results notice to open with \u201cGood day\u201d instead of \u201cDear Parent/Guardian\u201d.",
+      then: "The text and email versions are edited separately, the cost of the text is counted as you type, and a preview shows a real message with a real learner\u2019s details filled in.",
+    },
+    rules: [
+      "Only the variables that trigger supplies can be used, and none of them is a mark. A message says results are ready and links to the portal; it never carries the result.",
+      "One character outside the standard alphabet - a curly apostrophe from a word processor - re-encodes the whole text and roughly halves the characters per message, so the same-looking notice costs three times as much. The counter says so, and offers to replace it.",
+      "A school with no wording of its own uses the built-in default, so notifications work before anybody configures anything.",
+      "Saving replaces only that one message on that one channel. The others are untouched.",
+    ],
+    permissions: ["school.manage"],
+    sourceOfTruth: "lib/notifications/templates.ts \u00b7 app/actions/notifications.ts",
+  },
+
   "compiler.notifications": {
     title: "Result Notifications",
     location: ["Compiler", "Notifications"],
