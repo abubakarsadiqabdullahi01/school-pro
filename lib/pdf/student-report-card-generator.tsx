@@ -2,6 +2,8 @@ import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { format } from "date-fns"
 
+import { reportCardComments, type AnnualCardDecision } from "@/lib/pdf/report-card-comments"
+
 import { RATING_KEY, ratingsForDomain } from "@/lib/report-traits"
 import { stampAllPages } from "@/lib/pdf/watermark"
 
@@ -52,22 +54,6 @@ interface StudentResult {
   annualDecision?: AnnualCardDecision
   /** The principal's own words, when they have written any. */
   principalComment?: string
-}
-
-type AnnualCardDecision = "PENDING" | "PROMOTED" | "REPEATED" | "GRADUATED"
-
-/** Printed when a decision was approved but nobody wrote a comment of their own. */
-const DECISION_SENTENCE: Record<Exclude<AnnualCardDecision, "PENDING">, string> = {
-  PROMOTED: "Promoted to the next class.",
-  REPEATED: "To repeat the class.",
-  GRADUATED: "Has completed the programme.",
-}
-
-/** The stamp in the corner of the comments box. Short enough to read at a glance. */
-const DECISION_STAMP: Record<Exclude<AnnualCardDecision, "PENDING">, string> = {
-  PROMOTED: "PROMOTED",
-  REPEATED: "REPEAT",
-  GRADUATED: "GRADUATED",
 }
 
 interface SchoolInfo {
@@ -896,37 +882,11 @@ class StudentReportCardGenerator {
 
     this.currentY += 5
 
-    const formTeacherComment =
-      student.averageScore >= 70
-        ? "Very Good Result, Well done!"
-        : student.averageScore >= 60
-          ? "Good Result, Keep it up!"
-          : student.averageScore >= 50
-            ? "Fair Result, Work harder."
-            : "Poor Result, Much more effort required."
-
-    // The head teacher's line is where the annual outcome belongs, and it is the line the
-    // Word document meant by "Promotion or Repeated as Principal Comment".
-    //
-    // Three cases, in order of authority:
-    //   1. An approved decision with the principal's own words -> print those words.
-    //   2. An approved decision with no words                  -> print the outcome alone.
-    //   3. No approved decision                                -> the generated sentence,
-    //      exactly as before, because nothing has been decided to print instead.
-    const decided =
-      student.annualDecision !== undefined && student.annualDecision !== "PENDING"
-        ? student.annualDecision
-        : null
-
-    const headTeacherComment = decided
-      ? student.principalComment?.trim() || DECISION_SENTENCE[decided]
-      : student.averageScore >= 70
-        ? "Very Good Result, Forward!"
-        : student.averageScore >= 60
-          ? "Good Result, Keep improving!"
-          : student.averageScore >= 50
-            ? "Average Result, Try harder next term."
-            : "Below Average, Significant improvement needed."
+    // What each line says is decided in `lib/pdf/report-card-comments.ts`, which is pure
+    // and tested. This function only places it on the page.
+    const comments = reportCardComments(student)
+    const formTeacherComment = comments.formTeacher
+    const headTeacherComment = comments.headTeacher
 
     const marginLeft = this.config.margins.left
     const boxWidth = this.pageWidth - this.config.margins.left - this.config.margins.right
@@ -962,8 +922,8 @@ class StudentReportCardGenerator {
 
     // A decision a family has to infer from prose is a decision badly communicated, so it
     // is stated outright as well as being written into the comment.
-    if (decided) {
-      const stamp = DECISION_STAMP[decided]
+    if (comments.stamp) {
+      const stamp = comments.stamp
       this.doc.setFont("helvetica", "bold")
       this.doc.setFontSize(this.config.fontSize.normal)
       const stampWidth = this.doc.getTextWidth(stamp) + 6
