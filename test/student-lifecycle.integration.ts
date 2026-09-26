@@ -375,28 +375,20 @@ describe("deleting a student", () => {
   it("does not destroy money owed", async () => {
     const student = await makeStudent("Owing")
 
-    // Bill them, without any payment. deleteStudent guards on assessments and payments, so
-    // an unpaid charge is the case that decides whether debt can be deleted.
-    const schedule = await prisma.feeSchedule.findFirst({
-      where: { schoolId },
-      select: { id: true, sessionId: true, termId: true, classTermId: true },
-    })
-    if (!schedule) return // No fee schedule on this data; nothing to bill against.
-
-    const charge = await prisma.studentCharge.create({
-      data: {
-        schoolId,
-        studentId: student.id,
-        sessionId: schedule.sessionId,
-        termId: schedule.termId,
-        classTermId: schedule.classTermId,
-        feeScheduleId: schedule.id,
-        originalAmount: 25_000,
-        finalAmountDue: 25_000,
-        balance: 25_000,
-      },
+    // An unpaid charge is the case that decides whether debt can be deleted, because
+    // deleteStudent guards on assessments and payments rather than on charges.
+    //
+    // Taken from what enrolment already raised rather than inserted here. `createStudent`
+    // calls `raiseEnrolmentCharges`, so this learner is billed for their class term's
+    // schedules the moment they exist - and inserting another charge for one of those
+    // schedules collides on `StudentCharge_studentId_feeScheduleId_key`. Using the real
+    // one also makes the test truer: this is a debt the application raised, not a row the
+    // test invented.
+    const charge = await prisma.studentCharge.findFirst({
+      where: { studentId: student.id, balance: { gt: 0 } },
       select: { id: true },
     })
+    if (!charge) return // No fee schedule covers this class term; nothing to bill against.
 
     await deleteStudent(student.id)
 
@@ -475,11 +467,21 @@ describe("deactivating a student", () => {
     })
     expect(schedule.success, schedule.success ? "" : schedule.error).toBe(true)
 
+    // Scoped to the schedule just created, not to every charge this learner has.
+    //
+    // `createStudent` calls `raiseEnrolmentCharges`, so a new student is billed for the
+    // schedules their class term already carries - correctly, and while they were still
+    // active. Asking whether they have *any* charge therefore always found those, and
+    // reported a working exclusion as a billing bug. The question that matters is whether
+    // the next fee run reaches them.
     const charged = await prisma.studentCharge.findFirst({
-      where: { studentId: student.id },
+      where: {
+        studentId: student.id,
+        ...(schedule.success ? { feeScheduleId: schedule.data.id } : {}),
+      },
       select: { id: true },
     })
-    expect(charged, "a deactivated student was billed").toBeNull()
+    expect(charged, "a deactivated student was billed by the new schedule").toBeNull()
 
     // Tidy up the schedule and every charge it raised for the rest of the class.
     if (schedule.success) {
