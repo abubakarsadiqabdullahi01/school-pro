@@ -89,20 +89,23 @@ model Student {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  parents             StudentParent[]            @relation("StudentParents")
-  classTerms          StudentClassTerm[]         @relation("StudentClassTerms")
-  assessments         Assessment[]               @relation("StudentAssessments")
-  payments            Payment[]                  @relation("StudentPayments")
-  gatewayTransactions GatewayTransaction[]
-  charges             StudentCharge[]            @relation("StudentCharges")
-  discounts           Discount[]                 @relation("StudentDiscounts")
-  exemptions          FeeExemption[]             @relation("StudentFeeExemptions")
-  expensesReceived    Expense[]                  @relation("ExpensePayeeStudent")
-  transitions         StudentTransition[]        @relation("StudentTransitions")
-  attendances         Attendance[]               @relation("StudentAttendances")
-  enrollmentHistory   StudentEnrollmentHistory[] @relation("StudentEnrollmentHistory")
-  traitRatings        StudentTraitRating[]       @relation("StudentTraitRatings")
-  annualDecisions     AnnualResultDecision[]
+  parents                  StudentParent[]                   @relation("StudentParents")
+  classTerms               StudentClassTerm[]                @relation("StudentClassTerms")
+  assessments              Assessment[]                      @relation("StudentAssessments")
+  payments                 Payment[]                         @relation("StudentPayments")
+  gatewayTransactions      GatewayTransaction[]
+  charges                  StudentCharge[]                   @relation("StudentCharges")
+  discounts                Discount[]                        @relation("StudentDiscounts")
+  exemptions               FeeExemption[]                    @relation("StudentFeeExemptions")
+  expensesReceived         Expense[]                         @relation("ExpensePayeeStudent")
+  transitions              StudentTransition[]               @relation("StudentTransitions")
+  attendances              Attendance[]                      @relation("StudentAttendances")
+  enrollmentHistory        StudentEnrollmentHistory[]        @relation("StudentEnrollmentHistory")
+  traitRatings             StudentTraitRating[]              @relation("StudentTraitRatings")
+  annualDecisions          AnnualResultDecision[]
+  dedicatedAccounts        DedicatedAccount[]
+  unappliedPayments        UnappliedPayment[]
+  dedicatedIdentifications DedicatedCustomerIdentification[]
 
   @@index([schoolId])
   @@index([admissionNo])
@@ -355,8 +358,11 @@ model Payment {
   allocations        PaymentAllocation[]
   reversals          AccountingReversal[]
   gatewayTransaction GatewayTransaction?
+  gatewayRefunds     GatewayRefund[]
 
   // Receipt numbers are issued per school, so two schools may both hold receipt 0001.
+  unappliedApplications UnappliedPayment[]
+
   @@unique([schoolId, receiptNo])
   @@index([studentId])
   @@index([feeStructureId])
@@ -450,55 +456,61 @@ model School {
   admissionFormat        String @default("{PREFIX}-{YEAR}-{NUMBER}")
   admissionSequenceStart Int    @default(1)
 
-  sessions               Session[]
-  classes                Class[]
-  subjects               Subject[]
-  students               Student[]
-  teachers               Teacher[]
-  parents                Parent[]
-  admins                 Admin[]
-  gradingSystems         GradingSystem[]
-  admissionSequences     AdmissionSequence[]
-  systemConfigurations   SystemConfiguration[]
-  feeStructures          FeeStructure[]
-  feeCategories          FeeCategory[]
-  feeSchedules           FeeSchedule[]
-  studentCharges         StudentCharge[]
-  discounts              Discount[]
-  feeExemptions          FeeExemption[]
-  payments               Payment[]
-  receiptSequences       ReceiptSequence[]
-  expenseCategories      ExpenseCategory[]
-  paymentAccounts        PaymentAccount[]
-  expenses               Expense[]
-  voucherSequences       ExpenseVoucherSequence[]
-  staff                  Staff[]
-  staffConfig            StaffConfig?
-  salaryScales           SalaryScale[]
-  allowanceTypes         AllowanceType[]
-  deductionTypes         DeductionType[]
-  payrollRuns            PayrollRun[]
-  payrollItems           PayrollItem[]
-  salaryPayments         SalaryPayment[]
-  payslipSequences       PayslipSequence[]
-  transitionPolicy       TransitionPolicy?
-  classPromotionPolicies ClassPromotionPolicy[]
-  annualDecisions        AnnualResultDecision[]
-  notifications          NotificationOutbox[]
-  notificationTemplates  NotificationTemplate[]
-  assessmentScheme       AssessmentScheme?
-  permissionProfiles     PermissionProfile[]
-  traitRatings           StudentTraitRating[]
-  academicPeriod         SchoolAcademicPeriod?
-  accountingReversals    AccountingReversal[]
-  integrityChecks        DataIntegrityCheck[]
-  paymentConfigurations  SchoolPaymentConfiguration[]
-  gatewayTransactions    GatewayTransaction[]
-  gatewayEvents          GatewayEvent[]
-  gatewayNotifications   GatewayNotificationOutbox[]
+  sessions                    Session[]
+  classes                     Class[]
+  subjects                    Subject[]
+  students                    Student[]
+  teachers                    Teacher[]
+  parents                     Parent[]
+  admins                      Admin[]
+  gradingSystems              GradingSystem[]
+  admissionSequences          AdmissionSequence[]
+  systemConfigurations        SystemConfiguration[]
+  feeStructures               FeeStructure[]
+  feeCategories               FeeCategory[]
+  feeSchedules                FeeSchedule[]
+  studentCharges              StudentCharge[]
+  discounts                   Discount[]
+  feeExemptions               FeeExemption[]
+  payments                    Payment[]
+  receiptSequences            ReceiptSequence[]
+  expenseCategories           ExpenseCategory[]
+  paymentAccounts             PaymentAccount[]
+  expenses                    Expense[]
+  voucherSequences            ExpenseVoucherSequence[]
+  staff                       Staff[]
+  staffConfig                 StaffConfig?
+  salaryScales                SalaryScale[]
+  allowanceTypes              AllowanceType[]
+  deductionTypes              DeductionType[]
+  payrollRuns                 PayrollRun[]
+  payrollItems                PayrollItem[]
+  salaryPayments              SalaryPayment[]
+  payslipSequences            PayslipSequence[]
+  transitionPolicy            TransitionPolicy?
+  classPromotionPolicies      ClassPromotionPolicy[]
+  annualDecisions             AnnualResultDecision[]
+  notifications               NotificationOutbox[]
+  notificationTemplates       NotificationTemplate[]
+  assessmentScheme            AssessmentScheme?
+  permissionProfiles          PermissionProfile[]
+  traitRatings                StudentTraitRating[]
+  academicPeriod              SchoolAcademicPeriod?
+  accountingReversals         AccountingReversal[]
+  integrityChecks             DataIntegrityCheck[]
+  paymentConfigurations       SchoolPaymentConfiguration[]
+  gatewayTransactions         GatewayTransaction[]
+  gatewayEvents               GatewayEvent[]
+  gatewayRefunds              GatewayRefund[]
+  gatewayDisputes             GatewayDispute[]
+  gatewaySettlements          GatewaySettlement[]
+  gatewayReconciliationIssues GatewayReconciliationIssue[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt                DateTime                          @default(now())
+  updatedAt                DateTime                          @updatedAt
+  dedicatedAccounts        DedicatedAccount[]
+  unappliedPayments        UnappliedPayment[]
+  dedicatedIdentifications DedicatedCustomerIdentification[]
 }
 
 model AdmissionSequence {
@@ -1035,36 +1047,58 @@ model PaymentAllocation {
 /// Per-school payment-provider policy. A row is environment-specific so test onboarding
 /// can be completed without accidentally enabling the live connection.
 model SchoolPaymentConfiguration {
-  id                     String                            @id @default(uuid())
-  schoolId               String
-  provider               PaymentGatewayProvider            @default(PAYSTACK)
-  environment            PaymentGatewayEnvironment
-  accountMode            PaymentGatewayAccountMode         @default(PLATFORM_MANAGED)
-  status                 PaymentGatewayConfigurationStatus @default(DRAFT)
-  isEnabled              Boolean                           @default(false)
-  subaccountCode         String?
-  providerAccountId      String?
+  id                              String                            @id @default(uuid())
+  schoolId                        String
+  provider                        PaymentGatewayProvider            @default(PAYSTACK)
+  environment                     PaymentGatewayEnvironment
+  accountMode                     PaymentGatewayAccountMode         @default(PLATFORM_MANAGED)
+  status                          PaymentGatewayConfigurationStatus @default(DRAFT)
+  isEnabled                       Boolean                           @default(false)
+  subaccountCode                  String?
+  providerAccountId               String?
   /// Reference to an encrypted secret or vault entry for a future school-owned connection.
   /// Never store an API secret directly in this field.
-  credentialKeyRef       String?
-  businessName           String?
-  settlementBankCode     String?
-  settlementAccountLast4 String?                           @db.VarChar(4)
-  feePolicy              PaymentGatewayFeePolicy           @default(SCHOOL_PAYS)
-  platformChargeType     PaymentGatewayChargeType          @default(NONE)
-  platformChargeValue    Decimal                           @default(0) @db.Decimal(12, 2)
-  allowedChannels        Json?
-  allowPartialPayments   Boolean                           @default(false)
-  allocationPolicy       GatewayAllocationPolicy           @default(SELECTED_CHARGES)
-  configVersion          Int                               @default(1)
-  verifiedAt             DateTime?
-  suspendedAt            DateTime?
-  createdAt              DateTime                          @default(now())
-  updatedAt              DateTime                          @updatedAt
+  credentialKeyRef                String?
+  businessName                    String?
+  settlementBankCode              String?
+  settlementAccountLast4          String?                           @db.VarChar(4)
+  // A school adopting online payment is not volunteering to lose 1.5% of its fees, so a
+  // new configuration puts the processing fee on the payer. A school that would rather
+  // absorb it says so; nothing changes for configurations that already chose.
+  feePolicy                       PaymentGatewayFeePolicy           @default(PARENT_PAYS_GROSS_UP)
+  platformChargeType              PaymentGatewayChargeType          @default(NONE)
+  platformChargeValue             Decimal                           @default(0) @db.Decimal(12, 2)
+  allowedChannels                 Json?
+  allowPartialPayments            Boolean                           @default(false)
+  allocationPolicy                GatewayAllocationPolicy           @default(SELECTED_CHARGES)
+  configVersion                   Int                               @default(1)
+  verifiedAt                      DateTime?
+  suspendedAt                     DateTime?
+  /// Slice 8 pilot gate. A school's own admin can switch LIVE on only after the platform
+  /// owner has approved that school for live money; revoking the approval switches it off.
+  liveApprovedAt                  DateTime?
+  liveApprovedBy                  String?
+  /// Optional ceiling on the school fees in one LIVE checkout while a school is piloting.
+  pilotMaxAmount                  Decimal?                          @db.Decimal(14, 2)
+  /// Slice 9: give each student a permanent Paystack account number to transfer fees to.
+  dedicatedAccountsEnabled        Boolean                           @default(false)
+  /// Paystack's bank slug for new accounts ("wema-bank", "titan-paystack"; "test-bank" in test).
+  dedicatedAccountBank            String?                           @db.VarChar(64)
+  /// Paystack split used by this school's dedicated accounts (DigiSchool-managed only): the
+  /// school's subaccount bears Paystack's fee and DigiSchool keeps the platform percentage.
+  dedicatedSplitCode              String?                           @db.VarChar(64)
+  dedicatedSplitId                String?                           @db.VarChar(32)
+  dedicatedSplitShare             Int?
+  /// Set when Paystack requires customer identification (BVN) before assigning accounts.
+  dedicatedRequiresIdentification Boolean                           @default(false)
+  createdAt                       DateTime                          @default(now())
+  updatedAt                       DateTime                          @updatedAt
 
-  school       School                    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  transactions GatewayTransaction[]
-  credential   PaymentGatewayCredential?
+  school                   School                            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  transactions             GatewayTransaction[]
+  credential               PaymentGatewayCredential?
+  dedicatedAccounts        DedicatedAccount[]
+  dedicatedIdentifications DedicatedCustomerIdentification[]
 
   @@unique([schoolId, provider, environment])
   @@index([provider, environment, status])
@@ -1111,6 +1145,12 @@ model GatewayTransaction {
   channel               String?
   payerEmail            String?                   @db.VarChar(320)
   paymentId             String?                   @unique
+  /// CHECKOUT is a parent-started Paystack checkout; DEDICATED_ACCOUNT is a transfer into a
+  /// student's dedicated account, recorded when Paystack reports it.
+  source                GatewayTransactionSource  @default(CHECKOUT)
+  dedicatedAccountId    String?
+  senderName            String?                   @db.VarChar(191)
+  senderBank            String?                   @db.VarChar(120)
   configurationSnapshot Json?
   providerMetadata      Json?
   failureCode           String?
@@ -1122,20 +1162,24 @@ model GatewayTransaction {
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
 
-  school        School                         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  student       Student                        @relation(fields: [studentId], references: [id], onDelete: Restrict)
-  term          Term                           @relation(fields: [termId], references: [id], onDelete: Restrict)
-  configuration SchoolPaymentConfiguration?    @relation(fields: [configurationId], references: [id], onDelete: SetNull)
-  payment       Payment?                       @relation(fields: [paymentId], references: [id], onDelete: SetNull)
-  allocations   GatewayTransactionAllocation[]
-  events        GatewayEvent[]
-  notifications GatewayNotificationOutbox[]
+  school           School                         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student          Student                        @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  term             Term                           @relation(fields: [termId], references: [id], onDelete: Restrict)
+  configuration    SchoolPaymentConfiguration?    @relation(fields: [configurationId], references: [id], onDelete: SetNull)
+  payment          Payment?                       @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  allocations      GatewayTransactionAllocation[]
+  events           GatewayEvent[]
+  refunds          GatewayRefund[]
+  disputes         GatewayDispute[]
+  dedicatedAccount DedicatedAccount?              @relation(fields: [dedicatedAccountId], references: [id], onDelete: SetNull)
+  unapplied        UnappliedPayment?
 
   @@unique([provider, reference])
   @@index([schoolId, status, createdAt])
   @@index([studentId, createdAt])
   @@index([configurationId])
   @@index([providerTransactionId])
+  @@index([dedicatedAccountId])
 }
 
 /// Intended ledger allocations captured before leaving DigiSchool-Pro for checkout.
@@ -1187,28 +1231,130 @@ model GatewayEvent {
   @@index([gatewayTransactionId])
 }
 
-/// A durable request to notify a family after a gateway payment is posted. Sending is a
-/// separate concern, but the unique key guarantees webhook retries cannot request it twice.
-model GatewayNotificationOutbox {
-  id                   String    @id @default(uuid())
+/// A provider refund is asynchronous. The finance ledger is reversed only after a
+/// verified refund.processed event, never when the API first accepts the request.
+model GatewayRefund {
+  id                   String                    @id @default(uuid())
   schoolId             String
   gatewayTransactionId String
-  kind                 String    @default("PAYMENT_RECEIPT") @db.VarChar(50)
-  status               String    @default("PENDING") @db.VarChar(20)
-  payload              Json?
-  attempts             Int       @default(0)
-  nextAttemptAt        DateTime?
-  sentAt               DateTime?
-  lastError            String?   @db.Text
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  /// The receipt reversed when the refund is processed. Null for a refund of held money.
+  paymentId            String?
+  /// Set when the refund returns held dedicated-account money rather than a receipt.
+  unappliedPaymentId   String?                   @unique
+  provider             PaymentGatewayProvider    @default(PAYSTACK)
+  environment          PaymentGatewayEnvironment
+  providerRefundId     String?
+  status               GatewayRefundStatus       @default(REQUESTED)
+  amount               Decimal                   @db.Decimal(14, 2)
+  currency             String                    @default("NGN") @db.VarChar(3)
+  reason               String                    @db.VarChar(500)
+  requestedBy          String
+  /// Two-person rule: a refund is sent to Paystack only after a different user approves it.
+  approvedBy           String?
+  approvedAt           DateTime?
+  rejectedBy           String?
+  rejectedAt           DateTime?
+  rejectionReason      String?                   @db.VarChar(500)
+  providerMessage      String?                   @db.Text
+  expectedAt           DateTime?
+  processedAt          DateTime?
+  failedAt             DateTime?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
 
   school             School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  gatewayTransaction GatewayTransaction @relation(fields: [gatewayTransactionId], references: [id], onDelete: Cascade)
+  gatewayTransaction GatewayTransaction @relation(fields: [gatewayTransactionId], references: [id], onDelete: Restrict)
+  payment            Payment?           @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  unappliedPayment   UnappliedPayment?  @relation(fields: [unappliedPaymentId], references: [id], onDelete: Restrict)
 
-  @@unique([gatewayTransactionId, kind])
-  @@index([status, nextAttemptAt, createdAt])
-  @@index([schoolId, createdAt])
+  @@unique([provider, environment, providerRefundId])
+  @@index([gatewayTransactionId])
+  @@index([schoolId, status, createdAt])
+  @@index([paymentId])
+}
+
+/// Operational dispute record populated by charge.dispute.* events. Evidence and
+/// resolution are intentional finance operations and are never inferred from a charge.
+model GatewayDispute {
+  id                   String                    @id @default(uuid())
+  schoolId             String
+  gatewayTransactionId String?
+  provider             PaymentGatewayProvider    @default(PAYSTACK)
+  environment          PaymentGatewayEnvironment
+  providerDisputeId    String
+  status               String                    @db.VarChar(64)
+  amount               Decimal?                  @db.Decimal(14, 2)
+  currency             String?                   @db.VarChar(3)
+  reason               String?                   @db.VarChar(500)
+  category             String?                   @db.VarChar(120)
+  dueAt                DateTime?
+  resolution           String?                   @db.VarChar(64)
+  evidenceNote         String?                   @db.Text
+  lastEventType        String                    @db.VarChar(100)
+  lastEventAt          DateTime                  @default(now())
+  resolvedAt           DateTime?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  school             School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  gatewayTransaction GatewayTransaction? @relation(fields: [gatewayTransactionId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, environment, providerDisputeId])
+  @@index([schoolId, status, dueAt])
+  @@index([gatewayTransactionId])
+}
+
+/// Provider settlement summary imported for reconciliation. Monetary values are stored
+/// in naira Decimal while provider payloads remain kobo at the adapter boundary.
+model GatewaySettlement {
+  id                   String                    @id @default(uuid())
+  schoolId             String
+  configurationId      String?
+  provider             PaymentGatewayProvider    @default(PAYSTACK)
+  environment          PaymentGatewayEnvironment
+  providerSettlementId String
+  status               String                    @db.VarChar(64)
+  currency             String                    @default("NGN") @db.VarChar(3)
+  totalAmount          Decimal                   @default(0) @db.Decimal(14, 2)
+  totalFees            Decimal                   @default(0) @db.Decimal(14, 2)
+  totalProcessed       Decimal                   @default(0) @db.Decimal(14, 2)
+  settlementDate       DateTime?
+  importedAt           DateTime                  @default(now())
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  school School                       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  issues GatewayReconciliationIssue[]
+
+  @@unique([provider, environment, providerSettlementId])
+  @@index([schoolId, settlementDate])
+  @@index([configurationId])
+}
+
+/// An append-only exception queue. Reconciliation reports differences; it never edits
+/// a receipt or charge balance to make provider and ledger totals agree.
+model GatewayReconciliationIssue {
+  id                   String                           @id @default(uuid())
+  schoolId             String
+  settlementId         String?
+  gatewayTransactionId String?
+  dedupeKey            String                           @unique @db.VarChar(191)
+  kind                 String                           @db.VarChar(64)
+  status               GatewayReconciliationIssueStatus @default(OPEN)
+  severity             String                           @default("WARNING") @db.VarChar(32)
+  message              String                           @db.Text
+  detail               Json?
+  firstSeenAt          DateTime                         @default(now())
+  lastSeenAt           DateTime                         @default(now())
+  resolvedAt           DateTime?
+  createdAt            DateTime                         @default(now())
+  updatedAt            DateTime                         @updatedAt
+
+  school     School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  settlement GatewaySettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, status, lastSeenAt])
+  @@index([gatewayTransactionId])
 }
 
 model Discount {
@@ -2339,6 +2485,22 @@ enum GatewayEventStatus {
   IGNORED
 }
 
+enum GatewayRefundStatus {
+  REQUESTED
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  NEEDS_ATTENTION
+  REJECTED
+}
+
+enum GatewayReconciliationIssueStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
 enum ClassLevel {
   PRIMARY
   JSS
@@ -2605,4 +2767,116 @@ enum DisciplinaryType {
   SUSPENSION
   TERMINATION
   RESIGNATION
+}
+
+/// Slice 9: a student's permanent Paystack account number. Money transferred into it can
+/// belong to that student only, so it is allocated without asking anyone to choose.
+model DedicatedAccount {
+  id                   String                    @id @default(uuid())
+  schoolId             String
+  studentId            String
+  configurationId      String
+  provider             PaymentGatewayProvider    @default(PAYSTACK)
+  environment          PaymentGatewayEnvironment
+  status               DedicatedAccountStatus    @default(ACTIVE)
+  providerCustomerCode String                    @db.VarChar(64)
+  providerAccountId    String                    @db.VarChar(64)
+  /// Synthetic per-student address; Paystack keys customers by email.
+  customerEmail        String                    @db.VarChar(320)
+  accountNumber        String                    @db.VarChar(10)
+  accountName          String                    @db.VarChar(191)
+  bankName             String                    @db.VarChar(120)
+  bankSlug             String?                   @db.VarChar(64)
+  createdBy            String
+  deactivatedAt        DateTime?
+  deactivatedBy        String?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  school        School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student       Student                    @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  configuration SchoolPaymentConfiguration @relation(fields: [configurationId], references: [id], onDelete: Restrict)
+  transactions  GatewayTransaction[]
+
+  @@unique([provider, environment, accountNumber])
+  @@unique([provider, environment, providerAccountId])
+  @@index([provider, environment, providerCustomerCode])
+  @@index([schoolId, status])
+  @@index([studentId])
+  @@index([configurationId])
+}
+
+/// Money a dedicated-account transfer brought in beyond what the student owed. It is held
+/// here for the bursar to apply or return; it is never forced onto a charge silently.
+model UnappliedPayment {
+  id                   String                 @id @default(uuid())
+  schoolId             String
+  studentId            String
+  gatewayTransactionId String                 @unique
+  amount               Decimal                @db.Decimal(14, 2)
+  status               UnappliedPaymentStatus @default(OPEN)
+  appliedPaymentId     String?
+  resolvedBy           String?
+  resolvedAt           DateTime?
+  resolutionNote       String?                @db.VarChar(500)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  school             School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student            Student            @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  gatewayTransaction GatewayTransaction @relation(fields: [gatewayTransactionId], references: [id], onDelete: Restrict)
+  appliedPayment     Payment?           @relation(fields: [appliedPaymentId], references: [id], onDelete: SetNull)
+  refund             GatewayRefund?
+
+  @@index([schoolId, status, createdAt])
+  @@index([studentId])
+  @@index([appliedPaymentId])
+}
+
+enum DedicatedAccountStatus {
+  ACTIVE
+  DEACTIVATED
+}
+
+enum GatewayTransactionSource {
+  CHECKOUT
+  DEDICATED_ACCOUNT
+}
+
+enum UnappliedPaymentStatus {
+  OPEN
+  APPLIED
+  RETURNED
+}
+
+/// Paystack customer identification (BVN + bank account) for a student's dedicated account,
+/// when Paystack requires it. The BVN and account number are sent to Paystack and never
+/// stored here; Paystack answers asynchronously with customeridentification.success/failed.
+model DedicatedCustomerIdentification {
+  id              String                        @id @default(uuid())
+  schoolId        String
+  studentId       String
+  configurationId String
+  environment     PaymentGatewayEnvironment
+  customerCode    String                        @db.VarChar(64)
+  customerEmail   String                        @db.VarChar(320)
+  status          DedicatedIdentificationStatus @default(PENDING)
+  failureReason   String?                       @db.VarChar(500)
+  requestedBy     String
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+
+  school        School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student       Student                    @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  configuration SchoolPaymentConfiguration @relation(fields: [configurationId], references: [id], onDelete: Restrict)
+
+  @@unique([configurationId, studentId])
+  @@index([environment, customerCode])
+  @@index([schoolId, status])
+}
+
+enum DedicatedIdentificationStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
 }
