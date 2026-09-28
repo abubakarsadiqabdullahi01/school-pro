@@ -194,6 +194,71 @@ export const MODULE_GUIDES = {
     sourceOfTruth: "app/actions/finance.ts",
   },
 
+  "finance.dedicatedAccounts": {
+    title: "Dedicated Accounts",
+    location: ["Finance", "Dedicated Accounts"],
+    purpose: "Give every student a permanent Paystack account number that parents can transfer fees to from any bank, at any time.",
+    example: {
+      doing: "A parent transfers ₦35,000 to Ada's account number. Ada owes ₦30,000 from first term and ₦20,000 from second term.",
+      then: "Paystack reports the transfer, DigiSchool verifies it and issues one receipt: first term is cleared and ₦5,000 goes to second term. The parent gets the receipt by email.",
+    },
+    rules: [
+      "One account per student, so a transfer can only belong to that student. Brothers and sisters each have their own number.",
+      "Money is applied to the oldest unpaid fees first. Anything beyond what the student owes is held under Unapplied Money for the bursar.",
+      "Paystack's transfer fee is deducted from the school's settlement. The parent is credited with exactly what they sent.",
+      "A parent needs a valid Nigerian phone number on their profile before their child's account can be created.",
+      "In live mode, accounts can only be created once DigiSchool has approved the school for live payments.",
+      "Deactivate a leaving student's account so money is not sent to it by mistake.",
+    ],
+    permissions: ["finance.manage_gateway", "finance.view_reports"],
+    sourceOfTruth: "app/actions/dedicated-accounts.ts",
+  },
+
+  "finance.unappliedPayments": {
+    title: "Unapplied Money",
+    location: ["Finance", "Unapplied Money"],
+    purpose: "Transfers into dedicated accounts that were more than the student owed, waiting for the bursar to decide.",
+    example: {
+      doing: "A parent sent ₦60,000 when their child owed ₦50,000. ₦10,000 is held here.",
+      then: "When next term's fees are billed, choose Apply to fees and a receipt is issued. Or, if the school sends the money back, record how it was returned.",
+    },
+    rules: [
+      "Held money is never put on a fee automatically.",
+      "Apply works only once the student owes at least the held amount, so a held sum is never split into untraceable pieces.",
+      "Returning money happens outside DigiSchool (for example a bank transfer from the school). Record it here so the books agree.",
+    ],
+    permissions: ["finance.collect_payments", "finance.manage_gateway"],
+    sourceOfTruth: "app/actions/dedicated-accounts.ts",
+  },
+
+  "finance.onlinePayments": {
+    title: "Online Payments",
+    location: ["Finance", "Online Payments"],
+    purpose:
+      "Explains every Paystack attempt from the amount shown at checkout through signed webhook processing and the ordinary school receipt ledger.",
+    example: {
+      doing: "A parent says Paystack debited them, but their child’s balance still appears unchanged.",
+      then: "Search the reference or payer email, open the transaction, and see whether Paystack confirmed it, whether a signed webhook arrived, why processing stopped, and which receipt was posted if it succeeded.",
+    },
+    sections: [
+      {
+        name: "Transaction register",
+        detail: "Every attempt with its student, immutable reference, environment, status, amount, channel and linked receipt.",
+      },
+      {
+        name: "Transaction detail",
+        detail: "Checkout values, provider-confirmed values, intended fee allocations, ledger result and the signed webhook processing history in one trace.",
+      },
+    ],
+    rules: [
+      "A return from Paystack is not proof of payment. Only a verified signed event may create the ledger payment and receipt.",
+      "Reprocessing never creates a second payment: the gateway transaction lock and linked payment enforce idempotency.",
+      "A transaction marked Requires review must be investigated; staff must not issue a manual receipt for the same reference.",
+    ],
+    permissions: ["finance.view_reports"],
+    sourceOfTruth: "app/actions/gateway-operations.ts · lib/payments/gateway-event-processor.server.ts",
+  },
+
   "finance.receipt": {
     title: "Receipt",
     location: ["Finance", "Receipts", "Receipt"],
@@ -1579,6 +1644,42 @@ export const MODULE_GUIDES = {
     },
     permissions: ["school.manage"],
     sourceOfTruth: "app/actions/admin-dashboard.ts",
+  },
+
+  "superAdmin.paymentCharges": {
+    title: "Platform Payment Charges",
+    location: ["Platform", "Payment Charges"],
+    purpose: "What DigiSchool keeps from each online payment it processes for a school.",
+    example: {
+      doing: "A school collects through DigiSchool's Paystack account and has agreed a ₦200 fee per payment.",
+      then: "Paystack holds ₦200 back in the platform account and settles the rest to the school. The parent is debited exactly what the checkout showed, and the receipt credits the full fee.",
+    },
+    rules: [
+      "The charge comes out of the school's settlement, never added to what a parent pays.",
+      "It applies only to a school collecting through DigiSchool's Paystack. A school on its own keys settles directly and owes nothing per transaction.",
+      "A change applies to payments started afterwards. Each checkout keeps the charge that was in force when it began.",
+      "A school cannot edit this. It is the platform's side of the arrangement, which is why it lives here and not on the school's payment screen.",
+    ],
+    permissions: ["school.manage"],
+    sourceOfTruth: "app/actions/payment-settings.ts",
+  },
+
+  "superAdmin.paymentMonitor": {
+    title: "Payment Pilot Monitor",
+    location: ["Platform", "Payment Monitor"],
+    purpose: "Watch every school's online payments in one place, and decide which schools may take live money.",
+    example: {
+      doing: "A school has tested online payment and asks to go live. Approve it with a ₦10,000 limit per payment.",
+      then: "The school's admin can now switch live payments on. A parent paying more than ₦10,000 in one checkout is asked to pay less or pay at the bursary. When the pilot is signed off, clear the limit.",
+    },
+    rules: [
+      "Approval is the platform's key; the school still switches live payments on from its own payment settings. Both are needed.",
+      "Revoking approval switches the school's live payments off at once. A payment the parent has already made still confirms and gets its receipt.",
+      "Critical alerts (failed events, payments needing review, reconciliation exceptions, failed refunds, disputes due soon) mean money may be wrong and should be looked at the same day.",
+      "A school taking live money should be reconciled every day. The monitor warns after 26 hours without a reconciliation run.",
+    ],
+    permissions: ["school.manage"],
+    sourceOfTruth: "lib/payments/payment-health.server.ts",
   },
 
   "superAdmin.dashboard": {

@@ -26,6 +26,7 @@ export interface SmsProvider {
 export interface EmailProvider {
   readonly name: string
   send(to: string, subject: string, body: string): Promise<SendOutcome>
+  getStatus?(providerMessageId: string): Promise<{ ok: true; status: string } | { ok: false; error: string; retryable: boolean }>
 }
 
 /** Network trouble is worth another go; a refusal on content is not. */
@@ -57,6 +58,30 @@ async function postJson(
   }
 }
 
+async function postForm(
+  url: string,
+  payload: Record<string, string>,
+  encoding: "multipart" | "urlencoded",
+  timeoutMs = 15_000,
+): Promise<{ status: number; body: unknown } | { networkError: string }> {
+  try {
+    const body = encoding === "multipart"
+      ? Object.entries(payload).reduce((form, [key, value]) => { form.append(key, value); return form }, new FormData())
+      : new URLSearchParams(payload)
+    const response = await fetch(url, {
+      method: "POST",
+      headers: encoding === "urlencoded" ? { "Content-Type": "application/x-www-form-urlencoded" } : undefined,
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    let decoded: unknown = null
+    try { decoded = await response.json() } catch { decoded = null }
+    return { status: response.status, body: decoded }
+  } catch (error) {
+    return { networkError: error instanceof Error ? error.message : "Request failed" }
+  }
+}
+
 function readMessageId(body: unknown, ...keys: string[]): string | null {
   if (typeof body !== "object" || body === null) return null
   const record = body as Record<string, unknown>
@@ -67,14 +92,99 @@ function readMessageId(body: unknown, ...keys: string[]): string | null {
   return null
 }
 
+function readNestedMessageId(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null
+  const data = (body as Record<string, unknown>).data
+  if (typeof data !== "object" || data === null) return null
+  const value = (data as Record<string, unknown>).message_id
+  return typeof value === "string" || typeof value === "number" ? String(value) : null
+}
+
 function readError(body: unknown, fallback: string): string {
   if (typeof body !== "object" || body === null) return fallback
   const record = body as Record<string, unknown>
-  for (const key of ["message", "error", "detail", "description"]) {
+  // SmartSMS SMS puts its reason in `comment`, even on an HTTP 200 refusal.
+  for (const key of ["message", "error", "detail", "description", "comment"]) {
     const value = record[key]
     if (typeof value === "string" && value.length > 0) return value
+    if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value.join(" ")
   }
   return fallback
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;")
+}
+
+export class SmartSmsSolutionsSmsProvider implements SmsProvider {
+  readonly name = "smartsms-sms"
+
+  constructor(
+    private readonly apiToken: string,
+    private readonly senderId: string,
+    private readonly routing = "3",
+    private readonly endpoint = "https://app.smartsmssolutions.com/io/api/client/v1/sms/",
+  ) {}
+
+  async send(to: string, body: string): Promise<SendOutcome> {
+    const reference = `dsp-${crypto.randomUUID().replaceAll("-", "")}`
+    const result = await postForm(this.endpoint, {
+      token: this.apiToken, sender: this.senderId, to: to.replace(/^\+/, ""), message: body,
+      type: "0", routing: this.routing, ref_id: reference, dlr_timeout: "48",
+    }, "multipart")
+    if ("networkError" in result) return { ok: false, error: result.networkError, retryable: true }
+    const record = typeof result.body === "object" && result.body !== null ? result.body as Record<string, unknown> : null
+    if (result.status >= 200 && result.status < 300 && Number(record?.code) === 1000) {
+      // A completed request can still leave this number out: SmartSMS lists it under the
+      // reason instead of `successful`. That is a failed message, not a sent one.
+      const listed = (key: string) => typeof record?.[key] === "string" && (record[key] as string).length > 0
+      if (!listed("successful")) {
+        const reason = listed("insufficient_unit") ? "Insufficient SMS units in the SmartSMS wallet"
+          : listed("invalid") ? "SmartSMS rejected the phone number as invalid"
+            : listed("flooding") ? "SmartSMS held the message as flooding (too many to this number)"
+              : listed("failed") ? "SmartSMS could not deliver to this number"
+                : readError(result.body, "SmartSMS did not accept this number")
+        return { ok: false, error: reason, retryable: false }
+      }
+      return { ok: true, providerMessageId: readMessageId(result.body, "message_id", "ref_id") }
+    }
+    const code = record?.code === undefined ? "" : ` (code ${String(record.code)})`
+    return { ok: false, error: `${readError(result.body, `SmartSMS SMS returned ${result.status}`)}${code}`, retryable: RETRYABLE_STATUS.has(result.status) }
+  }
+}
+
+export class SmartSmsSolutionsEmailProvider implements EmailProvider {
+  readonly name = "smartsms-email"
+
+  constructor(
+    private readonly apiToken: string,
+    private readonly endpoint = "https://app.smartsmssolutions.com/io/api/client/v1/email/send/",
+  ) {}
+
+  async send(to: string, subject: string, body: string): Promise<SendOutcome> {
+    const html = `<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${escapeHtml(body)}</div>`
+    const result = await postForm(this.endpoint, {
+      token: this.apiToken, to_email: to, message_type: "transactional", subject, html,
+    }, "urlencoded")
+    if ("networkError" in result) return { ok: false, error: result.networkError, retryable: true }
+    const record = typeof result.body === "object" && result.body !== null ? result.body as Record<string, unknown> : null
+    if (result.status >= 200 && result.status < 300 && record?.status === "success") {
+      return { ok: true, providerMessageId: readNestedMessageId(result.body) }
+    }
+    return { ok: false, error: readError(result.body, `SmartSMS Email returned ${result.status}`), retryable: RETRYABLE_STATUS.has(result.status) }
+  }
+
+  async getStatus(providerMessageId: string): Promise<{ ok: true; status: string } | { ok: false; error: string; retryable: boolean }> {
+    if (!/^\d+$/.test(providerMessageId)) return { ok: false, error: "Invalid SmartSMS email message id", retryable: false }
+    const endpoint = this.endpoint.replace(/send\/$/, "message/status/")
+    const result = await postForm(endpoint, { token: this.apiToken, message_id: providerMessageId }, "urlencoded")
+    if ("networkError" in result) return { ok: false, error: result.networkError, retryable: true }
+    const record = typeof result.body === "object" && result.body !== null ? result.body as Record<string, unknown> : null
+    const data = record?.data
+    const status = typeof data === "object" && data !== null ? (data as Record<string, unknown>).status : null
+    if (result.status >= 200 && result.status < 300 && record?.status === "success" && typeof status === "string") return { ok: true, status }
+    return { ok: false, error: readError(result.body, `SmartSMS Email status returned ${result.status}`), retryable: RETRYABLE_STATUS.has(result.status) }
+  }
 }
 
 /**
@@ -199,15 +309,21 @@ export function resolveProviders(env: NodeJS.ProcessEnv = process.env): {
 } {
   const log = new LogProvider()
 
+  const smartSmsToken = env.SMARTSMS_API_TOKEN?.trim()
+  const smartSmsSender = env.SMARTSMS_SENDER_ID?.trim()
+  const smartSmsRouting = env.SMARTSMS_SMS_ROUTING?.trim() || "3"
   const termiiKey = env.TERMII_API_KEY?.trim()
   const termiiSender = env.TERMII_SENDER_ID?.trim()
   const sms: SmsProvider =
-    termiiKey && termiiSender ? new TermiiSmsProvider(termiiKey, termiiSender) : log
+    smartSmsToken && smartSmsSender
+      ? new SmartSmsSolutionsSmsProvider(smartSmsToken, smartSmsSender, smartSmsRouting)
+      : termiiKey && termiiSender ? new TermiiSmsProvider(termiiKey, termiiSender) : log
 
   const resendKey = env.RESEND_API_KEY?.trim()
   const resendFrom = env.RESEND_FROM?.trim()
-  const email: EmailProvider =
-    resendKey && resendFrom ? new ResendEmailProvider(resendKey, resendFrom) : log
+  const email: EmailProvider = smartSmsToken
+    ? new SmartSmsSolutionsEmailProvider(smartSmsToken)
+    : resendKey && resendFrom ? new ResendEmailProvider(resendKey, resendFrom) : log
 
   return { sms, email, usingLogFallback: sms.name === "log" || email.name === "log" }
 }

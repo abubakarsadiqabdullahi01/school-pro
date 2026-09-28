@@ -38,13 +38,28 @@ export async function seedSuperAdmin(prisma: PrismaClient) {
     // email must never silently elevate a different user or overwrite a password.
     for (const { email } of accounts) {
       const credential = byEmail.get(email);
+      // A missing SuperAdmin row is deliberately NOT in this list. It means the account is
+      // half-created — the right person, already SUPER_ADMIN and active, just without the
+      // profile row — and it is repaired below. Treating it as incompatible left the only
+      // accounts that can administer the platform unable to sign in, with
+      // "Super admin profile not found" on every page and no supported way to fix it.
       if (credential && (
         credential.type !== CredentialType.EMAIL ||
         credential.user.role !== Role.SUPER_ADMIN ||
-        !credential.user.superAdmin ||
         !credential.user.isActive
       )) {
         throw new Error(`The seed email ${email} belongs to an incompatible account; no changes made.`);
+      }
+    }
+
+    // Repair before creating, so a half-created account is mended rather than skipped as
+    // "already present".
+    let repaired = 0;
+    for (const { email } of accounts) {
+      const credential = byEmail.get(email);
+      if (credential && !credential.user.superAdmin) {
+        await tx.superAdmin.create({ data: { userId: credential.user.id } });
+        repaired++;
       }
     }
 
@@ -70,9 +85,12 @@ export async function seedSuperAdmin(prisma: PrismaClient) {
       } });
       created++;
     }
-    return { created, existing: accounts.length - created };
+    return { created, repaired, existing: accounts.length - created };
   });
 
-  console.log(`Super admin setup complete: ${result.created} created, ${result.existing} already present. Existing passwords were unchanged.`);
+  console.log(
+    `Super admin setup complete: ${result.created} created, ${result.repaired} repaired, ` +
+      `${result.existing} already present. Existing passwords were unchanged.`,
+  );
   return result;
 }

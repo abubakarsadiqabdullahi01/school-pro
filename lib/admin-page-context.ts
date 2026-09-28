@@ -15,6 +15,8 @@ export const ADMIN_AREA_PERMISSIONS: PermissionKey[] = [
   "compiler.publish_results",
   "compiler.lock_results",
   "finance.setup",
+  "finance.manage_gateway",
+  "finance.approve_refunds",
   "finance.collect_payments",
   "finance.view_reports",
   "expenditure.manage",

@@ -249,6 +249,33 @@ export async function requeueStalled(
   return result.count
 }
 
+/** SmartSMS email webhooks are at-most-once, so missed callbacks are reconciled through
+ * the provider status endpoint. This checks state only and never resends a message. */
+export async function reconcileEmailDeliveryStatuses(limit = 50, now: Date = new Date()): Promise<{ checked: number; delivered: number; failed: number }> {
+  const provider = resolveProviders().email
+  if (provider.name !== "smartsms-email" || !provider.getStatus) return { checked: 0, delivered: 0, failed: 0 }
+  const rows = await prisma.notificationOutbox.findMany({
+    where: { channel: "EMAIL", provider: "smartsms-email", status: "SENT", providerMessageId: { not: null }, updatedAt: { lt: new Date(now.getTime() - 60_000) } },
+    orderBy: { sentAt: "asc" }, take: Math.max(1, Math.min(limit, 100)), select: { id: true, providerMessageId: true },
+  })
+  let delivered = 0; let failed = 0
+  for (const row of rows) {
+    const outcome = await provider.getStatus(row.providerMessageId!)
+    if (!outcome.ok) {
+      await prisma.notificationOutbox.update({ where: { id: row.id }, data: { lastError: `Delivery status check: ${outcome.error}` } })
+      continue
+    }
+    if (outcome.status === "delivered") {
+      await prisma.notificationOutbox.update({ where: { id: row.id }, data: { status: "DELIVERED", deliveredAt: now, lastError: null } }); delivered += 1
+    } else if (["bounced", "complained", "failed"].includes(outcome.status)) {
+      await prisma.notificationOutbox.update({ where: { id: row.id }, data: { status: "FAILED", failedAt: now, lastError: `SmartSMS email status: ${outcome.status}` } }); failed += 1
+    } else {
+      await prisma.notificationOutbox.update({ where: { id: row.id }, data: { updatedAt: now } })
+    }
+  }
+  return { checked: rows.length, delivered, failed }
+}
+
 /** What is in the queue, for a screen that has to explain a bill. */
 export async function outboxSummary(schoolId: string) {
   const grouped = await prisma.notificationOutbox.groupBy({

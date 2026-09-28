@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   "compiler.configure_policy",
   "finance.setup",
   "finance.manage_gateway",
+  "finance.approve_refunds",
   "finance.collect_payments",
   "finance.view_reports",
   "expenditure.manage",
@@ -45,6 +46,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   "compiler.configure_policy": "Configure promotion policy",
   "finance.setup": "Configure finance",
   "finance.manage_gateway": "Manage online payment gateway",
+  "finance.approve_refunds": "Approve online payment refunds",
   "finance.collect_payments": "Collect payments",
   "finance.view_reports": "View finance reports",
   "expenditure.manage": "Manage expenditure",
@@ -81,6 +83,7 @@ export const PERMISSION_GROUPS: Array<{ name: string; permissions: PermissionKey
     permissions: [
       "finance.setup",
       "finance.manage_gateway",
+      "finance.approve_refunds",
       "finance.collect_payments",
       "finance.view_reports",
       "expenditure.manage",

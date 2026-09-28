@@ -100,6 +100,13 @@ export const TEMPLATE_VARIABLES = {
     "balance",
     "schoolName",
     "portalLink",
+    "payerName",
+    "admissionNo",
+    "className",
+    "paidFor",
+    "paymentMethod",
+    "paymentDate",
+    "reference",
   ],
 } as const
 
@@ -160,13 +167,22 @@ export const DEFAULT_TEMPLATES: Record<
   },
   "payment.received": {
     sms: "{{schoolName}}: payment of {{amount}} received for {{studentName}}. Receipt {{receiptNo}}. Balance {{balance}}.",
-    emailSubject: "Payment received for {{studentName}} — receipt {{receiptNo}}",
+    emailSubject: "{{schoolName}}: payment received for {{studentName}} (receipt {{receiptNo}})",
     email:
-      "Dear Parent/Guardian,\n\n" +
-      "We have received a payment of {{amount}} for {{studentName}}.\n\n" +
-      "Receipt number: {{receiptNo}}\n" +
-      "Outstanding balance: {{balance}}\n\n" +
-      "You can view the receipt here:\n{{portalLink}}\n\n" +
+      "Dear {{payerName}},\n\n" +
+      "Thank you. {{schoolName}} has received your payment for {{studentName}}.\n\n" +
+      "PAYMENT RECEIPT\n" +
+      "Receipt number:  {{receiptNo}}\n" +
+      "Student:         {{studentName}} ({{admissionNo}})\n" +
+      "Class:           {{className}}\n" +
+      "Amount paid:     {{amount}}\n" +
+      "Paid for:        {{paidFor}}\n" +
+      "Payment method:  {{paymentMethod}}\n" +
+      "Date:            {{paymentDate}}\n" +
+      "Reference:       {{reference}}\n\n" +
+      "Outstanding balance for {{studentName}}: {{balance}}\n\n" +
+      "Sign in to view or download the official receipt:\n{{portalLink}}\n\n" +
+      "Please keep this email for your records.\n\n" +
       "{{schoolName}}",
   },
 }
