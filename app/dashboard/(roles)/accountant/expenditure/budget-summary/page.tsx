@@ -3,8 +3,7 @@ import { BudgetSummaryView } from "@/components/expenditure/views/budget-summary
 export default async function AccountantBudgetSummaryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sessionId?: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { sessionId } = await searchParams
-  return <BudgetSummaryView basePath="/dashboard/accountant/expenditure" sessionId={sessionId} />
+  return <BudgetSummaryView basePath="/dashboard/accountant/expenditure" searchParams={await searchParams} />
 }

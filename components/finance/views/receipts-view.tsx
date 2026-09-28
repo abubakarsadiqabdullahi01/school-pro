@@ -1,15 +1,20 @@
-import Link from "next/link"
-
 import { getFinanceSetupData, getReceiptRegister } from "@/app/actions/finance"
 import { BackButton } from "@/components/back-button"
+import { ReceiptFilterBar } from "@/components/finance/views/receipt-filter-bar"
 import { ReceiptsRegisterTable } from "@/components/finance/views/receipts-register-table"
 import { BrandedPrintHeader, BrandedReportExport } from "@/components/reports/branded"
-import { PeriodFilter } from "@/components/reports/period-filter"
 import type { ExportTable } from "@/components/reports/report-export"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
+import {
+  countActiveFilters,
+  describeReceiptFilters,
+  parseReceiptFilters,
+  reconcilePeriod,
+} from "@/lib/finance/receipt-filters"
+import { paymentMethodLabel } from "@/lib/finance/payment-method"
+import { formatDocumentDate } from "@/lib/format"
+import { formatNaira, formatNairaPlain, sumAmounts, toCsvAmount } from "@/lib/money"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 /**
  * Every receipt the school has issued.
@@ -20,38 +25,39 @@ import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
  */
 export async function ReceiptsView({
   basePath,
-  termId,
-  search,
+  searchParams,
 }: {
   basePath: string
-  termId?: string
-  search?: string
+  /** The query string, straight from the page. Everything in it is checked before use. */
+  searchParams: Record<string, string | string[] | undefined>
 }) {
-  const [register, setup] = await Promise.all([
-    getReceiptRegister({ termId, search }),
-    getFinanceSetupData(),
-  ])
+  const registerPath = `${basePath}/receipts`
 
+  // Setup is read first because it settles the filters: a term id from a bookmark may belong
+  // to a school year this school no longer has, and the query should not be built on it.
+  const setup = await getFinanceSetupData()
+  const sessions = setup.success ? setup.data.sessions : []
+  const terms = setup.success ? setup.data.terms : []
+  const filters = reconcilePeriod(parseReceiptFilters(searchParams), terms)
+
+  const register = await getReceiptRegister(filters)
   if (!register.success) {
     return <p className="text-destructive">{register.error}</p>
   }
 
-  const rows = register.data
-  const termName = setup.success ? setup.data.terms.find((term) => term.id === termId)?.name : undefined
-  const scope = termName ?? "All terms"
-  const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
-
-  const total = rows.reduce((sum, row) => sum + Number(row.amount), 0)
+  const { rows, totalCount, totalAmount, completedAmount, capped, cashiers } = register.data
+  const scope = describeReceiptFilters(filters, { sessions, terms, cashiers })
+  const unconfirmed = sumAmounts([totalAmount]).minus(completedAmount)
 
   const exportTable: ExportTable = {
     columns: ["Date", "Receipt No", "Student", "Admission No", "Class", "Method", "Status", "Amount", "Received By"],
     rows: rows.map((row) => [
-      formatDate(row.paymentDate),
+      formatDocumentDate(row.paymentDate),
       row.receiptNo,
       row.studentName,
       row.admissionNo,
       row.className ?? "-",
-      row.method.replace("_", " "),
+      paymentMethodLabel(row.method),
       row.status,
       formatNairaPlain(row.amount),
       row.receivedByName ?? "-",
@@ -70,62 +76,67 @@ export async function ReceiptsView({
   }
 
   return (
-    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+    // `data-print-landscape` is deliberately absent. The named `@page finance-landscape`
+    // it switches on is barely supported: the browser ignored the rotation and printed
+    // portrait anyway, while the named page context still forced a break — which is the
+    // blank first sheet. The columns below are sized to fit portrait instead.
+    <div className="space-y-6" data-print-document data-print-report>
       <BrandedPrintHeader title="Receipt Register" reference={scope} />
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-4 print:hidden sm:flex-row sm:items-start sm:justify-between">
         <div>
           <BackButton fallbackHref={basePath} />
-          <h1 className="text-3xl font-bold tracking-tight">Receipts</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Receipts</h1>
+            <InfoGuide guideKey="finance.receipts" />
+          </div>
           <p className="text-muted-foreground">
-            Every receipt issued by the school. Search by receipt number, student, admission number, or reference.
+            Every receipt issued by the school. Narrow by session, term, method, status, cashier or date, or
+            search by receipt number, student, admission number or bank reference.
           </p>
         </div>
-        <BrandedReportExport title={`Receipts ${scope}`} subtitle={scope} table={exportTable} orientation="landscape" />
+        <BrandedReportExport
+          title={`Receipts · ${scope}`}
+          subtitle={scope}
+          table={exportTable}
+          orientation="landscape"
+        />
       </div>
 
-      {/* A plain GET form: the search lands in the URL, so a found receipt can be linked to
-          a colleague, and the back button behaves. */}
-      <Card className="print:hidden">
-        <CardContent className="p-4">
-          <form className="flex flex-col gap-2 sm:flex-row">
-            {termId && <input type="hidden" name="termId" value={termId} />}
-            <Input
-              name="search"
-              defaultValue={search ?? ""}
-              placeholder="Receipt number, student name, admission number, or bank reference"
-              className="sm:max-w-md"
-            />
-            <div className="flex gap-2">
-              <Button type="submit" size="sm">Search</Button>
-              {(search || termId) && (
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link href={`${basePath}/receipts`}>Clear</Link>
-                </Button>
-              )}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {setup.success && (
-        <PeriodFilter basePath={`${basePath}/receipts`} terms={setup.data.terms} selectedTermId={termId} />
-      )}
+      <ReceiptFilterBar
+        basePath={registerPath}
+        filters={filters}
+        sessions={sessions}
+        terms={terms}
+        cashiers={cashiers}
+      />
 
       <Card>
         <CardHeader>
           <CardTitle>Receipt Register</CardTitle>
+          {/* Counted and summed by the database over everything that matches, rather than
+              added up from the rows below: those stop at 500, and a total that silently
+              means "the most recent 500" is a figure someone balances a cash book against. */}
           <CardDescription>
-            {rows.length} {rows.length === 1 ? "receipt" : "receipts"} · {formatNaira(String(total))} collected
-            {rows.length === 500 ? " (showing the most recent 500 — narrow the search to see more)" : ""}
+            {totalCount} {totalCount === 1 ? "receipt" : "receipts"} · {formatNaira(totalAmount)}
+            {unconfirmed.isZero()
+              ? " received"
+              : `, of which ${formatNaira(completedAmount)} is confirmed and ${formatNaira(unconfirmed)} is awaiting confirmation`}
+            {capped ? " · showing the most recent 500 — narrow the filters to see the rest" : ""}
           </CardDescription>
+          <p className="hidden text-sm text-muted-foreground print:block">{scope}</p>
         </CardHeader>
         <CardContent>
-          <ReceiptsRegisterTable basePath={basePath} rows={rows} />
-          {rows.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              {search ? `Nothing matches “${search}”.` : "No receipts have been issued yet."}
-            </p>
-          )}
+          {/* The table says the empty case once. Which sentence it says is the view's to
+              decide, because only the view knows whether anything was filtered out. */}
+          <ReceiptsRegisterTable
+            basePath={basePath}
+            rows={rows}
+            emptyMessage={
+              countActiveFilters(filters) > 0
+                ? "No receipt matches these filters. Remove one of the chips above, or clear them all."
+                : "No receipts have been issued yet."
+            }
+          />
         </CardContent>
       </Card>
     </div>

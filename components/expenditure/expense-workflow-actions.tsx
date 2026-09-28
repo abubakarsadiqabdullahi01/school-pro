@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
-type Status = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "PAID" | "REJECTED" | "CANCELLED"
+type Status = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "PAID" | "REJECTED" | "CANCELLED" | "REVERSED"
 
 /**
  * The approval trail, as buttons.
@@ -52,7 +52,7 @@ export function ExpenseWorkflowActions({
   const [overdraft, setOverdraft] = useState<string | null>(null)
 
   const awaitingDecision = status === "DRAFT" || status === "PENDING_APPROVAL"
-  const cancellable = status !== "CANCELLED" && status !== "REJECTED"
+  const cancellable = status !== "CANCELLED" && status !== "REJECTED" && status !== "REVERSED"
 
   function close() {
     setDialog(null)
@@ -179,7 +179,7 @@ export function ExpenseWorkflowActions({
               onClick={dialog === "reject" ? reject : cancel}
               disabled={isPending || reason.trim().length < 3}
             >
-              {dialog === "reject" ? "Reject" : "Confirm cancellation"}
+              {dialog === "reject" ? "Reject" : status === "PAID" ? "Confirm reversal" : "Confirm cancellation"}
             </Button>
           </DialogFooter>
         </DialogContent>

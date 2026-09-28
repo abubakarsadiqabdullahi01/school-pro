@@ -1,24 +1,10 @@
-import { getFinanceSetupData } from "@/app/actions/finance"
-import { BackButton } from "@/components/back-button"
-import { FinanceFeeSetupForm } from "@/components/finance/finance-fee-setup-form"
+import { redirect } from "next/navigation"
 
-export default async function CreateFeePage() {
-  const setup = await getFinanceSetupData()
-
-  if (!setup.success) {
-    return <p className="text-destructive">{setup.error}</p>
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <BackButton fallbackHref="/dashboard/admin/finance/fees" />
-        <h1 className="text-3xl font-bold tracking-tight">Create Fee</h1>
-        <p className="text-muted-foreground">
-          Create the fee category first, then create the new fee schedule that bills the selected class.
-        </p>
-      </div>
-      <FinanceFeeSetupForm setup={setup.data} />
-    </div>
-  )
+/**
+ * `Create Fee` used to be one screen carrying the category form and the schedule form side
+ * by side. They are separate screens now; a bookmark or a link from elsewhere in the app
+ * lands on the one that bills students, which is what `Create Fee` meant in practice.
+ */
+export default function CreateFeeRedirectPage() {
+  redirect("/dashboard/admin/finance/fees/schedules/new")
 }

@@ -1,22 +1,18 @@
-import { BackButton } from "@/components/back-button"
-import { getHrSetupData } from "@/app/actions/hr"
-import { ComponentTypesForm } from "@/components/hr/hr-setup-forms"
+import { PayComponentsView } from "@/components/hr/views/pay-components-view"
 
-export default async function DeductionsPage() {
-  const setup = await getHrSetupData()
-
-  if (!setup.success) {
-    return <p className="text-destructive">{setup.error}</p>
-  }
-
+export default async function DeductionsPage({
+  searchParams,
+}: {
+  // Handed on whole rather than picked apart here: the screen's filters are checked in one
+  // place, so a page cannot quietly forget to pass one on.
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   return (
-    <div className="space-y-6">
-      <div>
-        <BackButton fallbackHref="/dashboard/admin/hr" />
-        <h1 className="text-3xl font-bold tracking-tight">Deductions</h1>
-        <p className="text-muted-foreground">What comes off gross pay, before or after tax.</p>
-      </div>
-      <ComponentTypesForm kind="DEDUCTION" types={setup.data.deductionTypes} />
-    </div>
+    <PayComponentsView
+      basePath="/dashboard/admin/hr"
+      searchParams={await searchParams}
+      kind="deduction"
+      canManage
+    />
   )
 }

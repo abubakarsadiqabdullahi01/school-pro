@@ -1,11 +1,15 @@
 import Link from "next/link"
-import { ArrowDownRight, ArrowUpRight, Banknote, Clock, FileCheck2, Wallet } from "lucide-react"
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Banknote, Clock, FileCheck2, Wallet } from "lucide-react"
 
 import { getExpenditureOverview } from "@/app/actions/expenditure"
+import { ExpenditureDashboardCharts } from "@/components/expenditure/expenditure-dashboard-charts"
 import { ExpenseStatusBadge } from "@/components/expenditure/expense-status-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { formatDocumentDate } from "@/lib/format"
 import { formatNaira } from "@/lib/money"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 /**
  * Rendered under two URL trees: /dashboard/admin/expenditure for admins and
@@ -32,7 +36,10 @@ export async function ExpenditureDashboardView({
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Expenditure</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Expenditure</h1>
+            <InfoGuide guideKey="expenditure.dashboard" />
+          </div>
           <p className="text-muted-foreground">
             {data.currentTerm?.name ?? data.currentSession?.name ?? "Current"} spending, approvals, and account
             balances.
@@ -53,7 +60,18 @@ export async function ExpenditureDashboardView({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Tile label="Spent this term" value={data.termTotal} icon={Banknote} />
         <Tile label="Spent this session" value={data.sessionTotal} icon={Wallet} />
-        <Tile label="Awaiting approval" value={statuses.pending.amount} icon={Clock} note={`${statuses.pending.count} to review`} />
+        <Tile
+          label="Awaiting approval"
+          value={statuses.pending.amount}
+          icon={Clock}
+          note={
+            data.oldestPending
+              ? `${statuses.pending.count} to review · oldest ${data.oldestPending.days} ${
+                  data.oldestPending.days === 1 ? "day" : "days"
+                }`
+              : `${statuses.pending.count} to review`
+          }
+        />
         <Tile label="Approved, not yet paid" value={statuses.approved.amount} icon={FileCheck2} note={`${statuses.approved.count} ready to pay`} />
       </div>
 
@@ -92,7 +110,78 @@ export async function ExpenditureDashboardView({
               >
                 {formatNaira(data.incomeVsExpenditure.balance, { kobo: false })}
               </p>
+              {/* A negative here is not necessarily trouble — a school pays a year of salaries
+                  against fees that arrive term by term — but it should never be a figure the
+                  reader has to interpret alone. */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {Number(data.incomeVsExpenditure.balance) < 0
+                  ? "Paid out more than collected so far this session."
+                  : "Collected more than paid out so far this session."}
+              </p>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <ExpenditureDashboardCharts monthly={data.monthly} byCategory={data.byCategory} />
+
+      {data.budget.tracked > 0 && (
+        <Card className={data.budget.overCount > 0 ? "border-amber-500/50" : undefined}>
+          <CardHeader>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  {data.budget.overCount > 0 && (
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+                  )}
+                  Budget watch
+                </CardTitle>
+                <CardDescription>
+                  {data.budget.termName
+                    ? `Category ceilings against what has been paid in ${data.budget.termName}.`
+                    : "Category ceilings against what has been paid."}{" "}
+                  The limit is reported against, never enforced — a burst pipe should not be blocked by a
+                  stationery budget.
+                </CardDescription>
+              </div>
+              {data.budget.overCount > 0 && (
+                <Badge variant="secondary" className="whitespace-nowrap">
+                  {data.budget.overCount} over by {formatNaira(data.budget.overBy, { kobo: false })}
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {data.budget.rows.map((row) => {
+              const over = Number(row.overBy) > 0
+
+              return (
+                <div key={row.id} className="space-y-1 rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate font-medium">{row.name}</span>
+                    <span
+                      className={
+                        over
+                          ? "shrink-0 font-semibold tabular-nums text-amber-600 dark:text-amber-500"
+                          : "shrink-0 tabular-nums"
+                      }
+                    >
+                      {row.usedPercent}%
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={over ? "h-full rounded-full bg-amber-500" : "h-full rounded-full bg-primary"}
+                      style={{ width: `${Math.min(row.usedPercent, 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {formatNaira(row.spent)} of {formatNaira(row.limit)}
+                    {over ? ` · ${formatNaira(row.overBy)} over` : ""}
+                  </p>
+                </div>
+              )
+            })}
           </CardContent>
         </Card>
       )}
@@ -109,6 +198,30 @@ export async function ExpenditureDashboardView({
           rows={data.byAccount}
         />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Who the money went to</CardTitle>
+          <CardDescription>
+            The largest payees this session, by what has actually been paid out.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {data.topPayees.length > 0 ? (
+            data.topPayees.map((payee) => (
+              <div key={payee.name} className="rounded-md border p-3">
+                <p className="truncate font-medium">{payee.name}</p>
+                <p className="text-lg font-semibold tabular-nums">{formatNaira(payee.amount, { kobo: false })}</p>
+                <p className="text-xs text-muted-foreground">
+                  {payee.count} {payee.count === 1 ? "payment" : "payments"}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">Nothing paid out yet.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <Card>
@@ -147,7 +260,7 @@ export async function ExpenditureDashboardView({
                   <div className="min-w-0">
                     <p className="truncate font-medium">{expense.payeeName}</p>
                     <p className="truncate text-sm text-muted-foreground">
-                      {expense.voucherNo} · {expense.categoryName}
+                      {expense.voucherNo} · {expense.categoryName} · {formatDocumentDate(expense.expenseDate)}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">

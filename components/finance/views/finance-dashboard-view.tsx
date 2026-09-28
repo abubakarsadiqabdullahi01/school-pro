@@ -6,6 +6,7 @@ import { FinanceDashboardCharts } from "@/components/finance/views/finance-dashb
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira } from "@/lib/money"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 /**
  * Rendered under two URL trees: /dashboard/admin/finance for admins, and
@@ -39,7 +40,10 @@ export async function FinanceDashboardView({
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Finance</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Finance</h1>
+            <InfoGuide guideKey="finance.dashboard" />
+          </div>
           <p className="font-medium">{data.school.name} ({data.school.code})</p>
           <p className="text-muted-foreground">
             {data.currentTerm?.name ?? data.currentSession?.name ?? "Current"} fee collection, balances, and payment activity.

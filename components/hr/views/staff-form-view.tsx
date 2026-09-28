@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 
 import { getHrSetupData, getStaffMember } from "@/app/actions/hr"
 import { StaffForm } from "@/components/hr/staff-form"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export async function StaffFormView({ basePath, staffId }: { basePath: string; staffId?: string }) {
   const [setup, existing] = await Promise.all([
@@ -21,7 +22,10 @@ export async function StaffFormView({ basePath, staffId }: { basePath: string; s
     <div className="space-y-6">
       <div>
         <BackButton fallbackHref={`${basePath}/staff`} />
-        <h1 className="text-3xl font-bold tracking-tight">{staff ? `Edit ${staff.name}` : "Add Staff"}</h1>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-3xl font-bold tracking-tight">{staff ? `Edit ${staff.name}` : "Add Staff"}</h1>
+          <InfoGuide guideKey="hr.staffForm" />
+        </div>
         <p className="text-muted-foreground">
           {staff
             ? `${staff.staffNo} · changes here do not touch salary, which keeps its own history.`

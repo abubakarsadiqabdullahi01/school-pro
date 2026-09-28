@@ -10,6 +10,7 @@ import { ReceiptAttachments } from "@/components/expenditure/receipt-attachments
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira } from "@/lib/money"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 /**
  * One expense, with its approval trail.
@@ -39,7 +40,10 @@ export async function ExpenseDetailView({
         <div>
           <BackButton fallbackHref={`${basePath}/transactions`} />
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{expense.voucherNo}</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">{expense.voucherNo}</h1>
+              <InfoGuide guideKey="expenditure.detail" />
+            </div>
             <ExpenseStatusBadge status={expense.status} />
           </div>
           <p className="text-muted-foreground">
@@ -71,7 +75,7 @@ export async function ExpenseDetailView({
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
           <div>
             <p className="font-medium">
-              {expense.status === "REJECTED" ? "Rejected" : expense.status === "CANCELLED" ? "Cancelled" : "Note"}
+              {expense.status === "REJECTED" ? "Rejected" : expense.status === "CANCELLED" ? "Cancelled" : expense.status === "REVERSED" ? "Reversal" : "Note"}
             </p>
             <p className="text-sm text-muted-foreground">{expense.decisionReason}</p>
           </div>
@@ -136,7 +140,7 @@ export async function ExpenseDetailView({
       <ReceiptAttachments
         expenseId={expense.id}
         attachments={expense.attachments}
-        canUpload={expense.status !== "CANCELLED" && expense.status !== "REJECTED"}
+        canUpload={expense.status !== "CANCELLED" && expense.status !== "REJECTED" && expense.status !== "REVERSED"}
         canRemove={canManage}
       />
     </div>

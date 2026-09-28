@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     if (!(file instanceof File) || typeof expenseId !== "string") return NextResponse.json({ error: "Receipt and expense are required" }, { status: 400 })
     const expense = await prisma.expense.findFirst({ where: { id: expenseId, schoolId }, select: { status: true } })
     if (!expense) return NextResponse.json({ error: "Expense not found" }, { status: 404 })
-    if (expense.status === "CANCELLED" || expense.status === "REJECTED") return NextResponse.json({ error: "This expense cannot accept receipts" }, { status: 400 })
+    if (["CANCELLED", "REJECTED", "REVERSED"].includes(expense.status)) return NextResponse.json({ error: "This expense cannot accept receipts" }, { status: 400 })
     const url = await storeUpload(file, "expense-receipts", schoolId)
     try {
       const result = await addExpenseAttachment({ expenseId, url, fileName: file.name, mimeType: file.type, sizeBytes: file.size })

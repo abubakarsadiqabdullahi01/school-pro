@@ -11,13 +11,15 @@ import {
   BrandedPrintHeader,
   BrandedReportExport,
 } from "@/components/reports/branded"
-import type { PrintableDocument } from "@/components/reports/document-download"
 import { PrintButton } from "@/components/reports/print-button"
+import { PrintLandscape } from "@/components/reports/print-orientation"
+import type { PrintableDocument } from "@/components/reports/document-download"
 import type { ExportTable } from "@/components/reports/report-export"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: "Draft",
@@ -85,26 +87,44 @@ export async function PayrollListView({ basePath }: { basePath: string }) {
   const runRows: DataTableRow[] = runs.data.map((run) => ({
     id: run.id,
     search: `${periodName(run.period)} ${STATUS_LABEL[run.status] ?? run.status}`,
+    // Keyed because this array is built on the server and crosses into the client payload,
+    // where React checks the elements of a list for keys.
     cells: [
-      <span className="font-medium">{periodName(run.period)}</span>,
-      <Badge variant="outline">{STATUS_LABEL[run.status] ?? run.status}</Badge>,
-      run.staffCount,
-      formatNaira(run.totalGross),
-      formatNaira(run.totalDeductions),
-      <span className="font-semibold">{formatNaira(run.totalNet)}</span>,
-      <Button variant="outline" size="sm" asChild>
+      <span key="period" className="font-medium">
+        {periodName(run.period)}
+      </span>,
+      <Badge key="status" variant="outline">
+        {STATUS_LABEL[run.status] ?? run.status}
+      </Badge>,
+      <span key="staff" className="tabular-nums">
+        {run.staffCount}
+      </span>,
+      <span key="gross" className="whitespace-nowrap tabular-nums">
+        {formatNaira(run.totalGross)}
+      </span>,
+      <span key="deductions" className="whitespace-nowrap tabular-nums">
+        {formatNaira(run.totalDeductions)}
+      </span>,
+      <span key="net" className="whitespace-nowrap font-semibold tabular-nums">
+        {formatNaira(run.totalNet)}
+      </span>,
+      <Button key="open" variant="outline" size="sm" asChild>
         <Link href={`${basePath}/payroll/${run.id}`}>Open</Link>
       </Button>,
     ],
   }))
 
   return (
-    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+    <div className="space-y-6" data-print-document data-print-report>
+      <PrintLandscape />
       <BrandedPrintHeader title="Payroll Runs" />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between print:hidden">
         <div>
           <BackButton fallbackHref={basePath} />
-          <h1 className="text-3xl font-bold tracking-tight">Payroll</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Payroll</h1>
+            <InfoGuide guideKey="hr.payroll" />
+          </div>
           <p className="text-muted-foreground">One run per month. Generate, approve, then pay.</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -217,42 +237,60 @@ export async function PayrollRunView({
       item.accountNumber ?? "",
       STATUS_LABEL[item.status] ?? item.status,
     ].join(" "),
+    // Keyed because this array is built on the server and crosses into the client payload,
+    // where React checks the elements of a list for keys.
     cells: [
-      <>
+      <div key="staff" className="min-w-0">
         <div className="font-medium">{item.name}</div>
-        <div className="text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           {item.staffNo}
           {item.department ? ` · ${item.department}` : ""}
           {item.proratedDays ? ` · ${item.proratedDays}/${item.daysInMonth} days` : ""}
         </div>
-      </>,
-      formatNaira(item.baseSalary),
-      formatNaira(item.totalAllowances),
-      formatNaira(item.totalDeductions),
-      <span className="font-semibold">{formatNaira(item.netPay)}</span>,
+      </div>,
+      <span key="base" className="whitespace-nowrap tabular-nums">
+        {formatNaira(item.baseSalary)}
+      </span>,
+      <span key="allowances" className="whitespace-nowrap tabular-nums">
+        {formatNaira(item.totalAllowances)}
+      </span>,
+      <span key="deductions" className="whitespace-nowrap tabular-nums">
+        {formatNaira(item.totalDeductions)}
+      </span>,
+      <span key="net" className="whitespace-nowrap font-semibold tabular-nums">
+        {formatNaira(item.netPay)}
+      </span>,
       item.bankName ? (
-        <div>
-          <div>{item.bankName}</div>
-          <div className="text-muted-foreground">{item.accountNumber ?? "No account number"}</div>
+        <div key="bank" className="min-w-0">
+          <div className="truncate">{item.bankName}</div>
+          <div className="text-xs text-muted-foreground">
+            {item.accountNumber ?? "No account number"}
+          </div>
         </div>
       ) : (
-        <span className="text-destructive">No bank details</span>
+        <span key="bank" className="text-destructive">
+          No bank details
+        </span>
       ),
-      STATUS_LABEL[item.status] ?? item.status,
-      <Button variant="outline" size="sm" asChild>
+      <span key="status">{STATUS_LABEL[item.status] ?? item.status}</span>,
+      <Button key="open" variant="outline" size="sm" asChild>
         <Link href={`${basePath}/payslips/${item.id}`}>Payslip</Link>
       </Button>,
     ],
   }))
 
   return (
-    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
+    <div className="space-y-6" data-print-document data-print-report>
+      <PrintLandscape />
       <BrandedPrintHeader title="Monthly Salary Schedule" reference={periodName(run.period)} />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between print:hidden">
         <div>
           <div className="flex items-center gap-3">
             <BackButton fallbackHref={`${basePath}/payroll`} />
-            <h1 className="text-3xl font-bold tracking-tight">{periodName(run.period)}</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">{periodName(run.period)}</h1>
+              <InfoGuide guideKey="hr.payrollRun" />
+            </div>
             <Badge variant="outline">{STATUS_LABEL[run.status] ?? run.status}</Badge>
           </div>
           <p className="text-muted-foreground">
@@ -281,7 +319,7 @@ export async function PayrollRunView({
 
       {run.decisionReason && (
         <div className="rounded-md border border-dashed p-4">
-          <p className="font-medium">{run.status === "CANCELLED" ? "Cancelled" : "Note"}</p>
+          <p className="font-medium">{run.status === "CANCELLED" ? "Cancelled" : run.status === "REVERSED" ? "Reversal" : "Note"}</p>
           <p className="text-sm text-muted-foreground">{run.decisionReason}</p>
         </div>
       )}
@@ -374,7 +412,10 @@ export async function PayslipView({ basePath, itemId }: { basePath: string; item
       <div className="flex items-start justify-between gap-4 print:hidden">
         <div>
           <BackButton fallbackHref={`${basePath}/payroll`} />
-          <h1 className="text-3xl font-bold tracking-tight">Payslip</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Payslip</h1>
+            <InfoGuide guideKey="hr.payslip" />
+          </div>
           <p className="text-muted-foreground">{payslip.payslipNo} · {periodName(payslip.period)}</p>
         </div>
         <div className="flex gap-2">

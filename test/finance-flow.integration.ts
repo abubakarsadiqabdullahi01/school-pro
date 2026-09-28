@@ -14,7 +14,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
  * enrolment.
  */
 
-vi.mock("next/cache", () => ({ revalidatePath: () => {} }))
+vi.mock("next/cache", () => ({
+  revalidatePath: () => {},
+  unstable_cache: <T>(loader: T) => loader,
+}))
 // Only reached for a super admin picking a school from the switcher; this suite acts as a
 // school admin, whose school comes from their own record.
 vi.mock("@/lib/school-context.server", () => ({ getActiveSchool: async () => null }))

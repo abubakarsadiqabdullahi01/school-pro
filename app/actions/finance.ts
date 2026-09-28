@@ -1,13 +1,32 @@
 "use server"
 
-import { Prisma } from "@prisma/client"
+import { Prisma, type FeeAppliesTo, type FeeType, type PaymentStatus } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { prisma } from "@/lib/db"
 import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
+import { paymentMethodVariants } from "@/lib/finance/payment-method"
+import { postStudentPayment } from "@/lib/finance/payment-ledger.server"
+import { canDeleteFinanceOfficer, canUseOfficerEmail } from "@/lib/finance/finance-staff-rules"
+import {
+  feeScheduleScopeWhere,
+  summariseCoverage,
+  type Coverage,
+  type CoverageRow,
+} from "@/lib/finance/fee-scope"
+import {
+  canDeactivateFeeCategory,
+  canDeleteFeeCategory,
+  canDeleteFeeSchedule,
+  canRepointFeeSchedule,
+  canUseFeeCategoryName,
+} from "@/lib/finance/fee-setup-rules"
 import { getActiveSchool } from "@/lib/school-context.server"
+import { recordAudit } from "@/lib/audit"
+import { generateTemporaryPassword } from "@/lib/temporary-password"
+import { revokeAllSessionsForUser } from "@/lib/sessions.server"
 
 const moneySchema = z.coerce.number().positive().max(9999999999)
 
@@ -30,6 +49,30 @@ const feeScheduleSchema = z.object({
   dueDate: z.coerce.date().optional().nullable(),
 })
 
+const feeCategoryUpdateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(2).max(100),
+  description: z.string().trim().max(300).optional().nullable(),
+  type: z.enum(["MANDATORY", "OPTIONAL", "REGISTRATION", "SERVICE"]),
+  isActive: z.coerce.boolean(),
+})
+
+const feeScheduleUpdateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(300).optional().nullable(),
+  amount: moneySchema,
+  dueDate: z.coerce.date().optional().nullable(),
+  isMandatory: z.coerce.boolean(),
+  isActive: z.coerce.boolean(),
+  // Only read while the schedule has raised nothing; see `canRepointFeeSchedule`.
+  sessionId: z.string().min(1).optional().nullable(),
+  termId: z.string().min(1).optional().nullable(),
+  classTermId: z.string().min(1).optional().nullable(),
+  categoryId: z.string().min(1).optional().nullable(),
+  appliesTo: z.enum(["NEW_STUDENTS", "RETURNING_STUDENTS", "ALL_STUDENTS"]).optional().nullable(),
+})
+
 const paymentAllocationSchema = z.object({
   chargeId: z.string().min(1),
   amount: moneySchema,
@@ -43,6 +86,12 @@ const paymentSchema = z.object({
   referenceNo: z.string().trim().max(120).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
   allocations: z.array(paymentAllocationSchema).min(1),
+})
+
+const refundPaymentSchema = z.object({
+  paymentId: z.string().min(1),
+  reason: z.string().trim().min(3).max(500),
+  referenceNo: z.string().trim().max(120).optional().nullable(),
 })
 
 const financeOfficerSchema = z.object({
@@ -457,12 +506,12 @@ export async function createFeeSchedule(input: unknown): Promise<ActionResult<{ 
     const [session, term, classTerm, category] = await Promise.all([
       prisma.session.findFirst({ where: { id: data.sessionId, schoolId }, select: { id: true, startDate: true } }),
       data.termId
-        ? prisma.term.findFirst({ where: { id: data.termId, session: { schoolId } }, select: { id: true } })
+        ? prisma.term.findFirst({ where: { id: data.termId, session: { schoolId } }, select: { id: true, sessionId: true } })
         : Promise.resolve(null),
       data.classTermId
         ? prisma.classTerm.findFirst({
             where: { id: data.classTermId, class: { schoolId } },
-            select: { id: true, termId: true },
+            select: { id: true, termId: true, term: { select: { sessionId: true } } },
           })
         : Promise.resolve(null),
       prisma.feeCategory.findFirst({ where: { id: data.categoryId, schoolId }, select: { id: true } }),
@@ -472,18 +521,24 @@ export async function createFeeSchedule(input: unknown): Promise<ActionResult<{ 
     if (data.termId && !term) throw new Error("Term not found")
     if (data.classTermId && !classTerm) throw new Error("Class term not found")
     if (!category) throw new Error("Fee category not found")
+    if (term && term.sessionId !== session.id) {
+      throw new Error("The selected term does not belong to the selected session")
+    }
+    if (classTerm && classTerm.term.sessionId !== session.id) {
+      throw new Error("The selected class term does not belong to the selected session")
+    }
+    if (classTerm && data.termId && classTerm.termId !== data.termId) {
+      throw new Error("The selected class term does not belong to the selected term")
+    }
 
     const effectiveTermId = data.termId ?? classTerm?.termId ?? null
-    // Only bill students who are still active. An enrolment row stays ACTIVE when a student
-    // is deactivated or archived — those are recorded on the user — so filtering on the
-    // enrolment alone kept generating charges for people who had left.
-    const activeStudent = { student: { user: { isActive: true } } };
+    // One scope rule, shared with the catch-up and with the coverage figures, so what a
+    // schedule bills and what the screens say it bills cannot drift apart.
     const enrolledStudents = await prisma.studentClassTerm.findMany({
-      where: data.classTermId
-        ? { classTermId: data.classTermId, status: "ACTIVE", ...activeStudent }
-        : effectiveTermId
-          ? { termId: effectiveTermId, status: "ACTIVE", student: { schoolId, user: { isActive: true } } }
-          : { student: { schoolId, user: { isActive: true } }, status: "ACTIVE" },
+      where: feeScheduleScopeWhere(
+        { sessionId: data.sessionId, termId: effectiveTermId, classTermId: data.classTermId ?? null },
+        schoolId,
+      ),
       select: {
         studentId: true,
         classTermId: true,
@@ -551,66 +606,919 @@ export async function createFeeSchedule(input: unknown): Promise<ActionResult<{ 
 }
 
 /**
- * The fee schedules already set up, with how many students each has billed.
+ * How far each schedule's billing reaches, for a list of them.
  *
- * Fee Setup listed categories only, so a schedule could not be seen after it was
- * created — which is also why nobody noticed that students admitted later were
- * never billed against it. The charge count is the number that makes that
- * visible: compare it with the class roll.
+ * Batched deliberately: the enrolments and the charges are read once for the whole list and
+ * the scopes are applied in memory, so adding schedules does not add queries. The figure
+ * this produces is the one the list leans on — "60 billed" means nothing without "of how
+ * many", and the gap is the only warning anybody gets that a student admitted last week owes
+ * nothing on paper.
  */
-export async function getFeeSchedules(): Promise<ActionResult<Array<{
-  id: string
-  name: string
-  categoryName: string
-  sessionName: string
-  scope: string
-  amount: string
-  appliesTo: string
-  isActive: boolean
-  chargeCount: number
-}>>> {
+async function coverageForSchedules(
+  schedules: Array<{ id: string; sessionId: string; termId: string | null; classTermId: string | null; appliesTo: string }>,
+  schoolId: string,
+): Promise<Map<string, { inScope: number; billed: number; unbilled: number }>> {
+  const coverage = new Map<string, { inScope: number; billed: number; unbilled: number }>()
+  if (schedules.length === 0) return coverage
+
+  const sessionIds = [...new Set(schedules.map((schedule) => schedule.sessionId))]
+
+  const [enrolments, charges, sessions] = await Promise.all([
+    prisma.studentClassTerm.findMany({
+      where: {
+        status: "ACTIVE",
+        student: { schoolId, user: { isActive: true } },
+        term: { sessionId: { in: sessionIds } },
+      },
+      select: {
+        studentId: true,
+        classTermId: true,
+        termId: true,
+        term: { select: { sessionId: true } },
+        classTerm: { select: { class: { select: { name: true } } } },
+      },
+    }),
+    prisma.studentCharge.findMany({
+      where: { feeScheduleId: { in: schedules.map((schedule) => schedule.id) } },
+      select: { feeScheduleId: true, studentId: true },
+    }),
+    prisma.session.findMany({ where: { id: { in: sessionIds } }, select: { id: true, startDate: true } }),
+  ])
+
+  // "Returning" is relative to a session, so it is resolved once per session rather than
+  // once per schedule.
+  const returningBySession = new Map<string, Set<string>>()
+  for (const session of sessions) {
+    const studentsInSession = enrolments
+      .filter((enrolment) => enrolment.term.sessionId === session.id)
+      .map((enrolment) => enrolment.studentId)
+    returningBySession.set(
+      session.id,
+      await returningStudentIds(studentsInSession, schoolId, session.startDate),
+    )
+  }
+
+  const billedBySchedule = new Map<string, Set<string>>()
+  for (const charge of charges) {
+    const set = billedBySchedule.get(charge.feeScheduleId) ?? new Set<string>()
+    set.add(charge.studentId)
+    billedBySchedule.set(charge.feeScheduleId, set)
+  }
+
+  for (const schedule of schedules) {
+    const returning = returningBySession.get(schedule.sessionId) ?? new Set<string>()
+    const rows: CoverageRow[] = enrolments
+      .filter((enrolment) =>
+        schedule.classTermId
+          ? enrolment.classTermId === schedule.classTermId
+          : schedule.termId
+            ? enrolment.termId === schedule.termId
+            : enrolment.term.sessionId === schedule.sessionId,
+      )
+      .filter((enrolment) =>
+        schedule.appliesTo === "ALL_STUDENTS"
+          ? true
+          : schedule.appliesTo === "RETURNING_STUDENTS"
+            ? returning.has(enrolment.studentId)
+            : !returning.has(enrolment.studentId),
+      )
+      .map((enrolment) => ({
+        studentId: enrolment.studentId,
+        className: enrolment.classTerm.class.name,
+      }))
+
+    const summary = summariseCoverage(rows, billedBySchedule.get(schedule.id) ?? new Set())
+    coverage.set(schedule.id, {
+      inScope: summary.inScope,
+      billed: summary.billed,
+      unbilled: summary.unbilled,
+    })
+  }
+
+  return coverage
+}
+
+export type FeeScheduleCoverage = Coverage & {
+  schedule: {
+    id: string
+    name: string
+    scopeLabel: string
+    sessionName: string
+    categoryName: string
+    amount: string
+    appliesTo: string
+    isActive: boolean
+    dueDate: string | null
+  }
+  /** Who is in scope with no charge. Capped, because the answer is "run the catch-up". */
+  unbilledStudents: Array<{ id: string; name: string; admissionNo: string; className: string }>
+  unbilledShown: number
+}
+
+/**
+ * Who this schedule covers, who it has billed, and who it has missed.
+ *
+ * The screen this feeds exists because of one failure mode: a student admitted after a
+ * schedule ran owes nothing on paper, the class summary balances, and nobody notices until
+ * the parent is never asked for the money. The unbilled list names them.
+ */
+export async function getFeeScheduleCoverage(id: string): Promise<ActionResult<FeeScheduleCoverage>> {
   try {
     const actor = await requireFinanceViewer()
     const schoolId = await actorSchool(actor)
 
-    const schedules = await prisma.feeSchedule.findMany({
-      where: { schoolId },
-      orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+    const schedule = await prisma.feeSchedule.findFirst({
+      where: { id, schoolId },
       select: {
         id: true,
         name: true,
         amount: true,
         appliesTo: true,
         isActive: true,
+        dueDate: true,
+        sessionId: true,
+        termId: true,
+        classTermId: true,
         category: { select: { name: true } },
-        session: { select: { name: true } },
+        session: { select: { name: true, startDate: true } },
         term: { select: { name: true } },
         classTerm: { select: { class: { select: { name: true } }, term: { select: { name: true } } } },
-        _count: { select: { charges: true } },
       },
     })
 
+    if (!schedule) throw new Error("Fee schedule not found")
+
+    const [enrolments, charges] = await Promise.all([
+      prisma.studentClassTerm.findMany({
+        where: feeScheduleScopeWhere(schedule, schoolId),
+        select: {
+          studentId: true,
+          classTerm: { select: { class: { select: { name: true } } } },
+          student: {
+            select: { id: true, admissionNo: true, user: { select: { firstName: true, lastName: true } } },
+          },
+        },
+      }),
+      prisma.studentCharge.findMany({ where: { feeScheduleId: id }, select: { studentId: true } }),
+    ]);
+
+    const returning = await returningStudentIds(
+      enrolments.map((enrolment) => enrolment.studentId),
+      schoolId,
+      schedule.session.startDate,
+    )
+
+    const inScopeEnrolments = enrolments.filter((enrolment) =>
+      schedule.appliesTo === "ALL_STUDENTS"
+        ? true
+        : schedule.appliesTo === "RETURNING_STUDENTS"
+          ? returning.has(enrolment.studentId)
+          : !returning.has(enrolment.studentId),
+    )
+
+    const billedStudentIds = new Set(charges.map((charge) => charge.studentId))
+    const coverage = summariseCoverage(
+      inScopeEnrolments.map((enrolment) => ({
+        studentId: enrolment.studentId,
+        className: enrolment.classTerm.class.name,
+      })),
+      billedStudentIds,
+    )
+
+    const seen = new Set<string>()
+    const unbilledStudents = inScopeEnrolments
+      .filter((enrolment) => !billedStudentIds.has(enrolment.studentId))
+      .filter((enrolment) => {
+        // A whole-session scope holds one row per term; the student is named once.
+        if (seen.has(enrolment.studentId)) return false
+        seen.add(enrolment.studentId)
+        return true
+      })
+      .map((enrolment) => ({
+        id: enrolment.student.id,
+        name: `${enrolment.student.user.firstName} ${enrolment.student.user.lastName}`,
+        admissionNo: enrolment.student.admissionNo,
+        className: enrolment.classTerm.class.name,
+      }))
+      .sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name))
+
     return {
       success: true,
-      data: schedules.map((schedule) => ({
+      data: {
+        ...coverage,
+        schedule: {
+          id: schedule.id,
+          name: schedule.name,
+          scopeLabel: schedule.classTerm
+            ? `${schedule.classTerm.class.name} · ${schedule.classTerm.term.name}`
+            : schedule.term
+              ? `All classes · ${schedule.term.name}`
+              : "Whole session",
+          sessionName: schedule.session.name,
+          categoryName: schedule.category.name,
+          amount: moneyString(schedule.amount),
+          appliesTo: schedule.appliesTo,
+          isActive: schedule.isActive,
+          dueDate: schedule.dueDate?.toISOString() ?? null,
+        },
+        unbilledStudents: unbilledStudents.slice(0, 200),
+        unbilledShown: Math.min(unbilledStudents.length, 200),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the fee schedule coverage")
+  }
+}
+
+export type FeeCategoryRow = {
+  id: string
+  name: string
+  description: string | null
+  type: string
+  isActive: boolean
+  scheduleCount: number
+  activeScheduleCount: number
+  createdAt: string
+}
+
+/**
+ * The fee categories, with how much is hanging off each one.
+ *
+ * The counts are the reason this exists rather than reusing the setup list: a category is
+ * only worth keeping if something bills against it, and one with schedules attached cannot
+ * simply be retired — the schedules would lose the group they are reported under.
+ */
+export async function getFeeCategories(filters?: {
+  search?: string | null
+  type?: string | null
+  status?: string | null
+}): Promise<ActionResult<{ rows: FeeCategoryRow[]; totalCount: number }>> {
+  try {
+    const actor = await requireFinanceViewer()
+    const schoolId = await actorSchool(actor)
+    const search = filters?.search?.trim()
+
+    const where: Prisma.FeeCategoryWhereInput = {
+      schoolId,
+      ...(filters?.type ? { type: filters.type as FeeType } : {}),
+      ...(filters?.status ? { isActive: filters.status === "ACTIVE" } : {}),
+      ...(search ? { OR: [{ name: { contains: search } }, { description: { contains: search } }] } : {}),
+    }
+
+    const [categories, totalCount] = await Promise.all([
+      prisma.feeCategory.findMany({
+        where,
+        orderBy: [{ isActive: "desc" }, { name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          type: true,
+          isActive: true,
+          createdAt: true,
+          feeSchedules: { select: { isActive: true } },
+        },
+      }),
+      prisma.feeCategory.count({ where: { schoolId } }),
+    ])
+
+    return {
+      success: true,
+      data: {
+        rows: categories.map((category) => ({
+          id: category.id,
+          name: category.name,
+          description: category.description,
+          type: category.type,
+          isActive: category.isActive,
+          scheduleCount: category.feeSchedules.length,
+          activeScheduleCount: category.feeSchedules.filter((schedule) => schedule.isActive).length,
+          createdAt: category.createdAt.toISOString(),
+        })),
+        totalCount,
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load fee categories")
+  }
+}
+
+export type FeeScheduleRow = {
+  id: string
+  name: string
+  description: string | null
+  categoryId: string
+  categoryName: string
+  sessionId: string
+  sessionName: string
+  termId: string | null
+  termName: string | null
+  className: string | null
+  /** CLASS, TERM or SESSION — how widely the schedule bills. */
+  scope: string
+  scopeLabel: string
+  amount: string
+  appliesTo: string
+  isMandatory: boolean
+  isActive: boolean
+  dueDate: string | null
+  chargeCount: number
+  /** Students the scope covers right now. */
+  inScope: number
+  /** In scope with no charge — somebody admitted after the schedule ran. */
+  unbilled: number
+}
+
+/**
+ * The fee schedules already set up, with how many students each has billed.
+ *
+ * Fee Setup listed categories only, so a schedule could not be seen after it was created —
+ * which is also why nobody noticed that students admitted later were never billed against
+ * it. The charge count is the number that makes that visible: compare it with the class roll.
+ */
+export async function getFeeSchedules(filters?: {
+  search?: string | null
+  sessionId?: string | null
+  termId?: string | null
+  categoryId?: string | null
+  audience?: string | null
+  /** CLASS, TERM or SESSION. */
+  scope?: string | null
+  status?: string | null
+}): Promise<
+  ActionResult<{
+    rows: FeeScheduleRow[]
+    totalCount: number
+    activeCount: number
+    studentsBilled: number
+    /** Students in scope of an active schedule with no charge against it. */
+    studentsUnbilled: number
+  }>
+> {
+  try {
+    const actor = await requireFinanceViewer()
+    const schoolId = await actorSchool(actor)
+    const search = filters?.search?.trim()
+
+    // Scope is not a column: it is which of the two period columns a schedule carries.
+    const scopeWhere: Prisma.FeeScheduleWhereInput =
+      filters?.scope === "CLASS"
+        ? { classTermId: { not: null } }
+        : filters?.scope === "TERM"
+          ? { classTermId: null, termId: { not: null } }
+          : filters?.scope === "SESSION"
+            ? { classTermId: null, termId: null }
+            : {}
+
+    const where: Prisma.FeeScheduleWhereInput = {
+      schoolId,
+      ...scopeWhere,
+      ...(filters?.sessionId ? { sessionId: filters.sessionId } : {}),
+      ...(filters?.termId ? { termId: filters.termId } : {}),
+      ...(filters?.categoryId ? { categoryId: filters.categoryId } : {}),
+      ...(filters?.audience ? { appliesTo: filters.audience as FeeAppliesTo } : {}),
+      ...(filters?.status ? { isActive: filters.status === "ACTIVE" } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search } },
+              { description: { contains: search } },
+              { category: { name: { contains: search } } },
+              { classTerm: { class: { name: { contains: search } } } },
+            ],
+          }
+        : {}),
+    }
+
+    const [schedules, totalCount] = await Promise.all([
+      prisma.feeSchedule.findMany({
+        where,
+        orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          amount: true,
+          appliesTo: true,
+          isMandatory: true,
+          isActive: true,
+          dueDate: true,
+          categoryId: true,
+          sessionId: true,
+          termId: true,
+          classTermId: true,
+          category: { select: { name: true } },
+          session: { select: { name: true } },
+          term: { select: { name: true } },
+          classTerm: { select: { class: { select: { name: true } }, term: { select: { name: true } } } },
+          _count: { select: { charges: true } },
+        },
+      }),
+      prisma.feeSchedule.count({ where: { schoolId } }),
+    ])
+
+    const coverage = await coverageForSchedules(schedules, schoolId)
+
+    const rows: FeeScheduleRow[] = schedules.map((schedule) => ({
+      id: schedule.id,
+      name: schedule.name,
+      description: schedule.description,
+      categoryId: schedule.categoryId,
+      categoryName: schedule.category.name,
+      sessionId: schedule.sessionId,
+      sessionName: schedule.session.name,
+      termId: schedule.termId,
+      termName: schedule.term?.name ?? schedule.classTerm?.term.name ?? null,
+      className: schedule.classTerm?.class.name ?? null,
+      scope: schedule.classTermId ? "CLASS" : schedule.termId ? "TERM" : "SESSION",
+      // Scope reads the way it was set: one class, a whole term, or the session.
+      scopeLabel: schedule.classTerm
+        ? `${schedule.classTerm.class.name} · ${schedule.classTerm.term.name}`
+        : schedule.term
+          ? `All classes · ${schedule.term.name}`
+          : "Whole session",
+      amount: moneyString(schedule.amount),
+      appliesTo: schedule.appliesTo,
+      isMandatory: schedule.isMandatory,
+      isActive: schedule.isActive,
+      dueDate: schedule.dueDate?.toISOString() ?? null,
+      chargeCount: schedule._count.charges,
+      inScope: coverage.get(schedule.id)?.inScope ?? 0,
+      unbilled: coverage.get(schedule.id)?.unbilled ?? 0,
+    }))
+
+    return {
+      success: true,
+      data: {
+        rows,
+        totalCount,
+        activeCount: rows.filter((row) => row.isActive).length,
+        studentsBilled: rows.reduce((sum, row) => sum + row.chargeCount, 0),
+        // Only active schedules: an inactive one is not billing anybody by design, so
+        // counting its gap would raise an alarm about a decision somebody already made.
+        studentsUnbilled: rows
+          .filter((row) => row.isActive)
+          .reduce((sum, row) => sum + row.unbilled, 0),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load fee schedules")
+  }
+}
+
+export type FeeCategoryDetail = {
+  id: string
+  name: string
+  description: string | null
+  type: string
+  isActive: boolean
+  scheduleCount: number
+  activeScheduleCount: number
+  discountCount: number
+  exemptionCount: number
+  /** Every category name in the school, so the form can catch a clash before it submits. */
+  takenNames: Array<{ id: string; name: string }>
+  /** What actually reports under it — the answer to "1 schedule, but which one?". */
+  schedules: Array<{
+    id: string
+    name: string
+    scopeLabel: string
+    sessionName: string
+    amount: string
+    isActive: boolean
+    chargeCount: number
+  }>
+}
+
+/** One category, with everything the edit screen needs to say what may be done to it. */
+export async function getFeeCategory(id: string): Promise<ActionResult<FeeCategoryDetail>> {
+  try {
+    const actor = await requireFinanceViewer()
+    const schoolId = await actorSchool(actor)
+
+    const [category, takenNames] = await Promise.all([
+      prisma.feeCategory.findFirst({
+        where: { id, schoolId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          type: true,
+          isActive: true,
+          feeSchedules: {
+            orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+            select: {
+              id: true,
+              name: true,
+              amount: true,
+              isActive: true,
+              session: { select: { name: true } },
+              term: { select: { name: true } },
+              classTerm: { select: { class: { select: { name: true } }, term: { select: { name: true } } } },
+              _count: { select: { charges: true } },
+            },
+          },
+          _count: { select: { discounts: true, exemptions: true } },
+        },
+      }),
+      prisma.feeCategory.findMany({ where: { schoolId }, select: { id: true, name: true } }),
+    ])
+
+    if (!category) throw new Error("Fee category not found")
+
+    return {
+      success: true,
+      data: {
+        id: category.id,
+        name: category.name,
+        description: category.description,
+        type: category.type,
+        isActive: category.isActive,
+        scheduleCount: category.feeSchedules.length,
+        activeScheduleCount: category.feeSchedules.filter((schedule) => schedule.isActive).length,
+        discountCount: category._count.discounts,
+        exemptionCount: category._count.exemptions,
+        takenNames,
+        schedules: category.feeSchedules.map((schedule) => ({
+          id: schedule.id,
+          name: schedule.name,
+          scopeLabel: schedule.classTerm
+            ? `${schedule.classTerm.class.name} · ${schedule.classTerm.term.name}`
+            : schedule.term
+              ? `All classes · ${schedule.term.name}`
+              : "Whole session",
+          sessionName: schedule.session.name,
+          amount: moneyString(schedule.amount),
+          isActive: schedule.isActive,
+          chargeCount: schedule._count.charges,
+        })),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the fee category")
+  }
+}
+
+/**
+ * Renames a category, retypes it, or switches it off.
+ *
+ * Nothing here touches money: a category is a heading, and the schedules under it keep their
+ * amounts whatever it is called. Switching one off is the safe alternative to deleting it,
+ * which is why the rule about active schedules is enforced rather than warned about.
+ */
+export async function updateFeeCategory(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const data = feeCategoryUpdateSchema.parse(input)
+
+    const [existing, takenNames] = await Promise.all([
+      prisma.feeCategory.findFirst({
+        where: { id: data.id, schoolId },
+        select: { id: true, isActive: true, feeSchedules: { select: { isActive: true } } },
+      }),
+      prisma.feeCategory.findMany({ where: { schoolId }, select: { id: true, name: true } }),
+    ])
+
+    if (!existing) throw new Error("Fee category not found")
+
+    const nameVerdict = canUseFeeCategoryName(data.name, takenNames, data.id)
+    if (!nameVerdict.allowed) throw new Error(nameVerdict.reason)
+
+    if (existing.isActive && !data.isActive) {
+      const verdict = canDeactivateFeeCategory({
+        activeScheduleCount: existing.feeSchedules.filter((schedule) => schedule.isActive).length,
+      })
+      if (!verdict.allowed) throw new Error(verdict.reason)
+    }
+
+    await prisma.feeCategory.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        description: data.description || null,
+        type: data.type,
+        isActive: data.isActive,
+      },
+    })
+
+    revalidateFinance("/fees", "/fees/categories")
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to update the fee category")
+  }
+}
+
+/** Deletes a category nothing points at. Anything else is refused with the reason why. */
+export async function deleteFeeCategory(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const { id } = z.object({ id: z.string().min(1) }).parse(input)
+
+    const category = await prisma.feeCategory.findFirst({
+      where: { id, schoolId },
+      select: { id: true, _count: { select: { feeSchedules: true, discounts: true, exemptions: true } } },
+    })
+
+    if (!category) throw new Error("Fee category not found")
+
+    const verdict = canDeleteFeeCategory({
+      scheduleCount: category._count.feeSchedules,
+      discountCount: category._count.discounts,
+      exemptionCount: category._count.exemptions,
+    })
+    if (!verdict.allowed) throw new Error(verdict.reason)
+
+    await prisma.feeCategory.delete({ where: { id } })
+
+    revalidateFinance("/fees", "/fees/categories")
+    return { success: true, data: { id } }
+  } catch (error) {
+    return toError(error, "Failed to delete the fee category")
+  }
+}
+
+export type FeeScheduleDetail = {
+  id: string
+  name: string
+  description: string | null
+  amount: string
+  appliesTo: string
+  isMandatory: boolean
+  isActive: boolean
+  dueDate: string | null
+  categoryId: string
+  sessionId: string
+  termId: string | null
+  classTermId: string | null
+  scope: string
+  scopeLabel: string
+  chargeCount: number
+  /** Charges with money against them — they fix what may be done to the schedule. */
+  settledCharges: number
+  /** Charges carrying a discount or an exemption. */
+  adjustedCharges: number
+  /** Charges a new amount would reach; the rest keep the figure somebody reasoned about. */
+  repriceableCharges: number
+}
+
+/** One schedule, with the counts every rule about it is decided on. */
+export async function getFeeSchedule(id: string): Promise<ActionResult<FeeScheduleDetail>> {
+  try {
+    const actor = await requireFinanceViewer()
+    const schoolId = await actorSchool(actor)
+
+    const schedule = await prisma.feeSchedule.findFirst({
+      where: { id, schoolId },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        amount: true,
+        appliesTo: true,
+        isMandatory: true,
+        isActive: true,
+        dueDate: true,
+        categoryId: true,
+        sessionId: true,
+        termId: true,
+        classTermId: true,
+        term: { select: { name: true } },
+        classTerm: { select: { class: { select: { name: true } }, term: { select: { name: true } } } },
+      },
+    })
+
+    if (!schedule) throw new Error("Fee schedule not found")
+
+    // The three conditions mirror `isRepriceable`: paid, discounted or exempted is touched.
+    const [chargeCount, settledCharges, adjustedCharges, repriceableCharges] = await Promise.all([
+      prisma.studentCharge.count({ where: { feeScheduleId: id } }),
+      prisma.studentCharge.count({ where: { feeScheduleId: id, amountPaid: { gt: 0 } } }),
+      prisma.studentCharge.count({
+        where: {
+          feeScheduleId: id,
+          OR: [{ discountAmount: { gt: 0 } }, { exemptedAmount: { gt: 0 } }],
+        },
+      }),
+      prisma.studentCharge.count({
+        where: { feeScheduleId: id, amountPaid: 0, discountAmount: 0, exemptedAmount: 0 },
+      }),
+    ])
+
+    return {
+      success: true,
+      data: {
         id: schedule.id,
         name: schedule.name,
-        categoryName: schedule.category.name,
-        sessionName: schedule.session.name,
-        // Scope reads the way it was set: one class, a whole term, or the session.
-        scope: schedule.classTerm
+        description: schedule.description,
+        amount: moneyString(schedule.amount),
+        appliesTo: schedule.appliesTo,
+        isMandatory: schedule.isMandatory,
+        isActive: schedule.isActive,
+        dueDate: schedule.dueDate?.toISOString() ?? null,
+        categoryId: schedule.categoryId,
+        sessionId: schedule.sessionId,
+        termId: schedule.termId,
+        classTermId: schedule.classTermId,
+        scope: schedule.classTermId ? "CLASS" : schedule.termId ? "TERM" : "SESSION",
+        scopeLabel: schedule.classTerm
           ? `${schedule.classTerm.class.name} · ${schedule.classTerm.term.name}`
           : schedule.term
             ? `All classes · ${schedule.term.name}`
             : "Whole session",
-        amount: moneyString(schedule.amount),
-        appliesTo: schedule.appliesTo,
-        isActive: schedule.isActive,
-        chargeCount: schedule._count.charges,
-      })),
+        chargeCount,
+        settledCharges,
+        adjustedCharges,
+        repriceableCharges,
+      },
     }
   } catch (error) {
-    return toError(error, "Failed to load fee schedules")
+    return toError(error, "Failed to load the fee schedule")
+  }
+}
+
+/**
+ * Edits a schedule, and carries the change down to the bills it has already raised.
+ *
+ * A new amount reaches only the charges nobody has touched — paid, discounted and exempted
+ * ones keep the figure somebody reasoned about, and the caller is told how many were left
+ * alone rather than being allowed to assume the whole class moved. A new due date reaches
+ * every charge still owing, because that is what a due date is for.
+ *
+ * Scope, category and audience may only change while the schedule has billed nobody; see
+ * `canRepointFeeSchedule`.
+ */
+export async function updateFeeSchedule(input: unknown): Promise<
+  ActionResult<{ id: string; chargesRepriced: number; chargesLeftAlone: number; dueDatesUpdated: number }>
+> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const data = feeScheduleUpdateSchema.parse(input)
+
+    const schedule = await prisma.feeSchedule.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, amount: true, dueDate: true, sessionId: true, termId: true, classTermId: true },
+    })
+    if (!schedule) throw new Error("Fee schedule not found")
+
+    const chargeCount = await prisma.studentCharge.count({ where: { feeScheduleId: data.id } })
+    const repoint = canRepointFeeSchedule({ chargeCount })
+
+    // Only a schedule that has billed nobody may move. Anything else keeps where it points,
+    // whatever the form sent — a stale tab must not be able to re-aim a live bill.
+    const scopeChanged =
+      repoint.allowed &&
+      ((data.sessionId && data.sessionId !== schedule.sessionId) ||
+        (data.termId ?? null) !== schedule.termId ||
+        (data.classTermId ?? null) !== schedule.classTermId)
+
+    if (scopeChanged) {
+      const [session, term, classTerm] = await Promise.all([
+        prisma.session.findFirst({ where: { id: data.sessionId ?? "", schoolId }, select: { id: true } }),
+        data.termId
+          ? prisma.term.findFirst({ where: { id: data.termId, session: { schoolId } }, select: { id: true, sessionId: true } })
+          : Promise.resolve(null),
+        data.classTermId
+          ? prisma.classTerm.findFirst({
+              where: { id: data.classTermId, class: { schoolId } },
+              select: { id: true, termId: true, term: { select: { sessionId: true } } },
+            })
+          : Promise.resolve(null),
+      ])
+
+      if (!session) throw new Error("Session not found")
+      if (data.termId && !term) throw new Error("Term not found")
+      if (data.classTermId && !classTerm) throw new Error("Class term not found")
+      if (term && term.sessionId !== session.id) {
+        throw new Error("The selected term does not belong to the selected session")
+      }
+      if (classTerm && classTerm.term.sessionId !== session.id) {
+        throw new Error("The selected class term does not belong to the selected session")
+      }
+      if (classTerm && data.termId && classTerm.termId !== data.termId) {
+        throw new Error("The selected class term does not belong to the selected term")
+      }
+    }
+
+    if (repoint.allowed && data.categoryId) {
+      const category = await prisma.feeCategory.findFirst({
+        where: { id: data.categoryId, schoolId },
+        select: { id: true },
+      })
+      if (!category) throw new Error("Fee category not found")
+    }
+
+    const amount = money(data.amount)
+    const amountChanged = !schedule.amount.equals(amount)
+    const dueDate = data.dueDate || null
+    const dueDateChanged = (schedule.dueDate?.getTime() ?? null) !== (dueDate?.getTime() ?? null)
+
+    const result = await prisma.$transaction(async (tx) => {
+      const classTermId = repoint.allowed ? (data.classTermId ?? null) : schedule.classTermId
+      const termId = repoint.allowed ? (data.termId ?? null) : schedule.termId
+
+      await tx.feeSchedule.update({
+        where: { id: data.id },
+        data: {
+          name: data.name,
+          description: data.description || null,
+          amount,
+          dueDate,
+          isMandatory: data.isMandatory,
+          isActive: data.isActive,
+          ...(repoint.allowed
+            ? {
+                sessionId: data.sessionId ?? schedule.sessionId,
+                termId,
+                classTermId,
+                ...(data.categoryId ? { categoryId: data.categoryId } : {}),
+                ...(data.appliesTo ? { appliesTo: data.appliesTo } : {}),
+              }
+            : {}),
+        },
+      })
+
+      // The three zeroes are `isRepriceable` said as a query: untouched charges only.
+      const untouched = { feeScheduleId: data.id, amountPaid: 0, discountAmount: 0, exemptedAmount: 0 } as const
+
+      const repriced = amountChanged
+        ? await tx.studentCharge.updateMany({
+            where: untouched,
+            data: { originalAmount: amount, finalAmountDue: amount, balance: amount },
+          })
+        : { count: 0 }
+
+      const dueDates = dueDateChanged
+        ? await tx.studentCharge.updateMany({
+            where: { feeScheduleId: data.id, balance: { gt: 0 } },
+            data: { dueDate },
+          })
+        : { count: 0 }
+
+      return { repriced: repriced.count, dueDates: dueDates.count }
+    })
+
+    revalidateFinance("/fees", "/fees/categories", "/debtors", "/class-summary")
+    return {
+      success: true,
+      data: {
+        id: data.id,
+        chargesRepriced: result.repriced,
+        chargesLeftAlone: amountChanged ? chargeCount - result.repriced : 0,
+        dueDatesUpdated: result.dueDates,
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to update the fee schedule")
+  }
+}
+
+/**
+ * Deletes a schedule and the untouched bills it raised.
+ *
+ * `StudentCharge.feeSchedule` is RESTRICT, so the charges go first and both go together in
+ * one transaction — a half-deleted schedule would leave students owing a fee that no longer
+ * exists. Anything paid or adjusted is refused long before this point.
+ */
+export async function deleteFeeSchedule(input: unknown): Promise<
+  ActionResult<{ id: string; chargesDeleted: number }>
+> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const { id } = z.object({ id: z.string().min(1) }).parse(input)
+
+    const schedule = await prisma.feeSchedule.findFirst({ where: { id, schoolId }, select: { id: true } })
+    if (!schedule) throw new Error("Fee schedule not found")
+
+    const [chargeCount, settledCharges, adjustedCharges] = await Promise.all([
+      prisma.studentCharge.count({ where: { feeScheduleId: id } }),
+      prisma.studentCharge.count({ where: { feeScheduleId: id, amountPaid: { gt: 0 } } }),
+      prisma.studentCharge.count({
+        where: {
+          feeScheduleId: id,
+          OR: [{ discountAmount: { gt: 0 } }, { exemptedAmount: { gt: 0 } }],
+        },
+      }),
+    ])
+
+    const verdict = canDeleteFeeSchedule({ chargeCount, settledCharges, adjustedCharges })
+    if (!verdict.allowed) throw new Error(verdict.reason)
+
+    const chargesDeleted = await prisma.$transaction(async (tx) => {
+      // Counted inside the transaction: the count above decided whether this was allowed,
+      // this one is what actually went.
+      const deleted = await tx.studentCharge.deleteMany({ where: { feeScheduleId: id } })
+      await tx.feeSchedule.delete({ where: { id } })
+      return deleted.count
+    })
+
+    revalidateFinance("/fees", "/debtors", "/class-summary")
+    return { success: true, data: { id, chargesDeleted } }
+  } catch (error) {
+    return toError(error, "Failed to delete the fee schedule")
   }
 }
 
@@ -649,19 +1557,9 @@ export async function applyFeeScheduleToNewStudents(input: unknown): Promise<Act
     if (!schedule) throw new Error("Fee schedule not found")
     if (!schedule.isActive) throw new Error("That fee schedule is inactive. Reactivate it before billing anyone.")
 
-    // Same rule as the original run: an enrolment row stays ACTIVE when the
-    // student is deactivated, so the student's own status decides.
-    const activeStudent = { user: { isActive: true } }
+    // The same scope rule as the original run and as the coverage figures.
     const enrolledStudents = await prisma.studentClassTerm.findMany({
-      where: schedule.classTermId
-        ? { classTermId: schedule.classTermId, status: "ACTIVE", student: activeStudent }
-        : schedule.termId
-          ? { termId: schedule.termId, status: "ACTIVE", student: { schoolId, ...activeStudent } }
-          : {
-              status: "ACTIVE",
-              student: { schoolId, ...activeStudent },
-              term: { sessionId: schedule.sessionId },
-            },
+      where: feeScheduleScopeWhere(schedule, schoolId),
       select: { studentId: true, classTermId: true, termId: true },
     })
 
@@ -699,28 +1597,60 @@ export async function applyFeeScheduleToNewStudents(input: unknown): Promise<Act
   }
 }
 
-export async function searchFinanceStudents(query: string): Promise<ActionResult<Array<{
-  id: string
-  admissionNo: string
-  name: string
-  currentClass: string | null
-  outstanding: string
-}>>> {
+export type FinanceStudentSearchFilters = {
+  query?: string | null
+  /** A class in a particular term, as the class filter offers them. */
+  classTermId?: string | null
+  /** Only students with something outstanding — the usual reason to be on this screen. */
+  owingOnly?: boolean | null
+}
+
+/**
+ * Students a cashier can take money from, narrowed the way a cashier narrows them.
+ *
+ * A name is not always what somebody at the counter has: a parent says "JSS 1A" and a first
+ * name, or hands over a receipt with an admission number. The class filter and the owing
+ * filter are what make the list short enough to pick from without typing exactly.
+ */
+export async function searchFinanceStudents(filters?: string | FinanceStudentSearchFilters): Promise<
+  ActionResult<
+    Array<{
+      id: string
+      admissionNo: string
+      name: string
+      currentClass: string | null
+      currentTerm: string | null
+      outstanding: string
+      /** Charges with something still owing — what the cashier is about to work through. */
+      openCharges: number
+    }>
+  >
+> {
   try {
     const actor = await requireFinanceViewer()
     const schoolId = await actorSchool(actor)
-    const text = query.trim()
+
+    // The screen used to pass a bare string; both shapes are accepted so a caller that has
+    // not been updated still searches rather than silently filtering by nothing.
+    const input: FinanceStudentSearchFilters = typeof filters === "string" ? { query: filters } : (filters ?? {})
+    const text = input.query?.trim()
 
     const students = await prisma.student.findMany({
       where: {
         schoolId,
-        OR: text
-          ? [
-              { admissionNo: { contains: text } },
-              { user: { firstName: { contains: text } } },
-              { user: { lastName: { contains: text } } },
-            ]
-          : undefined,
+        ...(text
+          ? {
+              OR: [
+                { admissionNo: { contains: text } },
+                { user: { firstName: { contains: text } } },
+                { user: { lastName: { contains: text } } },
+              ],
+            }
+          : {}),
+        ...(input.classTermId
+          ? { classTerms: { some: { classTermId: input.classTermId, status: "ACTIVE" } } }
+          : {}),
+        ...(input.owingOnly ? { charges: { some: { balance: { gt: 0 } } } } : {}),
       },
       take: 60,
       orderBy: { createdAt: "desc" },
@@ -732,7 +1662,11 @@ export async function searchFinanceStudents(query: string): Promise<ActionResult
           where: { status: "ACTIVE" },
           take: 1,
           orderBy: { createdAt: "desc" },
-          select: { classTerm: { select: { class: { select: { name: true } } } } },
+          select: {
+            classTerm: {
+              select: { class: { select: { name: true } }, term: { select: { name: true } } },
+            },
+          },
         },
         charges: { where: { status: { in: ["UNPAID", "PARTIAL"] } }, select: { balance: true } },
       },
@@ -745,7 +1679,9 @@ export async function searchFinanceStudents(query: string): Promise<ActionResult
         admissionNo: student.admissionNo,
         name: `${student.user.firstName} ${student.user.lastName}`,
         currentClass: student.classTerms[0]?.classTerm.class.name ?? null,
+        currentTerm: student.classTerms[0]?.classTerm.term.name ?? null,
         outstanding: moneyString(student.charges.reduce((total, charge) => total.plus(charge.balance), money(0))),
+        openCharges: student.charges.filter((charge) => charge.balance.gt(0)).length,
       })),
     }
   } catch (error) {
@@ -756,8 +1692,28 @@ export async function searchFinanceStudents(query: string): Promise<ActionResult
 export async function getStudentStatement(studentId: string): Promise<ActionResult<{
   school: { name: string; code: string }
   student: { id: string; admissionNo: string; name: string; currentClass: string | null; currentTerm: string | null }
+  /** Who produced this copy — the statement is signed electronically rather than in ink. */
+  issuedBy: { name: string; role: string }
   totals: { charged: string; paid: string; discounts: string; exemptions: string; balance: string }
-  charges: Array<{ id: string; termId: string | null; description: string; amount: string; paid: string; balance: string; status: string }>
+  charges: Array<{
+    id: string
+    termId: string | null
+    description: string
+    amount: string
+    /** The fee before any discount or exemption — what a percentage is taken of. */
+    originalAmount: string
+    paid: string
+    balance: string
+    status: string
+    /** When the charge row was written. Rarely the right date for a statement. */
+    raisedOn: string
+    dueDate: string | null
+    /** The start of the term the charge belongs to, used when it has no due date. */
+    termStart: string | null
+    /** Which term this is a fee for, and the heading it reports under. */
+    termName: string | null
+    categoryName: string | null
+  }>
   payments: Array<{ id: string; receiptNo: string; amount: string; paymentDate: string; method: string; status: string }>
 }>> {
   try {
@@ -790,13 +1746,17 @@ export async function getStudentStatement(studentId: string): Promise<ActionResu
           select: {
             id: true,
             termId: true,
+            createdAt: true,
+            dueDate: true,
             finalAmountDue: true,
             amountPaid: true,
             balance: true,
             discountAmount: true,
             exemptedAmount: true,
             status: true,
-            feeSchedule: { select: { name: true } },
+            originalAmount: true,
+            feeSchedule: { select: { name: true, category: { select: { name: true } } } },
+            term: { select: { name: true, startDate: true } },
           },
         },
         payments: {
@@ -823,6 +1783,7 @@ export async function getStudentStatement(studentId: string): Promise<ActionResu
       success: true,
       data: {
         school: { name: student.school.name, code: student.school.code },
+        issuedBy: { name: actor.name, role: actor.role },
         student: {
           id: student.id,
           admissionNo: student.admissionNo,
@@ -842,9 +1803,15 @@ export async function getStudentStatement(studentId: string): Promise<ActionResu
           termId: charge.termId,
           description: charge.feeSchedule.name,
           amount: moneyString(charge.finalAmountDue),
+          originalAmount: moneyString(charge.originalAmount),
           paid: moneyString(charge.amountPaid),
           balance: moneyString(charge.balance),
           status: charge.status,
+          raisedOn: charge.createdAt.toISOString(),
+          dueDate: charge.dueDate ? charge.dueDate.toISOString() : null,
+          termStart: charge.term ? charge.term.startDate.toISOString() : null,
+          termName: charge.term?.name ?? null,
+          categoryName: charge.feeSchedule.category?.name ?? null,
         })),
         payments: student.payments.map((payment) => ({
           id: payment.id,
@@ -985,62 +1952,142 @@ export async function applyChargeExemption(input: unknown): Promise<ActionResult
   }
 }
 
-export async function getFinanceAdjustments(): Promise<ActionResult<{
-  discounts: Array<{ id: string; studentName: string; feeName: string; amount: string; reason: string; createdAt: string }>
-  exemptions: Array<{ id: string; studentName: string; feeName: string; amount: string; reason: string; createdAt: string }>
+export type FinanceAdjustmentRow = {
+  id: string
+  studentId: string
+  studentName: string
+  admissionNo: string
+  className: string | null
+  termName: string | null
+  feeName: string
+  categoryName: string | null
+  /** FIXED or PERCENTAGE, with the figure that was entered. */
+  type: string
+  value: string
+  amount: string
+  reason: string
+  approvedBy: string | null
+  createdAt: string
+}
+
+/**
+ * Every discount and exemption the school has granted.
+ *
+ * Money given away is money the school will never chase, so this list is a record somebody
+ * answers for: who it was for, which fee, how much, why, and who approved it. The student's
+ * class and the term are carried because "Tuition" alone does not say which year's tuition
+ * was reduced.
+ */
+export async function getFinanceAdjustments(filters?: {
+  termId?: string | null
+  categoryId?: string | null
+  /** FIXED, PERCENTAGE or, for an exemption, FULL. */
+  type?: string | null
+}): Promise<ActionResult<{
+  discounts: FinanceAdjustmentRow[]
+  exemptions: FinanceAdjustmentRow[]
 }>> {
   try {
     const actor = await requireFinanceViewer()
     const schoolId = await actorSchool(actor)
 
+    const where = {
+      schoolId,
+      isActive: true,
+      ...(filters?.termId ? { termId: filters.termId } : {}),
+      ...(filters?.categoryId ? { categoryId: filters.categoryId } : {}),
+    }
+
+    const select = {
+      id: true,
+      type: true,
+      value: true,
+      amountApplied: true,
+      reason: true,
+      createdAt: true,
+      student: {
+        select: {
+          id: true,
+          admissionNo: true,
+          user: { select: { firstName: true, lastName: true } },
+          classTerms: {
+            where: { status: "ACTIVE" as const },
+            take: 1,
+            orderBy: { createdAt: "desc" as const },
+            select: { classTerm: { select: { class: { select: { name: true } } } } },
+          },
+        },
+      },
+      term: { select: { name: true } },
+      feeSchedule: { select: { name: true } },
+      category: { select: { name: true } },
+      // `approvedBy` is a plain column rather than a relation, so the names are resolved in
+      // one lookup below instead of a join.
+      approvedBy: true,
+    }
+
+    // The two tables carry different enums in `type`, so it is matched as a string against
+    // whichever table understands it — an exemption's FULL means nothing to a discount.
     const [discounts, exemptions] = await Promise.all([
       prisma.discount.findMany({
-        where: { schoolId, isActive: true },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        select: {
-          id: true,
-          amountApplied: true,
-          reason: true,
-          createdAt: true,
-          student: { select: { user: { select: { firstName: true, lastName: true } } } },
-          feeSchedule: { select: { name: true } },
+        where: {
+          ...where,
+          ...(filters?.type === "FIXED" || filters?.type === "PERCENTAGE" ? { type: filters.type } : {}),
         },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select,
       }),
       prisma.feeExemption.findMany({
-        where: { schoolId, isActive: true },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        select: {
-          id: true,
-          amountApplied: true,
-          reason: true,
-          createdAt: true,
-          student: { select: { user: { select: { firstName: true, lastName: true } } } },
-          feeSchedule: { select: { name: true } },
+        where: {
+          ...where,
+          ...(filters?.type === "FULL" || filters?.type === "PARTIAL" ? { type: filters.type } : {}),
         },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: { ...select, value: true },
       }),
     ])
+
+    const approverIds = [...discounts, ...exemptions]
+      .map((row) => row.approvedBy)
+      .filter((id): id is string => Boolean(id))
+    const approvers = approverIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: [...new Set(approverIds)] } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+    const approverById = new Map(approvers.map((user) => [user.id, `${user.firstName} ${user.lastName}`]))
+
+    // The two tables carry different enums in `type` — a discount is FIXED or PERCENTAGE,
+    // an exemption may also be FULL — so the shared shape takes it as the string it is.
+    type Raw = Omit<(typeof discounts)[number], "type" | "value"> & {
+      type: string
+      value: Prisma.Decimal | null
+    }
+    const toRow = (row: Raw): FinanceAdjustmentRow => ({
+      id: row.id,
+      studentId: row.student.id,
+      studentName: `${row.student.user.firstName} ${row.student.user.lastName}`,
+      admissionNo: row.student.admissionNo,
+      className: row.student.classTerms[0]?.classTerm.class.name ?? null,
+      termName: row.term?.name ?? null,
+      feeName: row.feeSchedule?.name ?? "Fee",
+      categoryName: row.category?.name ?? null,
+      type: row.type,
+      value: moneyString(row.value ?? 0),
+      amount: moneyString(row.amountApplied),
+      reason: row.reason,
+      approvedBy: row.approvedBy ? (approverById.get(row.approvedBy) ?? null) : null,
+      createdAt: row.createdAt.toISOString(),
+    })
 
     return {
       success: true,
       data: {
-        discounts: discounts.map((discount) => ({
-          id: discount.id,
-          studentName: `${discount.student.user.firstName} ${discount.student.user.lastName}`,
-          feeName: discount.feeSchedule?.name ?? "Fee",
-          amount: moneyString(discount.amountApplied),
-          reason: discount.reason,
-          createdAt: discount.createdAt.toISOString(),
-        })),
-        exemptions: exemptions.map((exemption) => ({
-          id: exemption.id,
-          studentName: `${exemption.student.user.firstName} ${exemption.student.user.lastName}`,
-          feeName: exemption.feeSchedule?.name ?? "Fee",
-          amount: moneyString(exemption.amountApplied),
-          reason: exemption.reason,
-          createdAt: exemption.createdAt.toISOString(),
-        })),
+        discounts: discounts.map((row) => toRow(row)),
+        exemptions: exemptions.map((row) => toRow(row)),
       },
     }
   } catch (error) {
@@ -1055,89 +2102,86 @@ export async function recordStudentPayment(input: unknown): Promise<ActionResult
     const data = paymentSchema.parse(input)
 
     const allocationTotal = data.allocations.reduce((total, allocation) => total.plus(allocation.amount), money(0))
-    const student = await prisma.student.findFirst({ where: { id: data.studentId, schoolId }, select: { id: true } })
-    if (!student) throw new Error("Student not found")
-
-    const term = await prisma.term.findFirst({
-      where: { id: data.termId, session: { schoolId } },
-      select: { id: true, sessionId: true },
+    const payment = await postStudentPayment({
+      schoolId,
+      studentId: data.studentId,
+      termId: data.termId,
+      paymentDate: data.paymentDate,
+      paymentMethod: data.paymentMethod,
+      referenceNo: data.referenceNo,
+      receivedBy: actor.userId,
+      notes: data.notes,
+      allocations: data.allocations,
     })
-    if (!term) throw new Error("Term not found")
 
-    const chargeIds = data.allocations.map((allocation) => allocation.chargeId)
-    const charges = await prisma.studentCharge.findMany({
-      where: { id: { in: chargeIds }, studentId: data.studentId, schoolId },
-      select: { id: true, balance: true },
-    })
-    if (charges.length !== chargeIds.length) throw new Error("One or more selected charges were not found")
-
-    const chargeBalances = new Map(charges.map((charge) => [charge.id, charge.balance]))
-    for (const allocation of data.allocations) {
-      const balance = chargeBalances.get(allocation.chargeId)
-      if (!balance || money(allocation.amount).gt(balance)) {
-        throw new Error("Payment allocation cannot exceed the selected charge balance")
-      }
-    }
-
-    const year = data.paymentDate.getFullYear()
-    const payment = await prisma.$transaction(async (tx) => {
-      const sequence = await tx.receiptSequence.upsert({
-        where: { schoolId_year: { schoolId, year } },
-        create: { schoolId, year, lastSequence: 1 },
-        update: { lastSequence: { increment: 1 } },
-        select: { lastSequence: true },
-      })
-      const receiptNo = `RCPT-${year}-${String(sequence.lastSequence).padStart(5, "0")}`
-
-      const created = await tx.payment.create({
-        data: {
-          schoolId,
-          studentId: data.studentId,
-          termId: data.termId,
-          sessionId: term.sessionId,
-          amount: allocationTotal,
-          paymentDate: data.paymentDate,
-          receiptNo,
-          paymentMethod: data.paymentMethod,
-          referenceNo: data.referenceNo || receiptNo,
-          receivedBy: actor.userId,
-          notes: data.notes || null,
-          status: "COMPLETED",
-          allocations: {
-            create: data.allocations.map((allocation) => ({
-              chargeId: allocation.chargeId,
-              amount: money(allocation.amount),
-            })),
-          },
-        },
-        select: { id: true, receiptNo: true },
-      })
-
-      for (const allocation of data.allocations) {
-        const charge = await tx.studentCharge.findUniqueOrThrow({
-          where: { id: allocation.chargeId },
-          select: { finalAmountDue: true, amountPaid: true },
-        })
-        const newPaid = charge.amountPaid.plus(allocation.amount)
-        const newBalance = charge.finalAmountDue.minus(newPaid)
-
-        await tx.studentCharge.update({
-          where: { id: allocation.chargeId },
-          data: {
-            amountPaid: newPaid,
-            balance: newBalance,
-            status: newBalance.lte(0) ? "PAID" : "PARTIAL",
-          },
-        })
-      }
-
-      return created
+    await recordAudit({
+      actor,
+      action: "finance.payment.record",
+      entityType: "Payment",
+      entityId: payment.id,
+      summary: `Recorded payment ${payment.receiptNo} for ${allocationTotal.toFixed(2)}`,
+      after: {
+        studentId: data.studentId,
+        termId: data.termId,
+        amount: allocationTotal.toFixed(2),
+        receiptNo: payment.receiptNo,
+      },
     })
 
     revalidateFinance("/student-payments", `/students/${data.studentId}/statement`)
     return { success: true, data: payment }
   } catch (error) {
     return toError(error, "Failed to record payment")
+  }
+}
+
+/**
+ * Refunds a completed receipt and restores every allocation to its original charge.
+ * The receipt and allocations remain immutable evidence; an append-only reversal explains
+ * why their financial effect was undone.
+ */
+export async function refundStudentPayment(input: unknown): Promise<ActionResult<{ id: string; status: PaymentStatus }>> {
+  try {
+    const actor = await requirePaymentRecorder()
+    const schoolId = await actorSchool(actor)
+    const data = refundPaymentSchema.parse(input)
+
+    const payment = await prisma.payment.findFirst({
+      where: { id: data.paymentId, schoolId },
+      select: {
+        id: true,
+        receiptNo: true,
+        amount: true,
+        status: true,
+        notes: true,
+        studentId: true,
+        allocations: { select: { chargeId: true, amount: true } },
+      },
+    })
+    if (!payment) throw new Error("Payment not found")
+    if (payment.status !== "COMPLETED") {
+      throw new Error(`Only a completed payment can be refunded; this receipt is ${payment.status.toLowerCase()}`)
+    }
+
+    const { reverseStudentPaymentInTransaction } = await import("@/lib/finance/payment-ledger.server")
+    await prisma.$transaction((tx) => reverseStudentPaymentInTransaction(tx, {
+      schoolId, paymentId: payment.id, reason: data.reason, referenceNo: data.referenceNo, createdBy: actor.userId,
+    }))
+
+    await recordAudit({
+      actor,
+      action: "finance.payment.refund",
+      entityType: "Payment",
+      entityId: payment.id,
+      summary: `Refunded ${payment.receiptNo}: ${moneyString(payment.amount)} — ${data.reason}`,
+      before: { status: "COMPLETED" },
+      after: { status: "REFUNDED", reason: data.reason, referenceNo: data.referenceNo || null },
+    })
+
+    revalidateFinance("/receipts", `/receipts/${payment.id}`, `/students/${payment.studentId}/statement`, "/debtors")
+    return { success: true, data: { id: payment.id, status: "REFUNDED" } }
+  } catch (error) {
+    return toError(error, "Failed to refund payment")
   }
 }
 
@@ -1190,15 +2234,26 @@ export async function getDebtorsReport(filters?: DebtorFilters): Promise<ActionR
       }
     }
 
+    const scope = {
+      schoolId,
+      ...(filters?.sessionId ? { sessionId: filters.sessionId } : {}),
+      ...(filters?.termId ? { termId: filters.termId } : {}),
+      ...(filters?.classTermId ? { classTermId: filters.classTermId } : {}),
+    }
+
+    // Who is a debtor is decided by what is still owing. What a debtor's row *says* is then
+    // read from every charge in scope, settled ones included — otherwise the Paid column
+    // disagrees with the statement the Statement button opens, because a fee paid in full
+    // would have dropped out of the set entirely.
+    const owing = await prisma.studentCharge.findMany({
+      where: { ...scope, balance: { gt: 0 }, status: { in: ["UNPAID", "PARTIAL"] } },
+      select: { studentId: true },
+      distinct: ["studentId"],
+    })
+    if (owing.length === 0) return { success: true, data: [] }
+
     const charges = await prisma.studentCharge.findMany({
-      where: {
-        schoolId,
-        balance: { gt: 0 },
-        status: { in: ["UNPAID", "PARTIAL"] },
-        ...(filters?.sessionId ? { sessionId: filters.sessionId } : {}),
-        ...(filters?.termId ? { termId: filters.termId } : {}),
-        ...(filters?.classTermId ? { classTermId: filters.classTermId } : {}),
-      },
+      where: { ...scope, studentId: { in: owing.map((charge) => charge.studentId) } },
       orderBy: { createdAt: "desc" },
       select: {
         finalAmountDue: true,
@@ -1312,7 +2367,11 @@ export async function getDebtorsReport(filters?: DebtorFilters): Promise<ActionR
   }
 }
 
-export async function getClassPaymentSummary(filters?: { termId?: string | null }): Promise<ActionResult<Array<{
+export async function getClassPaymentSummary(filters?: {
+  sessionId?: string | null
+  termId?: string | null
+  classTermId?: string | null
+}): Promise<ActionResult<Array<{
   classTermId: string
   className: string
   termName: string
@@ -1333,7 +2392,9 @@ export async function getClassPaymentSummary(filters?: { termId?: string | null 
       where: {
         schoolId,
         classTermId: { not: null },
+        ...(filters?.sessionId ? { sessionId: filters.sessionId } : {}),
         ...(filters?.termId ? { termId: filters.termId } : {}),
+        ...(filters?.classTermId ? { classTermId: filters.classTermId } : {}),
       },
       select: {
         studentId: true,
@@ -1404,7 +2465,10 @@ export async function getClassPaymentSummary(filters?: { termId?: string | null 
   }
 }
 
-export async function getAccumulatedFundReport(filters?: { sessionId?: string | null }): Promise<ActionResult<{
+export async function getAccumulatedFundReport(filters?: {
+  sessionId?: string | null
+  termId?: string | null
+}): Promise<ActionResult<{
   terms: Array<{
     termId: string
     termName: string
@@ -1433,6 +2497,7 @@ export async function getAccumulatedFundReport(filters?: { sessionId?: string | 
       where: {
         schoolId,
         ...(filters?.sessionId ? { sessionId: filters.sessionId } : {}),
+        ...(filters?.termId ? { termId: filters.termId } : {}),
       },
       select: {
         originalAmount: true,
@@ -1526,9 +2591,11 @@ export async function getAccumulatedFundReport(filters?: { sessionId?: string | 
   }
 }
 
-export async function getReceipt(paymentId: string): Promise<ActionResult<{
+export type ReceiptDocument = {
   id: string
   receiptNo: string
+  /** PENDING, COMPLETED, FAILED or REFUNDED — the receipt has to say which. */
+  status: PaymentStatus
   amount: string
   paymentDate: string
   paymentMethod: string
@@ -1539,16 +2606,54 @@ export async function getReceipt(paymentId: string): Promise<ActionResult<{
   term: { name: string; sessionName: string }
   allocations: Array<{ description: string; amount: string }>
   balanceRemaining: string
-}>> {
+  /**
+   * Present only when the money arrived through the online gateway.
+   *
+   * A gateway payment has no cashier, so the receipt cannot name one — and when the school's
+   * policy puts the processing fee on the payer, the card statement shows more than the
+   * receipt credits. Both facts belong on the paper rather than in a support conversation.
+   */
+  online: {
+    payerEmail: string | null
+    channel: string | null
+    /** Paystack's own identifier, for reconciling against their dashboard. */
+    providerReference: string | null
+    /** What the payer was actually debited, when it differs from the amount credited. */
+    amountCharged: string | null
+    /** The processing fee the payer covered, when the policy put it on them. */
+    feePaidByPayer: string | null
+  } | null
+}
+
+export async function getReceipt(paymentId: string): Promise<ActionResult<ReceiptDocument>> {
   try {
     const actor = await requireFinanceViewer()
     const schoolId = await actorSchool(actor)
+    return loadReceipt(paymentId, schoolId)
+  } catch (error) {
+    return toError(error, "Failed to load receipt")
+  }
+}
 
+/**
+ * Reads a receipt for a school, with no opinion about who is asking.
+ *
+ * `getReceipt` is the finance staff entry point and keeps its permission check. The student
+ * and parent portals establish their own right to a payment — that it belongs to them, or to
+ * a child linked to them — and then come here, so a family reads exactly the document the
+ * accountant reads rather than a second rendering of it that could drift.
+ */
+export async function loadReceipt(
+  paymentId: string,
+  schoolId: string,
+): Promise<ActionResult<ReceiptDocument>> {
+  try {
     const payment = await prisma.payment.findFirst({
       where: { id: paymentId, schoolId },
       select: {
         id: true,
         receiptNo: true,
+        status: true,
         amount: true,
         paymentDate: true,
         paymentMethod: true,
@@ -1575,16 +2680,38 @@ export async function getReceipt(paymentId: string): Promise<ActionResult<{
             charge: { select: { feeSchedule: { select: { name: true } } } },
           },
         },
+        gatewayTransaction: {
+          select: {
+            payerEmail: true,
+            channel: true,
+            providerTransactionId: true,
+            amountExpected: true,
+            amountCharged: true,
+            configurationSnapshot: true,
+          },
+        },
       },
     })
 
     if (!payment) throw new Error("Receipt not found")
+
+    const gateway = payment.gatewayTransaction
+    const snapshot = gateway?.configurationSnapshot as { feePolicy?: unknown } | null
+    // Only a gross-up puts the fee on the payer. Under any other policy the payer was
+    // debited exactly what the school credited, and a breakdown would invent a distinction.
+    const payerCoveredFee = snapshot?.feePolicy === "PARENT_PAYS_GROSS_UP"
+    const feePaidByPayer = payerCoveredFee && gateway?.amountCharged
+      ? gateway.amountCharged.minus(gateway.amountExpected)
+      : null
 
     return {
       success: true,
       data: {
         id: payment.id,
         receiptNo: payment.receiptNo,
+        // A receipt that does not say whether the money actually arrived is the one thing a
+        // receipt must not do. A PENDING transfer allocates nothing and moves no balance.
+        status: payment.status,
         amount: moneyString(payment.amount),
         paymentDate: payment.paymentDate.toISOString(),
         paymentMethod: payment.paymentMethod,
@@ -1604,6 +2731,17 @@ export async function getReceipt(paymentId: string): Promise<ActionResult<{
           amount: moneyString(allocation.amount),
         })),
         balanceRemaining: moneyString(payment.student.charges.reduce((total, charge) => total.plus(charge.balance), money(0))),
+        online: gateway
+          ? {
+              payerEmail: gateway.payerEmail,
+              channel: gateway.channel,
+              providerReference: gateway.providerTransactionId,
+              amountCharged: gateway.amountCharged ? moneyString(gateway.amountCharged) : null,
+              feePaidByPayer: feePaidByPayer && feePaidByPayer.greaterThan(0)
+                ? moneyString(feePaidByPayer)
+                : null,
+            }
+          : null,
       },
     }
   } catch (error) {
@@ -1622,53 +2760,283 @@ export async function getReceipt(paymentId: string): Promise<ActionResult<{
  * An accountant hangs off the same Admin profile row as an admin (see lib/authz.ts) —
  * the row carries the school; the User.role decides what they can reach.
  */
-export async function getFinanceOfficers(): Promise<ActionResult<Array<{
+/**
+ * Which accountants belong to this school.
+ *
+ * Two things attach one: the `Admin` row that `createFinanceOfficer` writes, and a
+ * school-scoped permission profile, which is how the seed and the permissions screen attach
+ * one. Matching only the first is why the school's own bursar — the name on every receipt —
+ * did not appear on this screen at all, and so could not be managed or revoked.
+ */
+function financeOfficerScope(schoolId: string) {
+  return {
+    role: "ACCOUNTANT" as const,
+    OR: [
+      { admin: { schoolId } },
+      { permissionProfiles: { some: { schoolId, isActive: true } } },
+    ],
+  }
+}
+
+export type FinanceOfficerRow = {
   userId: string
   name: string
   email: string | null
   phone: string | null
   isActive: boolean
   createdAt: string
-}>>> {
+  /** Receipts issued, and what they add up to — the work the account has actually done. */
+  paymentsRecorded: number
+  totalCollected: string
+  lastPaymentDate: string | null
+  /** Discounts and exemptions this officer approved. */
+  adjustmentsApproved: number
+}
+
+/**
+ * The accountants assigned to this school, with what each has handled.
+ *
+ * The counts are the point: an officer's name is on every receipt they issue, so the list
+ * has to say who is actually taking money before anybody's access is changed — and the
+ * delete rule is decided on exactly these numbers.
+ */
+export async function getFinanceOfficers(): Promise<ActionResult<FinanceOfficerRow[]>> {
   try {
     const actor = await requireFinanceManager()
     const schoolId = await actorSchool(actor)
 
-    const officers = await prisma.admin.findMany({
-      where: { schoolId, user: { role: "ACCOUNTANT" } },
+    const users = await prisma.user.findMany({
+      where: financeOfficerScope(schoolId),
       select: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            isActive: true,
-            createdAt: true,
-            credentials: {
-              where: { type: "EMAIL" },
-              select: { value: true },
-              take: 1,
-            },
-          },
-        },
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        isActive: true,
+        createdAt: true,
+        credentials: { where: { type: "EMAIL" }, select: { value: true }, take: 1 },
       },
-      orderBy: { user: { createdAt: "desc" } },
+      orderBy: { createdAt: "desc" },
     })
+    const officers = users.map((user) => ({ user }))
+
+    const userIds = officers.map(({ user }) => user.id)
+    const [payments, discounts, exemptions] = userIds.length
+      ? await Promise.all([
+          prisma.payment.groupBy({
+            by: ["receivedBy"],
+            where: { schoolId, receivedBy: { in: userIds } },
+            _count: { _all: true },
+            _sum: { amount: true },
+            _max: { paymentDate: true },
+          }),
+          prisma.discount.groupBy({
+            by: ["approvedBy"],
+            where: { schoolId, approvedBy: { in: userIds } },
+            _count: { _all: true },
+          }),
+          prisma.feeExemption.groupBy({
+            by: ["approvedBy"],
+            where: { schoolId, approvedBy: { in: userIds } },
+            _count: { _all: true },
+          }),
+        ])
+      : [[], [], []]
+
+    const paymentsBy = new Map(payments.map((row) => [row.receivedBy, row]))
+    const approvalsBy = new Map<string, number>()
+    for (const row of [...discounts, ...exemptions]) {
+      if (!row.approvedBy) continue
+      approvalsBy.set(row.approvedBy, (approvalsBy.get(row.approvedBy) ?? 0) + row._count._all)
+    }
 
     return {
       success: true,
-      data: officers.map(({ user }) => ({
-        userId: user.id,
-        name: `${user.firstName} ${user.lastName}`,
-        email: user.credentials[0]?.value ?? null,
-        phone: user.phone,
-        isActive: user.isActive,
-        createdAt: user.createdAt.toISOString(),
-      })),
+      data: officers.map(({ user }) => {
+        const activity = paymentsBy.get(user.id)
+
+        return {
+          userId: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          email: user.credentials[0]?.value ?? null,
+          phone: user.phone,
+          isActive: user.isActive,
+          createdAt: user.createdAt.toISOString(),
+          paymentsRecorded: activity?._count._all ?? 0,
+          totalCollected: moneyString(activity?._sum.amount ?? 0),
+          lastPaymentDate: activity?._max.paymentDate?.toISOString() ?? null,
+          adjustmentsApproved: approvalsBy.get(user.id) ?? 0,
+        }
+      }),
     }
   } catch (error) {
     return toError(error, "Failed to load finance staff")
+  }
+}
+
+/** One officer, with every email already taken so a rename can be checked as it is typed. */
+export async function getFinanceOfficer(userId: string): Promise<
+  ActionResult<FinanceOfficerRow & { firstName: string; lastName: string; takenEmails: Array<{ userId: string; email: string }> }>
+> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+
+    const officers = await getFinanceOfficers()
+    if (!officers.success) throw new Error(officers.error)
+
+    const row = officers.data.find((officer) => officer.userId === userId)
+    if (!row) throw new Error("Finance staff not found")
+
+    const [user, credentials] = await Promise.all([
+      prisma.user.findFirst({
+        where: { id: userId, ...financeOfficerScope(schoolId) },
+        select: { firstName: true, lastName: true },
+      }),
+      prisma.credential.findMany({ where: { type: "EMAIL" }, select: { userId: true, value: true } }),
+    ])
+    if (!user) throw new Error("Finance staff not found")
+
+    return {
+      success: true,
+      data: {
+        ...row,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        takenEmails: credentials.map((credential) => ({ userId: credential.userId, email: credential.value })),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the finance officer")
+  }
+}
+
+/**
+ * Renames an officer, or moves their sign-in address.
+ *
+ * The email is the account: changing it changes what they sign in with, so it is checked
+ * against every credential on the platform rather than only this school's.
+ */
+export async function updateFinanceOfficer(input: unknown): Promise<ActionResult<{ userId: string }>> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const data = z
+      .object({
+        userId: z.string().min(1),
+        firstName: z.string().trim().min(1, "First name is required"),
+        lastName: z.string().trim().min(1, "Last name is required"),
+        email: z.string().trim().toLowerCase(),
+        phone: z.string().trim().optional().nullable(),
+      })
+      .parse(input)
+
+    const officer = await prisma.user.findFirst({
+      where: { id: data.userId, ...financeOfficerScope(schoolId) },
+      select: { id: true, credentials: { where: { type: "EMAIL" }, select: { id: true, value: true } } },
+    })
+    if (!officer) throw new Error("Finance staff not found")
+
+    const taken = await prisma.credential.findMany({
+      where: { type: "EMAIL" },
+      select: { userId: true, value: true },
+    })
+    const verdict = canUseOfficerEmail(
+      data.email,
+      taken.map((credential) => ({ userId: credential.userId, email: credential.value })),
+      data.userId,
+    )
+    if (!verdict.allowed) throw new Error(verdict.reason)
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: data.userId },
+        data: { firstName: data.firstName, lastName: data.lastName, phone: data.phone || null },
+      })
+
+      const credential = officer.credentials[0]
+      if (credential && credential.value !== data.email) {
+        await tx.credential.update({ where: { id: credential.id }, data: { value: data.email } })
+      }
+    })
+
+    revalidateFinance("/staff")
+    return { success: true, data: { userId: data.userId } }
+  } catch (error) {
+    return toError(error, "Failed to update finance staff")
+  }
+}
+
+/**
+ * Issues a fresh sign-in password, shown once.
+ *
+ * Passwords are stored hashed, so a forgotten one cannot be looked up — it can only be
+ * replaced. The new one matches what a newly created account gets, and the officer is
+ * expected to change it at first sign-in.
+ */
+export async function resetFinanceOfficerPassword(input: unknown): Promise<
+  ActionResult<{ userId: string; defaultPassword: string }>
+> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const { userId } = z.object({ userId: z.string().min(1) }).parse(input)
+
+    const officer = await prisma.user.findFirst({
+      where: { id: userId, ...financeOfficerScope(schoolId) },
+      select: { credentials: { where: { type: "EMAIL" }, select: { id: true } } },
+    })
+    if (!officer) throw new Error("Finance staff not found")
+
+    const credential = officer.credentials[0]
+    if (!credential) throw new Error("That account has no email credential to reset")
+
+    const defaultPassword = generateTemporaryPassword()
+    await prisma.credential.update({
+      where: { id: credential.id },
+      data: { passwordHash: await bcrypt.hash(defaultPassword, 10) },
+    })
+    await revokeAllSessionsForUser(userId)
+
+    revalidateFinance("/staff")
+    return { success: true, data: { userId, defaultPassword } }
+  } catch (error) {
+    return toError(error, "Failed to reset the password")
+  }
+}
+
+/** Removes an account that has never been used. Anything else is refused with the reason. */
+export async function deleteFinanceOfficer(input: unknown): Promise<ActionResult<{ userId: string }>> {
+  try {
+    const actor = await requireFinanceManager()
+    const schoolId = await actorSchool(actor)
+    const { userId } = z.object({ userId: z.string().min(1) }).parse(input)
+
+    const officer = await prisma.user.findFirst({
+      where: { id: userId, ...financeOfficerScope(schoolId) },
+      select: { id: true },
+    })
+    if (!officer) throw new Error("Finance staff not found")
+
+    const [paymentsRecorded, discounts, exemptions] = await Promise.all([
+      prisma.payment.count({ where: { schoolId, receivedBy: userId } }),
+      prisma.discount.count({ where: { schoolId, approvedBy: userId } }),
+      prisma.feeExemption.count({ where: { schoolId, approvedBy: userId } }),
+    ])
+
+    const verdict = canDeleteFinanceOfficer({
+      paymentsRecorded,
+      adjustmentsApproved: discounts + exemptions,
+    })
+    if (!verdict.allowed) throw new Error(verdict.reason)
+
+    // The user is the account: the admin row and the credentials cascade from it.
+    await prisma.user.delete({ where: { id: userId } })
+
+    revalidateFinance("/staff")
+    return { success: true, data: { userId } }
+  } catch (error) {
+    return toError(error, "Failed to delete finance staff")
   }
 }
 
@@ -1691,9 +3059,7 @@ export async function createFinanceOfficer(input: unknown): Promise<ActionResult
       throw new Error("That email is already in use")
     }
 
-    // Matches createAdminUser: first sign-in uses the current year, and the account is
-    // expected to change it. Nothing here should ever mint a password the admin picks.
-    const defaultPassword = new Date().getFullYear().toString()
+    const defaultPassword = generateTemporaryPassword()
     const passwordHash = await bcrypt.hash(defaultPassword, 10)
 
     const user = await prisma.$transaction(async (tx) => {
@@ -1775,85 +3141,168 @@ export async function setFinanceOfficerActive(input: unknown): Promise<ActionRes
  * Added because a receipt was previously only reachable if you already knew which payment
  * it belonged to — there was no way to answer "find me receipt RCPT-2026-00007".
  */
-export async function getReceiptRegister(filters?: { termId?: string | null; search?: string | null }): Promise<
-  ActionResult<Array<{
-    id: string
-    receiptNo: string
-    studentId: string
-    studentName: string
-    admissionNo: string
-    className: string | null
-    amount: string
-    paymentDate: string
-    method: string
-    status: string
-    receivedByName: string | null
-  }>>
+export type ReceiptRegisterRow = {
+  id: string
+  receiptNo: string
+  studentId: string
+  studentName: string
+  admissionNo: string
+  className: string | null
+  amount: string
+  paymentDate: string
+  method: string
+  status: string
+  receivedByName: string | null
+}
+
+/**
+ * The receipt register, narrowed by whatever the filter bar has set.
+ *
+ * The totals are aggregated rather than added up from `rows`: the row list is capped, so on
+ * a school with a full year behind it a summed-in-the-page total would quietly report the
+ * most recent 500 receipts as though they were all of them. `totalCount` and `totalAmount`
+ * describe everything the filter matches, capped or not, and `completedAmount` separates
+ * money actually banked from payments still awaiting confirmation.
+ */
+export async function getReceiptRegister(filters?: {
+  termId?: string | null
+  sessionId?: string | null
+  method?: string | null
+  status?: string | null
+  cashierId?: string | null
+  /** `yyyy-mm-dd`, inclusive. */
+  from?: string | null
+  /** `yyyy-mm-dd`, inclusive. */
+  to?: string | null
+  search?: string | null
+}): Promise<
+  ActionResult<{
+    rows: ReceiptRegisterRow[]
+    totalCount: number
+    totalAmount: string
+    completedAmount: string
+    capped: boolean
+    cashiers: Array<{ id: string; name: string }>
+  }>
 > {
   try {
     const actor = await requireFinanceViewer()
     const schoolId = await actorSchool(actor)
     const search = filters?.search?.trim()
 
-    const payments = await prisma.payment.findMany({
-      where: {
-        schoolId,
-        ...(filters?.termId ? { termId: filters.termId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { receiptNo: { contains: search } },
-                { referenceNo: { contains: search } },
-                { student: { admissionNo: { contains: search } } },
-                { student: { user: { firstName: { contains: search } } } },
-                { student: { user: { lastName: { contains: search } } } },
-              ],
-            }
-          : {}),
-      },
-      orderBy: { paymentDate: "desc" },
-      take: 500,
-      select: {
-        id: true,
-        receiptNo: true,
-        amount: true,
-        paymentDate: true,
-        paymentMethod: true,
-        status: true,
-        student: {
-          select: {
-            id: true,
-            admissionNo: true,
-            user: { select: { firstName: true, lastName: true } },
-            classTerms: {
-              where: { status: "ACTIVE" },
-              take: 1,
-              orderBy: { createdAt: "desc" },
-              select: { classTerm: { select: { class: { select: { name: true } } } } },
+    // A day filter covers that whole day. `from` is its first instant and `to` its last, in
+    // the school's own time — a receipt issued at four in the afternoon belongs to the day
+    // the cashier would name, not to the UTC day it happens to fall in.
+    const dayStart = (value: string) => {
+      const [year, month, day] = value.split("-").map(Number)
+      return new Date(year, month - 1, day, 0, 0, 0, 0)
+    }
+    const dayEnd = (value: string) => {
+      const [year, month, day] = value.split("-").map(Number)
+      return new Date(year, month - 1, day, 23, 59, 59, 999)
+    }
+
+    const where: Prisma.PaymentWhereInput = {
+      schoolId,
+      ...(filters?.termId ? { termId: filters.termId } : {}),
+      // Through the term rather than `payment.sessionId`, which is nullable and was not
+      // always written; the term a payment belongs to always knows its session.
+      ...(filters?.sessionId && !filters?.termId ? { term: { sessionId: filters.sessionId } } : {}),
+      // `in` over the spellings rather than a bare equals: see `paymentMethodVariants`.
+      ...(filters?.method ? { paymentMethod: { in: paymentMethodVariants(filters.method) } } : {}),
+      ...(filters?.status ? { status: filters.status as PaymentStatus } : {}),
+      ...(filters?.cashierId ? { receivedBy: filters.cashierId } : {}),
+      ...(filters?.from || filters?.to
+        ? {
+            paymentDate: {
+              ...(filters.from ? { gte: dayStart(filters.from) } : {}),
+              ...(filters.to ? { lte: dayEnd(filters.to) } : {}),
+            },
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { receiptNo: { contains: search } },
+              { referenceNo: { contains: search } },
+              { student: { admissionNo: { contains: search } } },
+              { student: { user: { firstName: { contains: search } } } },
+              { student: { user: { lastName: { contains: search } } } },
+            ],
+          }
+        : {}),
+    }
+
+    const [payments, totals, completed, cashiers] = await Promise.all([
+      prisma.payment.findMany({
+        where,
+        orderBy: { paymentDate: "desc" },
+        take: 500,
+        select: {
+          id: true,
+          receiptNo: true,
+          amount: true,
+          paymentDate: true,
+          paymentMethod: true,
+          status: true,
+          student: {
+            select: {
+              id: true,
+              admissionNo: true,
+              user: { select: { firstName: true, lastName: true } },
+              classTerms: {
+                where: { status: "ACTIVE" },
+                take: 1,
+                orderBy: { createdAt: "desc" },
+                select: { classTerm: { select: { class: { select: { name: true } } } } },
+              },
             },
           },
+          receivedByUser: { select: { firstName: true, lastName: true } },
         },
-        receivedByUser: { select: { firstName: true, lastName: true } },
-      },
-    })
+      }),
+      prisma.payment.aggregate({ where, _count: { _all: true }, _sum: { amount: true } }),
+      // `AND` rather than a spread: spreading would *replace* a status the user picked, so
+      // filtering to "awaiting confirmation" reported every completed receipt in the school
+      // as the confirmed part of eight pending ones, and the difference came out negative.
+      prisma.payment.aggregate({ where: { AND: [where, { status: "COMPLETED" }] }, _sum: { amount: true } }),
+      // Every cashier the school has, not only those matching the filter — a select that
+      // empties itself once you use it cannot be used to change your mind.
+      prisma.payment.findMany({
+        where: { schoolId, receivedBy: { not: null } },
+        distinct: ["receivedBy"],
+        select: { receivedByUser: { select: { id: true, firstName: true, lastName: true } } },
+      }),
+    ])
 
     return {
       success: true,
-      data: payments.map((payment) => ({
-        id: payment.id,
-        receiptNo: payment.receiptNo,
-        studentId: payment.student.id,
-        studentName: `${payment.student.user.firstName} ${payment.student.user.lastName}`,
-        admissionNo: payment.student.admissionNo,
-        className: payment.student.classTerms[0]?.classTerm.class.name ?? null,
-        amount: moneyString(payment.amount),
-        paymentDate: payment.paymentDate.toISOString(),
-        method: payment.paymentMethod,
-        status: payment.status,
-        receivedByName: payment.receivedByUser
-          ? `${payment.receivedByUser.firstName} ${payment.receivedByUser.lastName}`
-          : null,
-      })),
+      data: {
+        rows: payments.map((payment) => ({
+          id: payment.id,
+          receiptNo: payment.receiptNo,
+          studentId: payment.student.id,
+          studentName: `${payment.student.user.firstName} ${payment.student.user.lastName}`,
+          admissionNo: payment.student.admissionNo,
+          className: payment.student.classTerms[0]?.classTerm.class.name ?? null,
+          amount: moneyString(payment.amount),
+          paymentDate: payment.paymentDate.toISOString(),
+          method: payment.paymentMethod,
+          status: payment.status,
+          receivedByName: payment.receivedByUser
+            ? `${payment.receivedByUser.firstName} ${payment.receivedByUser.lastName}`
+            : null,
+        })),
+        totalCount: totals._count._all,
+        totalAmount: moneyString(totals._sum.amount),
+        completedAmount: moneyString(completed._sum.amount),
+        capped: payments.length === 500 && totals._count._all > 500,
+        cashiers: cashiers
+          .map((entry) => entry.receivedByUser)
+          .filter((user): user is NonNullable<typeof user> => Boolean(user))
+          .map((user) => ({ id: user.id, name: `${user.firstName} ${user.lastName}` }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      },
     }
   } catch (error) {
     return toError(error, "Failed to load the receipt register")

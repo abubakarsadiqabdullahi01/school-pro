@@ -3,8 +3,9 @@ import { StaffDirectoryView } from "@/components/hr/views/staff-directory-view"
 export default async function AdminStaffPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; department?: string; staffType?: string; employmentStatus?: string }>
+  // Handed on whole rather than picked apart here: the screen's filters are checked in one
+  // place, so a page cannot quietly forget to pass one on.
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const filters = await searchParams
-  return <StaffDirectoryView basePath="/dashboard/admin/hr" filters={filters} canManage />
+  return <StaffDirectoryView basePath="/dashboard/admin/hr" searchParams={await searchParams} canManage />
 }

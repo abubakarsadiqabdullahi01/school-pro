@@ -8,6 +8,23 @@ import { getAccumulatedFundReport } from "@/app/actions/finance"
 import { recordAudit } from "@/lib/audit"
 import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
+import {
+  matchesCategoryUsage,
+  type ExpenseCategoryFilters,
+} from "@/lib/expenditure/expense-category-filters"
+import {
+  canDeleteExpenseCategory,
+  canUseExpenseCategoryName,
+} from "@/lib/expenditure/expense-category-rules"
+import {
+  matchesDerivedFilters,
+  type PaymentAccountFilters,
+} from "@/lib/expenditure/payment-account-filters"
+import {
+  canClosePaymentAccount,
+  canDeletePaymentAccount,
+  canUsePaymentAccountName,
+} from "@/lib/expenditure/payment-account-rules"
 import { getActiveSchool } from "@/lib/school-context.server"
 import { localFileKey, readStoredFile } from "@/lib/local-storage"
 
@@ -242,10 +259,58 @@ async function scopedExpense(expenseId: string, schoolId: string) {
       termId: true,
       account: { select: { name: true, openingBalance: true } },
       category: { select: { name: true } },
+      _count: { select: { salaryPayments: true } },
     },
   })
   if (!expense) throw new Error("Expense not found")
   return expense
+}
+
+/** Validates every foreign key accepted by the expense form against the actor's school. */
+async function validateExpenseReferences(
+  data: z.infer<typeof expenseSchema>,
+  schoolId: string,
+) {
+  const [term, category, account, payeeUser, payeeStudent] = await Promise.all([
+    prisma.term.findFirst({
+      where: { id: data.termId, session: { schoolId } },
+      select: { id: true, sessionId: true },
+    }),
+    prisma.expenseCategory.findFirst({
+      where: { id: data.categoryId, schoolId },
+      select: { id: true, isActive: true },
+    }),
+    prisma.paymentAccount.findFirst({
+      where: { id: data.accountId, schoolId },
+      select: { id: true, isActive: true },
+    }),
+    data.payeeUserId
+      ? prisma.user.findFirst({
+          where: {
+            id: data.payeeUserId,
+            OR: [
+              { admin: { schoolId } },
+              { teacher: { schoolId } },
+              { parent: { schoolId } },
+              { staffRecord: { schoolId } },
+            ],
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+    data.payeeStudentId
+      ? prisma.student.findFirst({ where: { id: data.payeeStudentId, schoolId }, select: { id: true } })
+      : Promise.resolve(null),
+  ])
+
+  if (!term) throw new Error("Term not found")
+  if (!category) throw new Error("Expense category not found")
+  if (!category.isActive) throw new Error("That expense category is inactive")
+  if (!account) throw new Error("Payment account not found")
+  if (!account.isActive) throw new Error("That payment account is inactive")
+  if (data.payeeUserId && !payeeUser) throw new Error("That payee is not a member of this school")
+  if (data.payeeStudentId && !payeeStudent) throw new Error("That student is not in this school")
+  return term
 }
 
 /** Rejects a state change the workflow does not allow, naming both states. */
@@ -437,6 +502,648 @@ export async function setPaymentAccountActive(input: unknown): Promise<ActionRes
   }
 }
 
+/** Raised, not yet paid. These are what a closed account would strand. */
+const UNPAID: ExpenseStatus[] = ["DRAFT", "PENDING_APPROVAL", "APPROVED"]
+
+export type ExpenseCategoryRow = {
+  id: string
+  name: string
+  description: string | null
+  budgetLimit: string | null
+  isActive: boolean
+  /** Every voucher ever raised under it, whatever became of it. */
+  expenseCount: number
+  /** Raised and not yet paid — the ones that would carry a retired label to payment. */
+  unpaidExpenseCount: number
+  /** Paid under it, all time. */
+  totalSpent: string
+  /** Paid under it in the current term — what the termly ceiling is reported against. */
+  termSpend: string
+  createdAt: string
+}
+
+/**
+ * The expense categories, narrowed to what was asked for.
+ *
+ * Name, description, status and whether a ceiling exists are a `where`. Whether the term has
+ * passed that ceiling is not — it compares a stored figure against one aggregated per term —
+ * so it is applied in memory by the same predicate the screen's chips are built from.
+ *
+ * The term figure is the point of the list: a budget is termly, and "₦830,000 spent" means
+ * nothing next to a ₦500,000 limit until you know which term it belongs to.
+ */
+export async function getExpenseCategories(
+  filters: ExpenseCategoryFilters = {},
+): Promise<ActionResult<{ rows: ExpenseCategoryRow[]; totalCount: number; termName: string | null }>> {
+  try {
+    const actor = await requireExpenditureViewer()
+    const schoolId = await actorSchool(actor)
+
+    const where: Prisma.ExpenseCategoryWhereInput = { schoolId }
+    if (filters.status) where.isActive = filters.status === "ACTIVE"
+    if (filters.budget === "HAS_LIMIT") where.budgetLimit = { not: null }
+    if (filters.budget === "NO_LIMIT") where.budgetLimit = null
+    if (filters.search) {
+      where.OR = [
+        { name: { contains: filters.search } },
+        { description: { contains: filters.search } },
+      ]
+    }
+
+    const currentTerm = await prisma.term.findFirst({
+      where: { session: { schoolId }, isCurrent: true },
+      select: { id: true, name: true },
+    })
+
+    const [categories, totalCount, paidGroups, unpaidGroups, allGroups, termGroups] = await Promise.all([
+      prisma.expenseCategory.findMany({
+        where,
+        orderBy: [{ isActive: "desc" }, { name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          budgetLimit: true,
+          isActive: true,
+          createdAt: true,
+        },
+      }),
+      prisma.expenseCategory.count({ where: { schoolId } }),
+      prisma.expense.groupBy({
+        by: ["categoryId"],
+        where: { schoolId, status: { in: SPENT } },
+        _sum: { amount: true },
+      }),
+      prisma.expense.groupBy({
+        by: ["categoryId"],
+        where: { schoolId, status: { in: UNPAID } },
+        _count: { _all: true },
+      }),
+      prisma.expense.groupBy({ by: ["categoryId"], where: { schoolId }, _count: { _all: true } }),
+      currentTerm
+        ? prisma.expense.groupBy({
+            by: ["categoryId"],
+            where: { schoolId, termId: currentTerm.id, status: { in: SPENT } },
+            _sum: { amount: true },
+          })
+        : [],
+    ])
+
+    const paid = new Map(paidGroups.map((row) => [row.categoryId, money(row._sum.amount ?? 0)]))
+    const unpaid = new Map(unpaidGroups.map((row) => [row.categoryId, row._count._all]))
+    const raised = new Map(allGroups.map((row) => [row.categoryId, row._count._all]))
+    const termPaid = new Map(termGroups.map((row) => [row.categoryId, money(row._sum.amount ?? 0)]))
+
+    const rows = categories
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        description: category.description,
+        budgetLimit: category.budgetLimit ? moneyString(category.budgetLimit) : null,
+        isActive: category.isActive,
+        expenseCount: raised.get(category.id) ?? 0,
+        unpaidExpenseCount: unpaid.get(category.id) ?? 0,
+        totalSpent: moneyString(paid.get(category.id) ?? 0),
+        termSpend: moneyString(termPaid.get(category.id) ?? 0),
+        createdAt: category.createdAt.toISOString(),
+      }))
+      .filter((row) => matchesCategoryUsage(row, filters))
+
+    return { success: true, data: { rows, totalCount, termName: currentTerm?.name ?? null } }
+  } catch (error) {
+    return toError(error, "Failed to load the expense categories")
+  }
+}
+
+export type ExpenseCategoryDetail = ExpenseCategoryRow & {
+  /** Every name in the school, so the form can check a rename before it is submitted. */
+  takenNames: Array<{ id: string; name: string }>
+  termName: string | null
+  recentExpenses: Array<{
+    id: string
+    voucherNo: string
+    payeeName: string
+    accountName: string
+    amount: string
+    status: ExpenseStatus
+    expenseDate: string
+  }>
+}
+
+/** One category, with everything the manage screen decides what to offer on. */
+export async function getExpenseCategory(categoryId: string): Promise<ActionResult<ExpenseCategoryDetail>> {
+  try {
+    const actor = await requireExpenditureViewer()
+    const schoolId = await actorSchool(actor)
+
+    const category = await prisma.expenseCategory.findFirst({
+      where: { id: categoryId, schoolId },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        budgetLimit: true,
+        isActive: true,
+        createdAt: true,
+      },
+    })
+    if (!category) throw new Error("Expense category not found in this school")
+
+    const currentTerm = await prisma.term.findFirst({
+      where: { session: { schoolId }, isCurrent: true },
+      select: { id: true, name: true },
+    })
+
+    const [paid, termPaid, unpaidCount, totalCount, names, recent] = await Promise.all([
+      prisma.expense.aggregate({
+        where: { categoryId, status: { in: SPENT } },
+        _sum: { amount: true },
+      }),
+      currentTerm
+        ? prisma.expense.aggregate({
+            where: { categoryId, termId: currentTerm.id, status: { in: SPENT } },
+            _sum: { amount: true },
+          })
+        : null,
+      prisma.expense.count({ where: { categoryId, status: { in: UNPAID } } }),
+      prisma.expense.count({ where: { categoryId } }),
+      prisma.expenseCategory.findMany({ where: { schoolId }, select: { id: true, name: true } }),
+      prisma.expense.findMany({
+        where: { categoryId },
+        orderBy: { expenseDate: "desc" },
+        take: 6,
+        select: {
+          id: true,
+          voucherNo: true,
+          payeeName: true,
+          amount: true,
+          status: true,
+          expenseDate: true,
+          account: { select: { name: true } },
+        },
+      }),
+    ])
+
+    return {
+      success: true,
+      data: {
+        id: category.id,
+        name: category.name,
+        description: category.description,
+        budgetLimit: category.budgetLimit ? moneyString(category.budgetLimit) : null,
+        isActive: category.isActive,
+        expenseCount: totalCount,
+        unpaidExpenseCount: unpaidCount,
+        totalSpent: moneyString(paid._sum.amount ?? 0),
+        termSpend: moneyString(termPaid?._sum.amount ?? 0),
+        createdAt: category.createdAt.toISOString(),
+        takenNames: names,
+        termName: currentTerm?.name ?? null,
+        recentExpenses: recent.map((expense) => ({
+          id: expense.id,
+          voucherNo: expense.voucherNo,
+          payeeName: expense.payeeName,
+          accountName: expense.account.name,
+          amount: moneyString(expense.amount),
+          status: expense.status,
+          expenseDate: expense.expenseDate.toISOString(),
+        })),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the expense category")
+  }
+}
+
+/** Renames a category, corrects its description, moves its ceiling, retires or revives it. */
+export async function updateExpenseCategory(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireExpenditureManager()
+    const schoolId = await actorSchool(actor)
+    const data = expenseCategorySchema.extend({ id: z.string().min(1), isActive: z.boolean() }).parse(input)
+
+    const category = await prisma.expenseCategory.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true, isActive: true },
+    })
+    if (!category) throw new Error("Expense category not found in this school")
+
+    // The same predicate the screen checks the name against as it is typed, so a stale page
+    // or a direct call cannot get past what the screen refuses.
+    const names = await prisma.expenseCategory.findMany({
+      where: { schoolId },
+      select: { id: true, name: true },
+    })
+    const naming = canUseExpenseCategoryName(data.name, names, data.id)
+    if (!naming.allowed) throw new Error(naming.reason)
+
+    await prisma.expenseCategory.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        description: data.description || null,
+        budgetLimit: data.budgetLimit ? money(data.budgetLimit) : null,
+        isActive: data.isActive,
+      },
+    })
+
+    await recordAudit({
+      actor,
+      action: "expenditure.category.update",
+      entityType: "ExpenseCategory",
+      entityId: data.id,
+      summary: `Updated the expense category ${data.name}`,
+      before: { name: category.name, isActive: category.isActive },
+      after: {
+        name: data.name,
+        isActive: data.isActive,
+        budgetLimit: data.budgetLimit ? moneyString(data.budgetLimit) : null,
+      },
+    })
+
+    revalidateExpenditure("/categories", `/categories/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to update the expense category")
+  }
+}
+
+/**
+ * Deletes a category nothing has ever been charged to.
+ *
+ * Anything else is retired instead: a voucher carries its category as the heading it is
+ * reported under, and `Expense.category` is RESTRICT precisely so past spending cannot lose
+ * the answer to what it was for.
+ */
+export async function deleteExpenseCategory(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireExpenditureManager()
+    const schoolId = await actorSchool(actor)
+    const data = z.object({ id: z.string().min(1) }).parse(input)
+
+    const category = await prisma.expenseCategory.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true },
+    })
+    if (!category) throw new Error("Expense category not found in this school")
+
+    const expenseCount = await prisma.expense.count({ where: { categoryId: data.id } })
+    const removal = canDeleteExpenseCategory({ expenseCount })
+    if (!removal.allowed) throw new Error(removal.reason)
+
+    await prisma.expenseCategory.delete({ where: { id: data.id } })
+
+    await recordAudit({
+      actor,
+      action: "expenditure.category.delete",
+      entityType: "ExpenseCategory",
+      entityId: data.id,
+      summary: `Deleted the expense category ${category.name}, which nothing had been charged to`,
+      before: { name: category.name },
+    })
+
+    revalidateExpenditure("/categories", `/categories/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to delete the expense category")
+  }
+}
+
+export type PaymentAccountRow = {
+  id: string
+  name: string
+  type: string
+  bankName: string | null
+  accountNumber: string | null
+  openingBalance: string
+  paidOut: string
+  balance: string
+  /** Every voucher ever raised against the account, whatever became of it. */
+  expenseCount: number
+  /** Those actually paid — the ones behind `paidOut`. */
+  paidCount: number
+  unpaidExpenseCount: number
+  lastPaidAt: string | null
+  isActive: boolean
+  createdAt: string
+}
+
+/**
+ * The payment chart, narrowed to what was asked for.
+ *
+ * Name, type and status are a `where`; balance and activity are not, because a balance is
+ * derived on read and cannot be a column filter. Those two are applied in memory against the
+ * same reading the table shows, by the predicate the screen's chips are built from.
+ *
+ * `totalCount` is every account in the school, so the list can say "3 of 11" rather than
+ * leaving a filtered page looking like the whole chart.
+ */
+export async function getPaymentAccounts(
+  filters: PaymentAccountFilters = {},
+): Promise<ActionResult<{ rows: PaymentAccountRow[]; totalCount: number }>> {
+  try {
+    const actor = await requireExpenditureViewer()
+    const schoolId = await actorSchool(actor)
+
+    const where: Prisma.PaymentAccountWhereInput = { schoolId }
+    if (filters.type) where.type = filters.type as Prisma.PaymentAccountWhereInput["type"]
+    if (filters.status) where.isActive = filters.status === "ACTIVE"
+    if (filters.search) {
+      where.OR = [
+        { name: { contains: filters.search } },
+        { bankName: { contains: filters.search } },
+        { accountNumber: { contains: filters.search } },
+      ]
+    }
+
+    const [accounts, totalCount, paidGroups, unpaidGroups, allGroups] = await Promise.all([
+      prisma.paymentAccount.findMany({
+        where,
+        orderBy: [{ isActive: "desc" }, { name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          bankName: true,
+          accountNumber: true,
+          openingBalance: true,
+          isActive: true,
+          createdAt: true,
+        },
+      }),
+      prisma.paymentAccount.count({ where: { schoolId } }),
+      // One grouped query each, rather than three per account.
+      prisma.expense.groupBy({
+        by: ["accountId"],
+        where: { schoolId, status: { in: SPENT } },
+        _sum: { amount: true },
+        _count: { _all: true },
+        _max: { paidAt: true },
+      }),
+      prisma.expense.groupBy({
+        by: ["accountId"],
+        where: { schoolId, status: { in: UNPAID } },
+        _count: { _all: true },
+      }),
+      prisma.expense.groupBy({
+        by: ["accountId"],
+        where: { schoolId },
+        _count: { _all: true },
+      }),
+    ])
+
+    const paid = new Map(paidGroups.map((row) => [row.accountId, row]))
+    const unpaid = new Map(unpaidGroups.map((row) => [row.accountId, row._count._all]))
+    const raised = new Map(allGroups.map((row) => [row.accountId, row._count._all]))
+
+    const rows = accounts
+      .map((account) => {
+        const spend = paid.get(account.id)
+        const paidOut = money(spend?._sum.amount ?? 0)
+
+        return {
+          id: account.id,
+          name: account.name,
+          type: account.type,
+          bankName: account.bankName,
+          accountNumber: account.accountNumber,
+          openingBalance: moneyString(account.openingBalance),
+          paidOut: moneyString(paidOut),
+          balance: moneyString(account.openingBalance.minus(paidOut)),
+          expenseCount: raised.get(account.id) ?? 0,
+          paidCount: spend?._count._all ?? 0,
+          unpaidExpenseCount: unpaid.get(account.id) ?? 0,
+          lastPaidAt: spend?._max.paidAt?.toISOString() ?? null,
+          isActive: account.isActive,
+          createdAt: account.createdAt.toISOString(),
+        }
+      })
+      .filter((row) => matchesDerivedFilters(row, filters))
+
+    return { success: true, data: { rows, totalCount } }
+  } catch (error) {
+    return toError(error, "Failed to load the payment chart")
+  }
+}
+
+export type PaymentAccountDetail = PaymentAccountRow & {
+  /** Every name in the school, so the form can check a rename before it is submitted. */
+  takenNames: Array<{ id: string; name: string }>
+  salaryPaymentCount: number
+  staffConfigCount: number
+  /** Why it may not be deletable, in the form of the things pointing at it. */
+  recentExpenses: Array<{
+    id: string
+    voucherNo: string
+    payeeName: string
+    categoryName: string
+    amount: string
+    status: ExpenseStatus
+    expenseDate: string
+  }>
+}
+
+/** One account, with everything the manage screen decides what to offer on. */
+export async function getPaymentAccount(accountId: string): Promise<ActionResult<PaymentAccountDetail>> {
+  try {
+    const actor = await requireExpenditureViewer()
+    const schoolId = await actorSchool(actor)
+
+    const account = await prisma.paymentAccount.findFirst({
+      where: { id: accountId, schoolId },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        bankName: true,
+        accountNumber: true,
+        openingBalance: true,
+        isActive: true,
+        createdAt: true,
+      },
+    })
+    if (!account) throw new Error("Payment account not found in this school")
+
+    const [paid, unpaidCount, totalCount, salaryPaymentCount, staffConfigCount, names, recent] =
+      await Promise.all([
+        prisma.expense.aggregate({
+          where: { accountId, status: { in: SPENT } },
+          _sum: { amount: true },
+          _count: { _all: true },
+          _max: { paidAt: true },
+        }),
+        prisma.expense.count({ where: { accountId, status: { in: UNPAID } } }),
+        prisma.expense.count({ where: { accountId } }),
+        prisma.salaryPayment.count({ where: { accountId } }),
+        prisma.staffConfig.count({ where: { defaultAccountId: accountId } }),
+        prisma.paymentAccount.findMany({ where: { schoolId }, select: { id: true, name: true } }),
+        prisma.expense.findMany({
+          where: { accountId },
+          orderBy: { expenseDate: "desc" },
+          take: 6,
+          select: {
+            id: true,
+            voucherNo: true,
+            payeeName: true,
+            amount: true,
+            status: true,
+            expenseDate: true,
+            category: { select: { name: true } },
+          },
+        }),
+      ])
+
+    const paidOut = money(paid._sum.amount ?? 0)
+
+    return {
+      success: true,
+      data: {
+        id: account.id,
+        name: account.name,
+        type: account.type,
+        bankName: account.bankName,
+        accountNumber: account.accountNumber,
+        openingBalance: moneyString(account.openingBalance),
+        paidOut: moneyString(paidOut),
+        balance: moneyString(account.openingBalance.minus(paidOut)),
+        // Every voucher ever raised, not just the paid ones: this is the figure the delete
+        // rule refuses on, and a pending voucher counts against deleting just as much.
+        expenseCount: totalCount,
+        paidCount: paid._count._all,
+        unpaidExpenseCount: unpaidCount,
+        lastPaidAt: paid._max.paidAt?.toISOString() ?? null,
+        isActive: account.isActive,
+        createdAt: account.createdAt.toISOString(),
+        takenNames: names,
+        salaryPaymentCount,
+        staffConfigCount,
+        recentExpenses: recent.map((expense) => ({
+          id: expense.id,
+          voucherNo: expense.voucherNo,
+          payeeName: expense.payeeName,
+          categoryName: expense.category.name,
+          amount: moneyString(expense.amount),
+          status: expense.status,
+          expenseDate: expense.expenseDate.toISOString(),
+        })),
+      },
+    }
+  } catch (error) {
+    return toError(error, "Failed to load the payment account")
+  }
+}
+
+/**
+ * Renames an account, corrects its details, and opens or closes it.
+ *
+ * The opening balance is editable because it is a stated fact that can be mistyped, and
+ * every balance the module reports is derived from it — so the screen says what the
+ * correction moves before it is saved.
+ */
+export async function updatePaymentAccount(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireExpenditureManager()
+    const schoolId = await actorSchool(actor)
+    const data = paymentAccountSchema.extend({ id: z.string().min(1), isActive: z.boolean() }).parse(input)
+
+    const account = await prisma.paymentAccount.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true, isActive: true },
+    })
+    if (!account) throw new Error("Payment account not found in this school")
+
+    // The same two predicates the screen greys its controls out with, so a stale page or a
+    // direct call cannot get past what the screen refuses.
+    const names = await prisma.paymentAccount.findMany({
+      where: { schoolId },
+      select: { id: true, name: true },
+    })
+    const naming = canUsePaymentAccountName(data.name, names, data.id)
+    if (!naming.allowed) throw new Error(naming.reason)
+
+    if (account.isActive && !data.isActive) {
+      const unpaidExpenseCount = await prisma.expense.count({
+        where: { accountId: data.id, status: { in: UNPAID } },
+      })
+      const closing = canClosePaymentAccount({ unpaidExpenseCount })
+      if (!closing.allowed) throw new Error(closing.reason)
+    }
+
+    await prisma.paymentAccount.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        type: data.type,
+        bankName: data.bankName || null,
+        accountNumber: data.accountNumber || null,
+        openingBalance: money(data.openingBalance),
+        isActive: data.isActive,
+      },
+    })
+
+    await recordAudit({
+      actor,
+      action: "expenditure.account.update",
+      entityType: "PaymentAccount",
+      entityId: data.id,
+      summary: `Updated the payment account ${data.name}`,
+      before: { name: account.name, isActive: account.isActive },
+      after: { name: data.name, isActive: data.isActive, openingBalance: moneyString(data.openingBalance) },
+    })
+
+    revalidateExpenditure("/accounts", `/accounts/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to update the payment account")
+  }
+}
+
+/**
+ * Deletes an account nothing has ever used.
+ *
+ * Anything else is closed instead. A voucher, a salary payment or a staff default pointing at
+ * it makes deletion either impossible at the database or destructive to the record of where
+ * money came from, and `canDeletePaymentAccount` says which of the three is in the way.
+ */
+export async function deletePaymentAccount(input: unknown): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireExpenditureManager()
+    const schoolId = await actorSchool(actor)
+    const data = z.object({ id: z.string().min(1) }).parse(input)
+
+    const account = await prisma.paymentAccount.findFirst({
+      where: { id: data.id, schoolId },
+      select: { id: true, name: true },
+    })
+    if (!account) throw new Error("Payment account not found in this school")
+
+    const [expenseCount, salaryPaymentCount, staffConfigCount] = await Promise.all([
+      prisma.expense.count({ where: { accountId: data.id } }),
+      prisma.salaryPayment.count({ where: { accountId: data.id } }),
+      prisma.staffConfig.count({ where: { defaultAccountId: data.id } }),
+    ])
+
+    const removal = canDeletePaymentAccount({ expenseCount, salaryPaymentCount, staffConfigCount })
+    if (!removal.allowed) throw new Error(removal.reason)
+
+    await prisma.paymentAccount.delete({ where: { id: data.id } })
+
+    await recordAudit({
+      actor,
+      action: "expenditure.account.delete",
+      entityType: "PaymentAccount",
+      entityId: data.id,
+      summary: `Deleted the payment account ${account.name}, which nothing had been paid from`,
+      before: { name: account.name },
+    })
+
+    revalidateExpenditure("/accounts", `/accounts/${data.id}`)
+    return { success: true, data: { id: data.id } }
+  } catch (error) {
+    return toError(error, "Failed to delete the payment account")
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The expense lifecycle
 // ---------------------------------------------------------------------------
@@ -579,11 +1286,7 @@ export async function updateExpense(input: unknown): Promise<ActionResult<{ id: 
     // thing that was approved must still be the thing that was approved.
     assertTransition(existing.status, EDITABLE, "edit")
 
-    const term = await prisma.term.findFirst({
-      where: { id: data.termId, session: { schoolId } },
-      select: { id: true, sessionId: true },
-    })
-    if (!term) throw new Error("Term not found")
+    const term = await validateExpenseReferences(data, schoolId)
 
     await prisma.expense.update({
       where: { id: data.expenseId },
@@ -632,8 +1335,8 @@ export async function approveExpense(input: unknown): Promise<ActionResult<{ id:
     const expense = await scopedExpense(data.expenseId, schoolId)
     assertTransition(expense.status, ["DRAFT", "PENDING_APPROVAL"], "approve")
 
-    await prisma.expense.update({
-      where: { id: expense.id },
+    const approved = await prisma.expense.updateMany({
+      where: { id: expense.id, schoolId, status: { in: ["DRAFT", "PENDING_APPROVAL"] } },
       data: {
         status: "APPROVED",
         approvedBy: actor.userId,
@@ -641,6 +1344,7 @@ export async function approveExpense(input: unknown): Promise<ActionResult<{ id:
         decisionReason: data.note || null,
       },
     })
+    if (approved.count !== 1) throw new Error("This expense changed while you were reviewing it. Refresh and try again.")
 
     // Recorded even when the approver is the recorder. Small schools are explicitly allowed
     // to have one person do both, and the log should show that plainly rather than hide it.
@@ -672,8 +1376,8 @@ export async function rejectExpense(input: unknown): Promise<ActionResult<{ id: 
     const expense = await scopedExpense(data.expenseId, schoolId)
     assertTransition(expense.status, ["DRAFT", "PENDING_APPROVAL"], "reject")
 
-    await prisma.expense.update({
-      where: { id: expense.id },
+    const rejected = await prisma.expense.updateMany({
+      where: { id: expense.id, schoolId, status: { in: ["DRAFT", "PENDING_APPROVAL"] } },
       data: {
         status: "REJECTED",
         approvedBy: actor.userId,
@@ -681,6 +1385,7 @@ export async function rejectExpense(input: unknown): Promise<ActionResult<{ id: 
         decisionReason: data.reason,
       },
     })
+    if (rejected.count !== 1) throw new Error("This expense changed while you were reviewing it. Refresh and try again.")
 
     await recordAudit({
       actor,
@@ -724,8 +1429,8 @@ export async function markExpensePaid(input: unknown): Promise<ActionResult<{
       )
     }
 
-    await prisma.expense.update({
-      where: { id: expense.id },
+    const paid = await prisma.expense.updateMany({
+      where: { id: expense.id, schoolId, status: "APPROVED" },
       data: {
         status: "PAID",
         paidBy: actor.userId,
@@ -733,6 +1438,7 @@ export async function markExpensePaid(input: unknown): Promise<ActionResult<{
         ...(data.referenceNo ? { referenceNo: data.referenceNo } : {}),
       },
     })
+    if (paid.count !== 1) throw new Error("This expense is no longer awaiting payment. Refresh and try again.")
 
     await recordAudit({
       actor,
@@ -758,7 +1464,7 @@ export async function markExpensePaid(input: unknown): Promise<ActionResult<{
 }
 
 /**
- * Cancels an expense, including one already paid.
+ * Cancels an unpaid expense or posts an explicit reversal for a paid one.
  *
  * Nothing is deleted and no amount is rewritten. The record stays, carries who cancelled it
  * and why, and drops out of every total — so the correction is as visible as the original.
@@ -770,28 +1476,49 @@ export async function cancelExpense(input: unknown): Promise<ActionResult<{ id: 
     const data = decisionSchema.parse(input)
 
     const expense = await scopedExpense(data.expenseId, schoolId)
-    assertTransition(expense.status, ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PAID"], "cancel")
+    assertTransition(expense.status, ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PAID"], "cancel or reverse")
+    if (expense.status === "PAID" && expense._count.salaryPayments > 0) {
+      throw new Error("This expense belongs to payroll. Reverse it from the payroll run so both records stay aligned.")
+    }
 
-    await prisma.expense.update({
-      where: { id: expense.id },
-      data: { status: "CANCELLED", decisionReason: data.reason },
+    const nextStatus: ExpenseStatus = expense.status === "PAID" ? "REVERSED" : "CANCELLED"
+    await prisma.$transaction(async (tx) => {
+      const changed = await tx.expense.updateMany({
+        where: { id: expense.id, schoolId, status: expense.status },
+        data: { status: nextStatus, decisionReason: data.reason },
+      })
+      if (changed.count !== 1) {
+        throw new Error("This expense changed before it could be corrected. Refresh and try again.")
+      }
+      if (nextStatus === "REVERSED") {
+        await tx.accountingReversal.create({
+          data: {
+            schoolId,
+            targetType: "EXPENSE",
+            expenseId: expense.id,
+            amount: expense.amount,
+            reason: data.reason,
+            createdBy: actor.userId,
+          },
+        })
+      }
     })
 
     await recordAudit({
       actor,
-      action: "expense.cancel",
+      action: nextStatus === "REVERSED" ? "expense.reverse" : "expense.cancel",
       entityType: "Expense",
       entityId: expense.id,
       summary:
-        `Cancelled ${expense.voucherNo} (${moneyString(expense.amount)} to ${expense.payeeName})` +
-        (expense.status === "PAID" ? ", reversing a payment already made" : "") +
+        `${nextStatus === "REVERSED" ? "Reversed" : "Cancelled"} ${expense.voucherNo} ` +
+        `(${moneyString(expense.amount)} to ${expense.payeeName})` +
         `: ${data.reason}`,
       before: { status: expense.status },
-      after: { status: "CANCELLED", reason: data.reason },
+      after: { status: nextStatus, reason: data.reason },
     })
 
     revalidateExpenditure("/transactions", `/transactions/${expense.id}`, "/accounts", "/budget-summary")
-    return { success: true, data: { id: expense.id, status: "CANCELLED" } }
+    return { success: true, data: { id: expense.id, status: nextStatus } }
   } catch (error) {
     return toError(error, "Failed to cancel expense")
   }
@@ -810,7 +1537,7 @@ export async function addExpenseAttachment(input: unknown): Promise<ActionResult
     const expense = await scopedExpense(data.expenseId, schoolId)
     // Receipts can be added at any point, including after payment — the paper often arrives
     // late. What cannot change after approval is the expense itself.
-    if (expense.status === "CANCELLED" || expense.status === "REJECTED") {
+    if (expense.status === "CANCELLED" || expense.status === "REJECTED" || expense.status === "REVERSED") {
       throw new Error("Cannot attach a receipt to a cancelled or rejected expense")
     }
 
@@ -1200,6 +1927,23 @@ export async function getExpenditureOverview(): Promise<ActionResult<{
     expenseDate: string
   }>
   incomeVsExpenditure: { income: string; expenditure: string; balance: string } | null
+  /** Paid spending month by month across the session — the shape of the year's outgoings. */
+  monthly: Array<{ month: string; label: string; paid: string; count: number }>
+  /** Who the money went to, largest first. */
+  topPayees: Array<{ name: string; amount: string; count: number }>
+  /**
+   * Category budgets against what has been paid this term. The limit is a soft ceiling the
+   * schema deliberately never enforces, so the dashboard is where going over it is noticed.
+   */
+  budget: {
+    termName: string | null
+    tracked: number
+    overCount: number
+    overBy: string
+    rows: Array<{ id: string; name: string; limit: string; spent: string; overBy: string; usedPercent: number }>
+  }
+  /** The approval that has been waiting longest, because a queue is only a problem over time. */
+  oldestPending: { id: string; voucherNo: string; payeeName: string; amount: string; days: number } | null
 }>> {
   try {
     const actor = await requireExpenditureViewer()
@@ -1259,11 +2003,116 @@ export async function getExpenditureOverview(): Promise<ActionResult<{
       }
     }
 
+    // --- the shape of the year, who it went to, and what it went over ---------------------
+    const [paidThisSession, payees, budgetCategories, pendingQueue] = await Promise.all([
+      prisma.expense.findMany({
+        where: { ...sessionWhere, status: { in: SPENT } },
+        select: { expenseDate: true, amount: true },
+      }),
+      prisma.expense.groupBy({
+        by: ["payeeName"],
+        where: { ...sessionWhere, status: { in: SPENT } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      prisma.expenseCategory.findMany({
+        where: { schoolId, budgetLimit: { not: null } },
+        select: { id: true, name: true, budgetLimit: true },
+      }),
+      prisma.expense.findMany({
+        where: { ...sessionWhere, status: "PENDING_APPROVAL" },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+        select: { id: true, voucherNo: true, payeeName: true, amount: true, createdAt: true },
+      }),
+    ])
+
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    const byMonth = new Map<string, { paid: Prisma.Decimal; count: number }>()
+    for (const expense of paidThisSession) {
+      const date = expense.expenseDate
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+      const entry = byMonth.get(key) ?? { paid: money(0), count: 0 }
+      entry.paid = entry.paid.plus(expense.amount)
+      entry.count += 1
+      byMonth.set(key, entry)
+    }
+
+    const monthly = [...byMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, entry]) => ({
+        month,
+        label: `${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(2, 4)}`,
+        paid: moneyString(entry.paid),
+        count: entry.count,
+      }))
+
+    const topPayees = payees
+      .map((payee) => ({
+        name: payee.payeeName,
+        amount: moneyString(payee._sum.amount ?? 0),
+        count: payee._count._all,
+      }))
+      .sort((a, b) => Number(b.amount) - Number(a.amount))
+      .slice(0, 6)
+
+    // Budgets are a per-term ceiling, so they are measured against this term rather than the
+    // whole session — a session figure would read as three times over on a limit nobody broke.
+    const budgetSpend = currentTerm
+      ? await prisma.expense.groupBy({
+          by: ["categoryId"],
+          where: { ...termWhere, status: { in: SPENT } },
+          _sum: { amount: true },
+        })
+      : []
+    const spentByCategory = new Map(budgetSpend.map((row) => [row.categoryId, row._sum.amount ?? money(0)]))
+
+    const budgetRows = budgetCategories
+      .map((category) => {
+        const limit = category.budgetLimit ?? money(0)
+        const spent = spentByCategory.get(category.id) ?? money(0)
+        const overBy = spent.greaterThan(limit) ? spent.minus(limit) : money(0)
+
+        return {
+          id: category.id,
+          name: category.name,
+          limit: moneyString(limit),
+          spent: moneyString(spent),
+          overBy: moneyString(overBy),
+          usedPercent: limit.isZero() ? 0 : Math.round(spent.div(limit).times(100).toNumber()),
+        }
+      })
+      .sort((a, b) => b.usedPercent - a.usedPercent)
+
+    const over = budgetRows.filter((row) => Number(row.overBy) > 0)
+    const waiting = pendingQueue[0]
+
     return {
       success: true,
       data: {
         currentSession,
         currentTerm,
+        monthly,
+        topPayees,
+        budget: {
+          termName: currentTerm?.name ?? null,
+          tracked: budgetRows.length,
+          overCount: over.length,
+          overBy: moneyString(over.reduce((total, row) => total.plus(row.overBy), money(0))),
+          rows: budgetRows,
+        },
+        oldestPending: waiting
+          ? {
+              id: waiting.id,
+              voucherNo: waiting.voucherNo,
+              payeeName: waiting.payeeName,
+              amount: moneyString(waiting.amount),
+              days: Math.max(
+                0,
+                Math.floor((Date.now() - waiting.createdAt.getTime()) / (1000 * 60 * 60 * 24)),
+              ),
+            }
+          : null,
         termTotal: moneyString(termPaid._sum.amount ?? 0),
         sessionTotal: moneyString(sessionPaid._sum.amount ?? 0),
         statuses,
@@ -1286,8 +2135,13 @@ export async function getExpenditureOverview(): Promise<ActionResult<{
   }
 }
 
-export async function getTermlyExpenditureReport(filters?: { termId?: string | null }): Promise<ActionResult<{
+export async function getTermlyExpenditureReport(filters?: {
+  sessionId?: string | null
+  termId?: string | null
+}): Promise<ActionResult<{
+  termId: string | null
   termName: string | null
+  sessionId: string | null
   sessionName: string | null
   paid: string
   committed: string
@@ -1301,15 +2155,32 @@ export async function getTermlyExpenditureReport(filters?: { termId?: string | n
     const actor = await requireExpenditureViewer()
     const schoolId = await actorSchool(actor)
 
+    // Which term the report is about. An explicit term wins; a session on its own means
+    // "that year", so the term it opens on is that session's current one, or its latest —
+    // picking the school's current term there would report a year the filter does not name.
+    const select = {
+      id: true,
+      name: true,
+      sessionId: true,
+      session: { select: { name: true } },
+    } as const
+
     const term = filters?.termId
-      ? await prisma.term.findFirst({
-          where: { id: filters.termId, session: { schoolId } },
-          select: { id: true, name: true, session: { select: { name: true } } },
-        })
-      : await prisma.term.findFirst({
-          where: { session: { schoolId }, isCurrent: true },
-          select: { id: true, name: true, session: { select: { name: true } } },
-        })
+      ? await prisma.term.findFirst({ where: { id: filters.termId, session: { schoolId } }, select })
+      : filters?.sessionId
+        ? ((await prisma.term.findFirst({
+            where: { sessionId: filters.sessionId, session: { schoolId }, isCurrent: true },
+            select,
+          })) ??
+          (await prisma.term.findFirst({
+            where: { sessionId: filters.sessionId, session: { schoolId } },
+            orderBy: { startDate: "desc" },
+            select,
+          })))
+        : await prisma.term.findFirst({
+            where: { session: { schoolId }, isCurrent: true },
+            select,
+          })
 
     const where: Prisma.ExpenseWhereInput = term ? { schoolId, termId: term.id } : { schoolId }
 
@@ -1347,7 +2218,9 @@ export async function getTermlyExpenditureReport(filters?: { termId?: string | n
     return {
       success: true,
       data: {
+        termId: term?.id ?? null,
         termName: term?.name ?? null,
+        sessionId: term?.sessionId ?? null,
         sessionName: term?.session.name ?? null,
         paid: moneyString(paid._sum.amount ?? 0),
         committed: moneyString(committed._sum.amount ?? 0),
@@ -1379,6 +2252,7 @@ export async function getTermlyExpenditureReport(filters?: { termId?: string | n
 }
 
 export async function getSessionExpenditureReport(filters?: { sessionId?: string | null }): Promise<ActionResult<{
+  sessionId: string | null
   sessionName: string | null
   terms: Array<{ termId: string; termName: string; paid: string; committed: string; pending: string; count: number }>
   sessionTotals: { paid: string; committed: string; pending: string; count: number }
@@ -1442,6 +2316,7 @@ export async function getSessionExpenditureReport(filters?: { sessionId?: string
     return {
       success: true,
       data: {
+        sessionId: session?.id ?? null,
         sessionName: session?.name ?? null,
         terms: termRows,
         sessionTotals: {
@@ -1473,6 +2348,7 @@ export async function getSessionExpenditureReport(filters?: { sessionId?: string
  * it counts approved-but-unpaid expenditure as already gone, because it is.
  */
 export async function getBudgetSummary(filters?: { sessionId?: string | null }): Promise<ActionResult<{
+  sessionId: string | null
   sessionName: string | null
   income: {
     scheduledFees: string
@@ -1519,6 +2395,7 @@ export async function getBudgetSummary(filters?: { sessionId?: string | null }):
     return {
       success: true,
       data: {
+        sessionId: session?.id ?? null,
         sessionName: session?.name ?? null,
         income: {
           scheduledFees: income.scheduledFees,

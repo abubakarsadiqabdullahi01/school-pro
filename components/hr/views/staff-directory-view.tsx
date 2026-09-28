@@ -1,58 +1,106 @@
-import { BackButton } from "@/components/back-button"
-import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
 import Link from "next/link"
 
 import type { EmploymentStatus, StaffType } from "@prisma/client"
 
 import { getStaffDirectory } from "@/app/actions/hr"
+import { BackButton } from "@/components/back-button"
+import { StaffFilterBar } from "@/components/hr/staff-filter-bar"
 import { BrandedPrintHeader, BrandedReportExport } from "@/components/reports/branded"
+import { DataTable, type DataTableColumn, type DataTableRow } from "@/components/reports/data-table"
+import { PrintLandscape } from "@/components/reports/print-orientation"
 import type { ExportTable } from "@/components/reports/report-export"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { formatNaira, formatNairaPlain, toCsvAmount } from "@/lib/money"
+import { InfoGuide } from "@/components/ui/info-guide"
+import { formatDocumentDate } from "@/lib/format"
+import {
+  countStaffFilters,
+  describeStaffFilters,
+  employmentStatusLabel,
+  employmentTypeLabel,
+  matchesSalaryFilter,
+  parseStaffFilters,
+  staffTypeLabel,
+} from "@/lib/hr/staff-filters"
+import { formatNaira, formatNairaPlain, sumAmounts, toCsvAmount } from "@/lib/money"
 
-const STAFF_TYPES: StaffType[] = [
-  "TEACHER", "ADMIN_STAFF", "ACCOUNTANT", "CLEANER", "DRIVER", "SECURITY", "LIBRARIAN", "NURSE", "OTHER",
+// Seven columns totalling 100%, on a landscape sheet — twelve fields go into the export, so
+// the printed list is the wide one in this module.
+const columns: DataTableColumn[] = [
+  { label: "Staff No", width: "10%" },
+  { label: "Name", width: "28%" },
+  { label: "Department", width: "14%" },
+  { label: "Type", width: "12%" },
+  { label: "Salary", align: "right", width: "15%" },
+  { label: "Status", width: "12%" },
+  { label: "Employed", width: "9%" },
+  { label: "", printHidden: true, width: "6rem" },
 ]
-const STATUSES: EmploymentStatus[] = ["ACTIVE", "SUSPENDED", "RESIGNED", "TERMINATED"]
 
-type Filters = { search?: string; department?: string; staffType?: string; employmentStatus?: string }
-
-/** Only a real enum value reaches the query; a hand-edited URL is ignored, not trusted. */
-function oneOf<T extends string>(allowed: T[], raw?: string): T | null {
-  return allowed.includes(raw as T) ? (raw as T) : null
-}
-
-const label = (value: string) => value.toLowerCase().replace(/_/g, " ")
-
+/**
+ * Everyone the school employs.
+ *
+ * The filters used to be a GET form with an Apply button and native selects, and the table
+ * carried a second search box of its own — two places to type a name, with no way to tell
+ * which one was in force. It is the shared filter bar now: every select applies as it is
+ * chosen, each one shows as a chip that removes itself, and the table's own search is off
+ * because the server already did it.
+ *
+ * "Salary set or not" is a filter rather than a column footnote because it is the one fact
+ * that decides whether a person can be paid at all — payroll skips them and says so.
+ */
 export async function StaffDirectoryView({
   basePath,
-  filters,
+  searchParams,
   canManage,
 }: {
   basePath: string
-  filters: Filters
+  searchParams: Record<string, string | string[] | undefined>
   canManage: boolean
 }) {
+  const listPath = `${basePath}/staff`
+
+  // Read once with no filters to learn the departments this school uses, because the field
+  // is free text and a department that does not exist must not reach the query.
+  const known = await getStaffDirectory()
+  const departments = known.success ? known.data.departments : []
+  const filters = parseStaffFilters(searchParams, departments)
+
   const directory = await getStaffDirectory({
     search: filters.search?.trim() || null,
     department: filters.department || null,
-    staffType: oneOf(STAFF_TYPES, filters.staffType),
-    employmentStatus: oneOf(STATUSES, filters.employmentStatus),
+    staffType: (filters.staffType as StaffType | undefined) ?? null,
+    employmentStatus: (filters.employmentStatus as EmploymentStatus | undefined) ?? null,
   })
 
   if (!directory.success) {
     return <p className="text-destructive">{directory.error}</p>
   }
 
-  const { rows, departments } = directory.data
+  const rows = directory.data.rows.filter((row) => matchesSalaryFilter(row, filters))
+  const totalCount = known.success ? known.data.rows.length : rows.length
+  const filtered = countStaffFilters(filters) > 0
+  const scope = describeStaffFilters(filters)
+
+  const activeCount = rows.filter((row) => row.employmentStatus === "ACTIVE").length
+  const withoutSalary = rows.filter((row) => !row.baseSalary)
+  const payrollCost = sumAmounts(rows.filter((row) => row.baseSalary).map((row) => row.baseSalary ?? 0))
 
   const exportTable: ExportTable = {
     columns: [
-      "Staff No", "Name", "Gender", "Department", "Job Title", "Staff Type",
-      "Employment Type", "Status", "Date Employed", "Base Salary", "Phone", "Email",
+      "Staff No",
+      "Name",
+      "Gender",
+      "Department",
+      "Job Title",
+      "Staff Type",
+      "Employment Type",
+      "Status",
+      "Date Employed",
+      "Base Salary",
+      "Phone",
+      "Email",
     ],
     rows: rows.map((row) => [
       row.staffNo,
@@ -60,10 +108,10 @@ export async function StaffDirectoryView({
       row.gender ?? "-",
       row.department ?? "-",
       row.jobTitle ?? "-",
-      label(row.staffType),
-      label(row.employmentType),
-      label(row.employmentStatus),
-      new Date(row.dateEmployed).toLocaleDateString(),
+      staffTypeLabel(row.staffType),
+      employmentTypeLabel(row.employmentType),
+      employmentStatusLabel(row.employmentStatus),
+      formatDocumentDate(row.dateEmployed),
       row.baseSalary ? formatNairaPlain(row.baseSalary) : "-",
       row.phone ?? "-",
       row.email ?? "-",
@@ -84,139 +132,142 @@ export async function StaffDirectoryView({
     ]),
   }
 
-  const columns: DataTableColumn[] = [
-    { label: "Staff No" },
-    { label: "Name" },
-    { label: "Department" },
-    { label: "Type" },
-    { label: "Salary", align: "right" },
-    { label: "Status" },
-    { label: "Action", printHidden: true },
-  ]
-
-  // The filter form above narrows the query server-side; this box is the quick scan within
-  // whatever came back, which is what somebody looking for one name actually wants.
+  // Keyed because this array is built on the server and crosses into the client payload,
+  // where React checks the elements of a list for keys.
   const tableRows: DataTableRow[] = rows.map((row) => ({
     id: row.id,
-    search: [
-      row.staffNo,
-      row.name,
-      row.jobTitle ?? "",
-      row.department ?? "",
-      label(row.employmentType),
-      label(row.employmentStatus),
-    ].join(" "),
+    href: `${listPath}/${row.id}`,
+    search: [row.staffNo, row.name, row.jobTitle ?? "", row.department ?? ""].join(" "),
     cells: [
-      <span className="font-medium">{row.staffNo}</span>,
-      <>
+      <span key="no" className="font-medium">
+        {row.staffNo}
+      </span>,
+      <div key="name" className="min-w-0">
         <div className="font-medium">{row.name}</div>
-        <div className="text-muted-foreground">
-          {row.jobTitle ?? label(row.staffType)}
+        <p className="truncate text-xs text-muted-foreground">
+          {row.jobTitle ?? staffTypeLabel(row.staffType)}
           {row.hasLogin ? " · has a login" : ""}
-        </div>
-      </>,
-      row.department ?? "—",
-      label(row.employmentType),
-      row.baseSalary ? formatNaira(row.baseSalary) : <span className="text-destructive">Not set</span>,
-      <Badge variant="outline" className="capitalize">{label(row.employmentStatus)}</Badge>,
-      <Button variant="outline" size="sm" asChild>
-        <Link href={`${basePath}/staff/${row.id}`}>Open</Link>
+        </p>
+      </div>,
+      <span key="department">{row.department ?? "—"}</span>,
+      <span key="type" className="whitespace-nowrap">
+        {employmentTypeLabel(row.employmentType)}
+      </span>,
+      row.baseSalary ? (
+        <span key="salary" className="whitespace-nowrap tabular-nums">
+          {formatNaira(row.baseSalary)}
+        </span>
+      ) : (
+        <span key="salary" className="whitespace-nowrap text-destructive">
+          Not set
+        </span>
+      ),
+      <div key="status" className="flex flex-col gap-1">
+        <Badge
+          variant={row.employmentStatus === "ACTIVE" ? "default" : "secondary"}
+          className="w-fit print:hidden"
+        >
+          {employmentStatusLabel(row.employmentStatus)}
+        </Badge>
+        <span className="hidden print:block">{employmentStatusLabel(row.employmentStatus)}</span>
+      </div>,
+      <span key="employed" className="whitespace-nowrap text-xs text-muted-foreground">
+        {formatDocumentDate(row.dateEmployed)}
+      </span>,
+      <Button key="open" variant="outline" size="sm" className="h-7 px-2 text-xs" asChild>
+        <Link href={`${listPath}/${row.id}`}>Open</Link>
       </Button>,
     ],
   }))
 
   return (
-    <div className="space-y-6" data-print-document data-print-report data-print-landscape>
-      <BrandedPrintHeader title="Employee List" />
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="space-y-6" data-print-document data-print-report>
+      <PrintLandscape />
+      <BrandedPrintHeader title="Employee List" reference={scope} />
+      <div className="flex flex-col gap-4 print:hidden sm:flex-row sm:items-start sm:justify-between">
         <div>
           <BackButton fallbackHref={basePath} />
-          <h1 className="text-3xl font-bold tracking-tight">Staff</h1>
-          <p className="text-muted-foreground">Everyone the school employs, teaching and not.</p>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Staff</h1>
+            <InfoGuide guideKey="hr.staff" />
+          </div>
+          <p className="text-muted-foreground">
+            Everyone the school employs, teaching and not. Open a record to assign a salary, an allowance or
+            a deduction.
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <BrandedReportExport title="Employee List" subtitle="Staff directory" table={exportTable} />
+        <div className="flex flex-wrap items-center gap-2">
+          <BrandedReportExport
+            title={`Employee List · ${scope}`}
+            subtitle={scope}
+            table={exportTable}
+            orientation="landscape"
+          />
           {canManage && (
-            <Button size="sm" asChild>
-              <Link href={`${basePath}/staff/new`}>Add Staff</Link>
+            <Button asChild>
+              <Link href={`${listPath}/new`}>Add Staff</Link>
             </Button>
           )}
         </div>
       </div>
 
-      {/* A plain GET form: filters land in the URL, so a filtered list can be shared and the
-          back button behaves. */}
-      <Card className="print:hidden">
-        <CardContent className="p-4">
-          <form className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="space-y-2 lg:col-span-2">
-              <label className="text-sm font-medium" htmlFor="search">Search</label>
-              <Input id="search" name="search" defaultValue={filters.search ?? ""} placeholder="Name, staff number, or job title" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="department">Department</label>
-              <select
-                id="department"
-                name="department"
-                defaultValue={filters.department ?? ""}
-                className="border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs"
-              >
-                <option value="">Any department</option>
-                {departments.map((department) => (
-                  <option key={department} value={department}>{department}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="staffType">Staff type</label>
-              <select
-                id="staffType"
-                name="staffType"
-                defaultValue={filters.staffType ?? ""}
-                className="border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs"
-              >
-                <option value="">Any type</option>
-                {STAFF_TYPES.map((type) => (
-                  <option key={type} value={type}>{label(type)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="employmentStatus">Status</label>
-              <select
-                id="employmentStatus"
-                name="employmentStatus"
-                defaultValue={filters.employmentStatus ?? ""}
-                className="border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs"
-              >
-                <option value="">Any status</option>
-                {STATUSES.map((status) => (
-                  <option key={status} value={status}>{label(status)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-2 lg:col-span-5">
-              <Button type="submit" size="sm">Apply</Button>
-              <Button type="button" variant="outline" size="sm" asChild>
-                <Link href={`${basePath}/staff`}>Clear</Link>
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <StaffFilterBar basePath={listPath} filters={filters} departments={departments} />
+
+      <div className="grid gap-3 print:grid-cols-4 print:gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border p-3 print:p-2">
+          <p className="text-xs text-muted-foreground">People</p>
+          <p className="text-2xl font-bold tabular-nums print:text-[11pt]">{rows.length}</p>
+          <p className="text-xs text-muted-foreground">
+            {filtered ? `of ${totalCount} on the books` : `${activeCount} active`}
+          </p>
+        </div>
+        <div className="rounded-lg border p-3 print:p-2">
+          <p className="text-xs text-muted-foreground">Monthly salary bill</p>
+          <p className="text-2xl font-bold tabular-nums print:text-[11pt]">
+            {formatNaira(payrollCost, { kobo: false })}
+          </p>
+          <p className="text-xs text-muted-foreground">base pay, before allowances</p>
+        </div>
+        <div className="rounded-lg border p-3 print:p-2">
+          <p className="text-xs text-muted-foreground">No salary set</p>
+          <p
+            className={`text-2xl font-bold tabular-nums print:text-[11pt] ${
+              withoutSalary.length > 0 ? "text-destructive" : ""
+            }`}
+          >
+            {withoutSalary.length}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {withoutSalary.length === 0 ? "everybody can be paid" : "payroll will skip them"}
+          </p>
+        </div>
+        <div className="rounded-lg border p-3 print:p-2">
+          <p className="text-xs text-muted-foreground">Departments</p>
+          <p className="text-2xl font-bold tabular-nums print:text-[11pt]">{departments.length}</p>
+          <p className="text-xs text-muted-foreground">across the school</p>
+        </div>
+      </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="print:hidden">
           <CardTitle>Employee List</CardTitle>
-          <CardDescription>{rows.length} {rows.length === 1 ? "person" : "people"}</CardDescription>
+          <CardDescription>
+            {rows.length} {rows.length === 1 ? "person" : "people"}
+            {filtered ? ` of ${totalCount} · ${scope}` : ""}
+          </CardDescription>
         </CardHeader>
         <CardContent>
+          <p className="hidden pb-2 text-sm text-muted-foreground print:block">{scope}</p>
           <DataTable
             columns={columns}
             rows={tableRows}
             unit="people"
-            searchPlaceholder="Search name, staff number, department"
-            emptyMessage="Nobody matches these filters."
+            searchable={false}
+            emptyMessage={
+              filtered
+                ? "Nobody matches these filters. Remove one of the chips above, or clear them all."
+                : "No staff on the books yet."
+            }
           />
         </CardContent>
       </Card>

@@ -19,5 +19,5 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function AccountantReceiptPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  return <ReceiptView basePath="/dashboard/accountant" paymentId={id} />
+  return <ReceiptView basePath="/dashboard/accountant/receipts" paymentId={id} />
 }

@@ -28,6 +28,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  canGeneratePayroll,
+  payrollPeriodLabel,
+  type PayrollRunSummary,
+} from "@/lib/hr/payroll-period-rules"
 
 const NONE = "NONE"
 
@@ -42,13 +47,21 @@ const MONTHS = [
  * Anyone skipped — no salary on record, not employed that month — is reported back rather
  * than quietly left out, because "why is Musa not on the payroll" is the question that
  * follows otherwise.
+ *
+ * A month is generated once, and never before it has started. Both are decided by
+ * `canGeneratePayroll`, the same predicate the server refuses on: months already run are
+ * struck out in the select rather than offered and then rejected, and the reason is on the
+ * screen before the button is pressed.
  */
 export function PayrollGenerateForm({
   basePath,
   sessions,
+  existingRuns,
 }: {
   basePath: string
   sessions: Array<{ id: string; name: string; isCurrent: boolean }>
+  /** Every run the school has, so a month that is spoken for can be shown as such. */
+  existingRuns: PayrollRunSummary[]
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -58,7 +71,19 @@ export function PayrollGenerateForm({
   const [sessionId, setSessionId] = useState(sessions.find((session) => session.isCurrent)?.id ?? NONE)
   const [skipped, setSkipped] = useState<Array<{ staffNo: string; name: string; reason: string }>>([])
 
-  const years = Array.from({ length: 6 }, (_, index) => String(now.getFullYear() - 2 + index))
+  // Never a year ahead of this one: a run for next March would pay for work nobody has done.
+  const years = Array.from({ length: 4 }, (_, index) => String(now.getFullYear() - 3 + index)).reverse()
+
+  const today = { year: now.getFullYear(), month: now.getMonth() + 1 }
+  const facts = { existing: existingRuns, today }
+  const target = { year: Number(year), month: Number(month) }
+  const verdict = canGeneratePayroll(target, facts)
+
+  /** Why a month cannot be picked, for the select. Null when it can. */
+  const monthBlock = (index: number) => {
+    const outcome = canGeneratePayroll({ year: Number(year), month: index + 1 }, facts)
+    return outcome.allowed ? null : outcome.reason
+  }
 
   function generate(formData: FormData) {
     startTransition(async () => {
@@ -102,9 +127,15 @@ export function PayrollGenerateForm({
               <Select value={month} onValueChange={setMonth}>
                 <SelectTrigger id="month"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {MONTHS.map((name, index) => (
-                    <SelectItem key={name} value={String(index + 1)}>{name}</SelectItem>
-                  ))}
+                  {MONTHS.map((name, index) => {
+                    const blocked = monthBlock(index)
+                    return (
+                      <SelectItem key={name} value={String(index + 1)} disabled={Boolean(blocked)}>
+                        {name}
+                        {blocked ? " · unavailable" : ""}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -136,8 +167,22 @@ export function PayrollGenerateForm({
             <Label htmlFor="notes">Notes</Label>
             <Textarea id="notes" name="notes" rows={2} placeholder="Optional" />
           </div>
-          <Button type="submit" disabled={isPending}>
-            {isPending ? "Generating…" : "Generate Payroll"}
+          {!verdict.allowed && (
+            <div className="flex gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+              <Ban className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <p className="text-sm">{verdict.reason}</p>
+            </div>
+          )}
+
+          {verdict.allowed && verdict.note && (
+            <div className="flex gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <p className="text-sm">{verdict.note}</p>
+            </div>
+          )}
+
+          <Button type="submit" disabled={isPending || !verdict.allowed}>
+            {isPending ? "Generating…" : `Generate ${payrollPeriodLabel(target)} Payroll`}
           </Button>
         </form>
 
@@ -161,7 +206,7 @@ export function PayrollGenerateForm({
   )
 }
 
-type PayrollStatus = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "PAID" | "CANCELLED"
+type PayrollStatus = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "PAID" | "CANCELLED" | "REVERSED"
 
 /**
  * The payroll workflow, as buttons.
@@ -313,7 +358,7 @@ export function PayrollWorkflowActions({
           </Button>
         )}
 
-        {canManage && status !== "CANCELLED" && (
+        {canManage && status !== "CANCELLED" && status !== "REVERSED" && (
           <Button size="sm" variant="outline" onClick={() => setDialog("cancel")} disabled={isPending}>
             <Ban className="mr-2 h-4 w-4" />
             {status === "PAID" ? "Reverse payroll" : "Cancel"}

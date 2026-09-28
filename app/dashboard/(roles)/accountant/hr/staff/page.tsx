@@ -3,8 +3,13 @@ import { StaffDirectoryView } from "@/components/hr/views/staff-directory-view"
 export default async function AccountantStaffPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; department?: string; staffType?: string; employmentStatus?: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const filters = await searchParams
-  return <StaffDirectoryView basePath="/dashboard/accountant/hr" filters={filters} canManage={false} />
+  return (
+    <StaffDirectoryView
+      basePath="/dashboard/accountant/hr"
+      searchParams={await searchParams}
+      canManage={false}
+    />
+  )
 }

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNaira } from "@/lib/money"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 const label = (value: string) => value.toLowerCase().replace(/_/g, " ")
 
@@ -41,12 +42,18 @@ export async function StaffDetailView({
   const payslipRows: DataTableRow[] = staff.payslips.map((payslip) => ({
     id: payslip.itemId,
     search: `${payslip.period} ${payslip.payslipNo} ${label(payslip.status)}`,
+    // Keyed because this array is built on the server and crosses into the client payload,
+    // where React checks the elements of a list for keys.
     cells: [
-      <span className="font-medium">{payslip.period}</span>,
-      payslip.payslipNo,
-      formatNaira(payslip.netPay),
-      label(payslip.status),
-      <Button variant="outline" size="sm" asChild>
+      <span key="period" className="font-medium">
+        {payslip.period}
+      </span>,
+      <span key="no">{payslip.payslipNo}</span>,
+      <span key="net" className="whitespace-nowrap tabular-nums">
+        {formatNaira(payslip.netPay)}
+      </span>,
+      <span key="status">{label(payslip.status)}</span>,
+      <Button key="open" variant="outline" size="sm" asChild>
         <Link href={`${basePath}/payslips/${payslip.itemId}`}>Payslip</Link>
       </Button>,
     ],
@@ -58,7 +65,10 @@ export async function StaffDetailView({
         <div>
           <div className="flex items-center gap-3">
             <BackButton fallbackHref={`${basePath}/staff`} />
-            <h1 className="text-3xl font-bold tracking-tight">{staff.name}</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">{staff.name}</h1>
+              <InfoGuide guideKey="hr.staff" />
+            </div>
             <Badge variant="outline" className="capitalize">{label(staff.employmentStatus)}</Badge>
           </div>
           <p className="text-muted-foreground">

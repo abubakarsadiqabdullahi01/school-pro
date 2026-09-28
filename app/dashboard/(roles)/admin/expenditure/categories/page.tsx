@@ -1,24 +1,13 @@
-import { BackButton } from "@/components/back-button"
-import { getExpenditureSetupData } from "@/app/actions/expenditure"
-import { ExpenseCategoriesForm } from "@/components/expenditure/expenditure-setup-forms"
+import { ExpenseCategoriesView } from "@/components/expenditure/views/expense-categories-view"
 
-// Admin tree only. Configuring categories is the admin's authority, and createExpenseCategory
-// rejects an accountant regardless of the URL reached.
-export default async function ExpenseCategoriesPage() {
-  const setup = await getExpenditureSetupData()
-
-  if (!setup.success) {
-    return <p className="text-destructive">{setup.error}</p>
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <BackButton fallbackHref="/dashboard/admin/expenditure" />
-        <h1 className="text-3xl font-bold tracking-tight">Expense Categories</h1>
-        <p className="text-muted-foreground">What the school spends money on, and an optional termly budget.</p>
-      </div>
-      <ExpenseCategoriesForm categories={setup.data.categories} />
-    </div>
-  )
+// Admin tree only. Configuring categories is the admin's authority, and the write actions
+// refuse an accountant regardless of the URL reached.
+export default async function ExpenseCategoriesPage({
+  searchParams,
+}: {
+  // Handed on whole rather than picked apart here: the screen's filters are checked in one
+  // place, so a page cannot quietly forget to pass one on.
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  return <ExpenseCategoriesView basePath="/dashboard/admin/expenditure" searchParams={await searchParams} />
 }

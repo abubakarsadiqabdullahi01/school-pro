@@ -1,23 +1,13 @@
-import { BackButton } from "@/components/back-button"
-import { getExpenditureSetupData } from "@/app/actions/expenditure"
-import { PaymentAccountsForm } from "@/components/expenditure/expenditure-setup-forms"
+import { PaymentAccountsView } from "@/components/expenditure/views/payment-accounts-view"
 
-// Admin tree only, for the same reason as categories.
-export default async function PaymentAccountsPage() {
-  const setup = await getExpenditureSetupData()
-
-  if (!setup.success) {
-    return <p className="text-destructive">{setup.error}</p>
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <BackButton fallbackHref="/dashboard/admin/expenditure" />
-        <h1 className="text-3xl font-bold tracking-tight">Payment Chart</h1>
-        <p className="text-muted-foreground">Where money is paid from, and what each account has left.</p>
-      </div>
-      <PaymentAccountsForm accounts={setup.data.accounts} />
-    </div>
-  )
+// Admin tree only, for the same reason as categories: configuring where money leaves from is
+// the admin's authority, and the write actions refuse an accountant regardless of the URL.
+export default async function PaymentAccountsPage({
+  searchParams,
+}: {
+  // Handed on whole rather than picked apart here: the screen's filters are checked in one
+  // place, so a page cannot quietly forget to pass one on.
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  return <PaymentAccountsView basePath="/dashboard/admin/expenditure" searchParams={await searchParams} />
 }

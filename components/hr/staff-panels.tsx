@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { formatNaira } from "@/lib/money"
+import { formatDocumentDate } from "@/lib/format"
 
 const NONE = "NONE"
 const today = () => new Date().toISOString().slice(0, 10)
@@ -105,7 +106,7 @@ export function SalaryPanel({
           <CardTitle>Salary</CardTitle>
           <CardDescription>
             {current
-              ? `${formatNaira(current.baseSalary)} from ${new Date(current.effectiveFrom).toLocaleDateString()}${
+              ? `${formatNaira(current.baseSalary)} from ${formatDocumentDate(current.effectiveFrom)}${
                   current.scaleName ? ` · ${current.scaleName}` : ""
                 }`
               : "No salary assigned — payroll will skip this person."}
@@ -184,7 +185,7 @@ export function SalaryPanel({
           <tbody>
             {history.map((salary) => (
               <tr key={salary.id} className="border-b last:border-0">
-                <td className="py-3 pr-4">{new Date(salary.effectiveFrom).toLocaleDateString()}</td>
+                <td className="py-3 pr-4">{formatDocumentDate(salary.effectiveFrom)}</td>
                 <td className="py-3 pr-4 font-medium">{formatNaira(salary.baseSalary)}</td>
                 <td className="py-3 pr-4">{salary.scaleName ?? "—"}</td>
                 <td className="py-3 pr-4">{salary.approvedByName ?? salary.createdByName}</td>
@@ -606,7 +607,7 @@ export function DisciplinePanel({
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium">{entry.type.toLowerCase()}</span>
               <span className="text-sm text-muted-foreground">
-                {new Date(entry.occurredOn).toLocaleDateString()} · {entry.recordedByName}
+                {formatDocumentDate(entry.occurredOn)} · {entry.recordedByName}
               </span>
             </div>
             <p className="mt-1 text-sm">{entry.reason}</p>
