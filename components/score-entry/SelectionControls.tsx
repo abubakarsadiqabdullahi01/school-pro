@@ -4,6 +4,7 @@ import { memo } from "react"
 import { Loader2 } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import type { ClassLevel } from "@prisma/client"
 
 interface SelectionControlsProps {
@@ -164,41 +165,29 @@ export const SelectionControls = memo(function SelectionControls({
         <Label htmlFor="subject" className="text-sm font-medium text-foreground">
           Subject
         </Label>
-        <Select value={form.subjectId} onValueChange={onSubjectChange} disabled={!form.classId || isLoadingSubjects}>
-          <SelectTrigger 
-              id="subject"
-              className="w-full min-h-10 bg-card border-border hover:border-border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-muted disabled:cursor-not-allowed"
-            >
-            {isLoadingSubjects ? (
-              <div className="flex items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <SelectValue placeholder="Select a subject" />
-            )}
-          </SelectTrigger>
-          <SelectContent className="max-h-60 overflow-y-auto bg-card border border-border shadow-lg rounded-md">
-            {subjects.map((subject) => (
-              <SelectItem 
-                key={subject.id} 
-                value={subject.id}
-                className="px-3 py-2 hover:bg-muted/50 focus:bg-muted/50 cursor-pointer transition-colors"
-              >
-                <div className="flex flex-col min-w-0">
-                  <span className="font-medium truncate">{subject.name}</span>
-                  <span className="text-xs text-muted-foreground truncate mt-0.5">
-                    {subject.code}
-                  </span>
-                </div>
-              </SelectItem>
-            ))}
-            {subjects.length === 0 && (
-              <SelectItem value="none" disabled className="px-3 py-2 text-muted-foreground cursor-not-allowed">
-                No subjects available
-              </SelectItem>
-            )}
-          </SelectContent>
-        </Select>
+        {/* Searchable: a senior class offers seven or eight subjects and a junior one
+            more, and typing three letters beats scrolling. The code is searched too, so
+            "BSC" finds Basic Science. */}
+        {isLoadingSubjects ? (
+          <div className="flex h-10 items-center justify-center rounded-md border border-border bg-muted">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <SearchableSelect
+            id="subject"
+            options={subjects.map((subject) => ({
+              value: subject.id,
+              label: subject.name,
+              hint: subject.code,
+            }))}
+            value={form.subjectId}
+            onChange={onSubjectChange}
+            disabled={!form.classId || subjects.length === 0}
+            placeholder={subjects.length === 0 ? "No subjects available" : "Select a subject"}
+            searchPlaceholder="Search subjects..."
+            emptyMessage="No subject matches that."
+          />
+        )}
       </div>
     </div>
   )

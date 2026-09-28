@@ -1,13 +1,14 @@
 "use client"
 
-import { useState } from "react"
-import { ChevronDown, Download, Edit, MoreHorizontal, Plus, Search, Trash2 } from "lucide-react"
+import { useMemo, useState } from "react"
+import { Download, Edit, MoreHorizontal, Plus, Search, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,15 +17,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination"
 import { useRouter } from "next/navigation"
 import {
   AlertDialog,
@@ -38,87 +30,103 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { deleteClass } from "@/app/actions/class-management"
+import { canDeleteClass } from "@/lib/class-rules"
+import { rowOpenHandler } from "@/lib/row-open"
 import type { ClassLevel } from "@prisma/client"
 
 interface Class {
   id: string
   name: string
   level: ClassLevel
-  schoolId: string
   schoolName: string
   schoolCode: string
   subjectsCount: number
   termsCount: number
-  feeStructuresCount: number
+  /** Every enrolment this class has ever carried, across all its terms — drives the delete rule. */
+  enrolments: number
+  /** Students on this class's roll for the current term — what the Students column shows. */
+  currentRoll: number
 }
 
 interface AllClassesTableProps {
   classes: Class[]
 }
 
+const LEVEL_LABELS: Record<ClassLevel, string> = {
+  PRIMARY: "Primary",
+  JSS: "Junior Secondary",
+  SSS: "Senior Secondary",
+}
+
+const PAGE_SIZES = [10, 25, 50, 100]
+
+/**
+ * Whether this class may be deleted.
+ *
+ * `recordedScores` is 0 rather than fetched: a score belongs to an enrolment and is deleted
+ * with it, so scores only exist where there are enrolments — and any enrolment already
+ * blocks the delete. The verdict is the one the server will reach; only its sentence is
+ * shorter, because the server can also count the results.
+ */
+function removalVerdict(cls: Class) {
+  return canDeleteClass({ enrolments: cls.enrolments, recordedScores: 0 })
+}
+
 export function AllClassesTable({ classes }: AllClassesTableProps) {
   const [searchQuery, setSearchQuery] = useState("")
+  const [levelFilter, setLevelFilter] = useState<ClassLevel | "ALL">("ALL")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [classToDelete, setClassToDelete] = useState<Class | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 10
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const router = useRouter()
 
-  // Filter classes based on search query
-  const filteredClasses = classes.filter(
-    (cls) =>
-      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.level.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.schoolName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.schoolCode.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  const filteredClasses = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase()
+    return classes.filter((cls) => {
+      if (levelFilter !== "ALL" && cls.level !== levelFilter) return false
+      if (!needle) return true
+      // The level is searched by its label, not its enum value — nobody types "SSS" looking
+      // for Senior Secondary after reading "Senior Secondary" in the column.
+      return (
+        cls.name.toLowerCase().includes(needle) ||
+        LEVEL_LABELS[cls.level].toLowerCase().includes(needle) ||
+        cls.level.toLowerCase().includes(needle)
+      )
+    })
+  }, [classes, searchQuery, levelFilter])
 
-  // Pagination logic
   const totalItems = filteredClasses.length
-  const totalPages = Math.ceil(totalItems / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedClasses = filteredClasses.slice(startIndex, endIndex)
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const page = Math.min(currentPage, totalPages)
+  const startIndex = (page - 1) * pageSize
+  const paginatedClasses = filteredClasses.slice(startIndex, startIndex + pageSize)
 
-  // Reset to first page when search query changes
   const handleSearchChange = (value: string) => {
     setSearchQuery(value)
     setCurrentPage(1)
   }
 
-  // Handle page change
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page)
+  const handleLevelChange = (value: string) => {
+    setLevelFilter(value as ClassLevel | "ALL")
+    setCurrentPage(1)
   }
 
-  // Handle edit class
-  const handleEditClass = (classId: string) => {
-    router.push(`/dashboard/admin/classes/edit/${classId}`)
-  }
+  const handleViewClass = (classId: string) => router.push(`/dashboard/admin/classes/${classId}`)
+  const handleEditClass = (classId: string) => router.push(`/dashboard/admin/classes/edit/${classId}`)
 
-  // Handle view class
-  const handleViewClass = (classId: string) => {
-    router.push(`/dashboard/admin/classes/${classId}`)
-  }
-
-  // Handle add class
-  const handleAddClass = () => {
-    router.push("/dashboard/admin/classes/create")
-  }
-
-  // Handle delete class
   const handleDeleteClass = async () => {
     if (!classToDelete) return
 
     try {
       setIsDeleting(true)
       await deleteClass(classToDelete.id)
-      toast.success("Class deleted successfully")
+      toast.success(`${classToDelete.name} deleted`)
       router.refresh()
     } catch (error) {
       console.error("Failed to delete class:", error)
-      toast.error("Failed to delete class")
+      toast.error(error instanceof Error ? error.message : "Failed to delete class")
     } finally {
       setIsDeleting(false)
       setDeleteDialogOpen(false)
@@ -126,39 +134,55 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
     }
   }
 
-  // Format class level for display
-  const formatClassLevel = (level: ClassLevel) => {
-    switch (level) {
-      case "PRIMARY":
-        return "Primary"
-      case "JSS":
-        return "Junior Secondary"
-      case "SSS":
-        return "Senior Secondary"
-      default:
-        return level
-    }
-  }
+  const isFiltered = searchQuery.trim() !== "" || levelFilter !== "ALL"
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:w-96">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search classes..."
-            className="w-full pl-8"
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-          />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search by class or section..."
+              className="w-full pl-8"
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+            />
+          </div>
+          <Select value={levelFilter} onValueChange={handleLevelChange}>
+            <SelectTrigger className="w-full sm:w-52">
+              <SelectValue placeholder="All sections" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All sections</SelectItem>
+              {(Object.keys(LEVEL_LABELS) as ClassLevel[]).map((level) => (
+                <SelectItem key={level} value={level}>
+                  {LEVEL_LABELS[level]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {isFiltered && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchQuery("")
+                setLevelFilter("ALL")
+                setCurrentPage(1)
+              }}
+            >
+              Clear
+            </Button>
+          )}
         </div>
         <div className="flex gap-2">
           <Button variant="outline">
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
-          <Button onClick={handleAddClass}>
+          <Button onClick={() => router.push("/dashboard/admin/classes/create")}>
             <Plus className="mr-2 h-4 w-4" />
             Add Class
           </Button>
@@ -170,16 +194,11 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="whitespace-nowrap">
-                  <div className="flex items-center gap-1">
-                    Class Name
-                    <ChevronDown className="h-4 w-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="whitespace-nowrap">Level</TableHead>
-                {/* <TableHead className="whitespace-nowrap">School</TableHead> */}
-                <TableHead className="whitespace-nowrap">Subjects</TableHead>
-                <TableHead className="whitespace-nowrap">Terms</TableHead>
+                <TableHead className="whitespace-nowrap">Class Name</TableHead>
+                <TableHead className="whitespace-nowrap">Section</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Students</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Subjects</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Terms</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -187,133 +206,124 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
               {paginatedClasses.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center">
-                    No classes found.
+                    {isFiltered ? "No classes match those filters." : "No classes yet."}
                   </TableCell>
                 </TableRow>
               ) : (
-                paginatedClasses.map((cls) => (
-                  <TableRow key={cls.id}>
-                    <TableCell className="font-medium">{cls.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{formatClassLevel(cls.level)}</Badge>
-                    </TableCell>
-                    {/* <TableCell>
-                      {cls.schoolName} <span className="text-xs text-muted-foreground">({cls.schoolCode})</span>
-                    </TableCell> */}
-                    <TableCell>{cls.subjectsCount} subject(s)</TableCell>
-                    <TableCell>{cls.termsCount} term(s)</TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Open menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onClick={() => handleViewClass(cls.id)}>View details</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEditClass(cls.id)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => {
-                              setClassToDelete(cls)
-                              setDeleteDialogOpen(true)
-                            }}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
+                paginatedClasses.map((cls) => {
+                  const verdict = removalVerdict(cls)
+                  return (
+                    <TableRow
+                      key={cls.id}
+                      className="cursor-pointer"
+                      onClick={rowOpenHandler(() => handleViewClass(cls.id))}
+                    >
+                      <TableCell className="font-medium">{cls.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{LEVEL_LABELS[cls.level]}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">{cls.currentRoll}</TableCell>
+                      <TableCell className="text-right">{cls.subjectsCount}</TableCell>
+                      <TableCell className="text-right">{cls.termsCount}</TableCell>
+                      <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Open menu</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => handleViewClass(cls.id)}>
+                              View details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleEditClass(cls.id)}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {verdict.allowed ? (
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => {
+                                  setClassToDelete(cls)
+                                  setDeleteDialogOpen(true)
+                                }}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            ) : (
+                              <>
+                                <DropdownMenuItem disabled>
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete
+                                </DropdownMenuItem>
+                                <p className="max-w-64 px-2 pb-1.5 pl-8 text-xs leading-snug text-muted-foreground">
+                                  {verdict.reason}
+                                </p>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
               )}
             </TableBody>
           </Table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-4 py-4 border-t">
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="text-sm text-muted-foreground">
-          Showing <span className="font-medium">{startIndex + 1}</span> to{" "}
-          <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{" "}
-          <span className="font-medium">{totalItems}</span> classes
-              </div>
+        {totalItems > 0 && (
+          <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Showing <span className="font-medium">{startIndex + 1}</span>–
+              <span className="font-medium">{Math.min(startIndex + pageSize, totalItems)}</span> of{" "}
+              <span className="font-medium">{totalItems}</span>
+              {isFiltered && ` (filtered from ${classes.length})`}
+            </p>
 
-              <div className="flex items-center justify-center">
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-            onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-            className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-            aria-label="Previous page"
-                />
-              </PaginationItem>
-
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pageNumber: number
-                if (totalPages <= 5) {
-            pageNumber = i + 1
-                } else if (currentPage <= 3) {
-            pageNumber = i + 1
-                } else if (currentPage >= totalPages - 2) {
-            pageNumber = totalPages - 4 + i
-                } else {
-            pageNumber = currentPage - 2 + i
-                }
-
-                if (pageNumber < 1 || pageNumber > totalPages) return null
-
-                return (
-            <PaginationItem key={pageNumber}>
-              <PaginationLink
-                onClick={() => handlePageChange(pageNumber)}
-                isActive={currentPage === pageNumber}
-                className="cursor-pointer px-3 py-1 rounded-md"
-                aria-label={`Page ${pageNumber}`}
+            <div className="flex items-center gap-2">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => {
+                  setPageSize(Number(value))
+                  setCurrentPage(1)
+                }}
               >
-                {pageNumber}
-              </PaginationLink>
-            </PaginationItem>
-                )
-              })}
+                <SelectTrigger className="h-8 w-[110px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZES.map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      {size} / page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-              {totalPages > 5 && currentPage < totalPages - 2 && (
-                <>
-            <PaginationItem>
-              <PaginationEllipsis />
-            </PaginationItem>
-            <PaginationItem>
-              <PaginationLink
-                onClick={() => handlePageChange(totalPages)}
-                className="cursor-pointer px-3 py-1 rounded-md"
-                aria-label={`Page ${totalPages}`}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(page - 1)}
+                disabled={page === 1}
               >
-                {totalPages}
-              </PaginationLink>
-            </PaginationItem>
-                </>
-              )}
-
-              <PaginationItem>
-                <PaginationNext
-            onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-            className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-            aria-label="Next page"
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-              </div>
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                {page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(page + 1)}
+                disabled={page === totalPages}
+              >
+                Next
+              </Button>
             </div>
           </div>
         )}
@@ -322,14 +332,13 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {classToDelete?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the class <span className="font-semibold">{classToDelete?.name}</span> from{" "}
-              <span className="font-semibold">{classToDelete?.schoolName}</span>.
-              <span className="block mt-2 text-destructive">
-                Warning: Deleting this class will also delete all related data including subjects, fee structures, and
-                other class-specific information.
-              </span>
+              This removes the class from{" "}
+              <span className="font-semibold">{classToDelete?.schoolName}</span> along with its{" "}
+              {classToDelete?.termsCount} class {classToDelete?.termsCount === 1 ? "term" : "terms"} and the
+              subjects assigned to them. No student is enrolled in it, so no results are affected. This cannot
+              be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -339,7 +348,7 @@ export function AllClassesTable({ classes }: AllClassesTableProps) {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? "Deleting..." : "Delete class"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -5,7 +5,21 @@ import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { Eye, EyeOff, Loader2, UserPlus, User, Shield, Mail, Phone, BookOpen, GraduationCap } from "lucide-react"
+import {
+  Eye,
+  EyeOff,
+  Loader2,
+  UserPlus,
+  User,
+  Shield,
+  Mail,
+  Phone,
+  BookOpen,
+  GraduationCap,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -15,8 +29,9 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { StateLgaFields } from "@/components/forms/state-lga-fields"
+import { cn } from "@/lib/utils"
 import { createTeacher } from "@/app/actions/teacher-management"
 
 // Define the form schema
@@ -39,6 +54,39 @@ const teacherFormSchema = z.object({
 
 type TeacherFormValues = z.infer<typeof teacherFormSchema>
 
+/**
+ * The wizard's steps, and which fields each one owns.
+ *
+ * `fields` is what gets validated before the step will let you move on. Keeping the list
+ * beside the step is what makes that possible — validating the whole form on every Next
+ * would reject step one for a staff ID the person has not been asked for yet.
+ */
+const STEPS = [
+  {
+    id: "personal",
+    title: "Personal Info",
+    description: "Basic personal details about the teacher",
+    icon: User,
+    fields: ["firstName", "lastName", "gender", "dateOfBirth", "address", "state", "lga"],
+  },
+  {
+    id: "professional",
+    title: "Professional",
+    description: "Teacher's professional details and qualifications",
+    icon: BookOpen,
+    fields: ["staffId", "department", "qualification"],
+  },
+  {
+    id: "credentials",
+    title: "Credentials",
+    description: "Set up the teacher's login and access",
+    icon: Shield,
+    fields: ["email", "phone", "generatePassword", "customPassword"],
+  },
+] as const
+
+type StepFields = (typeof STEPS)[number]["fields"][number]
+
 interface TeacherCreateFormProps {
   schoolId: string
   schoolName: string
@@ -48,7 +96,6 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const currentYear = new Date().getFullYear().toString()
 
   // Initialize form
   const form = useForm<TeacherFormValues>({
@@ -73,13 +120,31 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
 
   const generatePassword = form.watch("generatePassword")
 
+  const [step, setStep] = useState(0)
+  /** Steps the person has reached, so the stepper only lets them jump back, never skip ahead. */
+  const [furthestStep, setFurthestStep] = useState(0)
+  const isLastStep = step === STEPS.length - 1
+
+  const goNext = async () => {
+    // Only this step's fields, so an untouched later step cannot block progress.
+    const valid = await form.trigger(STEPS[step].fields as unknown as StepFields[], {
+      shouldFocus: true,
+    })
+    if (!valid) return
+    const next = Math.min(step + 1, STEPS.length - 1)
+    setStep(next)
+    setFurthestStep((prev) => Math.max(prev, next))
+  }
+
+  const goBack = () => setStep((prev) => Math.max(prev - 1, 0))
+
   // Handle form submission
   async function onSubmit(data: TeacherFormValues) {
     setIsSubmitting(true)
 
     try {
       // Determine password to use
-      const password = data.generatePassword ? currentYear : data.customPassword || currentYear
+      const password = data.generatePassword ? "" : data.customPassword || ""
 
       // Create credentials array if email is provided
       const credentials = []
@@ -110,11 +175,12 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
       })
 
       if (result.success) {
+        const issuedPassword = result.data?.temporaryPassword || "Generated securely"
         toast.success("Teacher Created Successfully", {
-          description: `Teacher ${data.firstName} ${data.lastName} has been created with default password: ${password}`,
+          description: `Teacher ${data.firstName} ${data.lastName} has been created. Temporary password: ${issuedPassword}`,
           action: {
             label: "Copy Password",
-            onClick: () => navigator.clipboard.writeText(password),
+            onClick: () => navigator.clipboard.writeText(issuedPassword),
           },
           duration: 10000,
         })
@@ -149,25 +215,85 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
         </div>
       </div>
 
-      <Tabs defaultValue="personal" className="w-full">
-        <TabsList className="grid grid-cols-3 mb-6">
-          <TabsTrigger value="personal">
-            <User className="h-4 w-4 mr-2" />
-            Personal Info
-          </TabsTrigger>
-          <TabsTrigger value="professional">
-            <BookOpen className="h-4 w-4 mr-2" />
-            Professional
-          </TabsTrigger>
-          <TabsTrigger value="credentials">
-            <Shield className="h-4 w-4 mr-2" />
-            Credentials
-          </TabsTrigger>
-        </TabsList>
+      {/* Stepper. Completed steps are clickable so somebody can go back and correct an
+          answer; steps ahead are not, because they have not been validated into yet. */}
+      <nav aria-label="Progress" className="mb-6">
+        <ol className="flex items-center">
+          {STEPS.map((entry, index) => {
+            const isComplete = index < step
+            const isCurrent = index === step
+            const canVisit = index <= furthestStep
+            const Icon = entry.icon
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <TabsContent value="personal" className="space-y-6">
+            return (
+              <li key={entry.id} className={cn("flex items-center", index < STEPS.length - 1 && "flex-1")}>
+                <button
+                  type="button"
+                  onClick={() => canVisit && setStep(index)}
+                  disabled={!canVisit}
+                  aria-current={isCurrent ? "step" : undefined}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-2 py-1 text-left transition-colors",
+                    canVisit ? "cursor-pointer hover:bg-muted" : "cursor-not-allowed",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors",
+                      isComplete && "border-primary bg-primary text-primary-foreground",
+                      isCurrent && "border-primary text-primary ring-2 ring-primary/20",
+                      !isComplete && !isCurrent && "border-muted-foreground/30 text-muted-foreground",
+                    )}
+                  >
+                    {isComplete ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                  </span>
+                  <span className="hidden sm:block">
+                    <span
+                      className={cn(
+                        "block text-xs font-medium uppercase tracking-wide",
+                        isCurrent ? "text-primary" : "text-muted-foreground",
+                      )}
+                    >
+                      Step {index + 1}
+                    </span>
+                    <span
+                      className={cn(
+                        "block text-sm font-medium",
+                        isCurrent || isComplete ? "text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {entry.title}
+                    </span>
+                  </span>
+                </button>
+
+                {index < STEPS.length - 1 && (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "mx-2 hidden h-px flex-1 sm:block",
+                      index < step ? "bg-primary" : "bg-border",
+                    )}
+                  />
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      </nav>
+
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          // Enter inside a field would otherwise submit the whole form from step one,
+          // creating a teacher before the staff ID has even been asked for.
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !isLastStep) event.preventDefault()
+          }}
+          className="space-y-6"
+        >
+            {step === 0 && (
+            <div className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Personal Information</CardTitle>
@@ -264,39 +390,15 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
                   />
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="state"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>State</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Enter state" {...field} value={field.value || ""} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="lga"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Local Government Area</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Enter LGA" {...field} value={field.value || ""} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <StateLgaFields form={form} stateName="state" lgaName="lga" />
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
+            </div>
+            )}
 
-            <TabsContent value="professional" className="space-y-6">
+            {step === 1 && (
+            <div className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Professional Information</CardTitle>
@@ -349,9 +451,11 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
                   />
                 </CardContent>
               </Card>
-            </TabsContent>
+            </div>
+            )}
 
-            <TabsContent value="credentials" className="space-y-6">
+            {step === 2 && (
+            <div className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Login Credentials</CardTitle>
@@ -404,7 +508,7 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
                           <div className="space-y-0.5">
                             <FormLabel className="text-base">Generate Default Password</FormLabel>
                             <FormDescription>
-                              Use the current year ({currentYear}) as default password
+                              Generate a secure temporary password automatically
                             </FormDescription>
                           </div>
                           <FormControl>
@@ -465,11 +569,11 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
                           <Shield className="h-4 w-4 text-primary" />
                           <span className="font-medium">Default Password:</span>
                           <Badge variant="outline" className="font-mono">
-                            {currentYear}
+                            Secure password generated after account creation
                           </Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mt-2">
-                          Teacher will use the current year as their initial password. 
+                          The temporary password is shown once after account creation.
                           They will be prompted to change it on first login.
                         </p>
                       </div>
@@ -477,29 +581,63 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
+            </div>
+            )}
 
-            <div className="flex justify-between gap-4 pt-6 border-t">
-              <Button type="button" variant="outline" onClick={() => router.push("/dashboard/admin/teachers")}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting} className="min-w-32">
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Create Teacher
-                  </>
+            <div className="flex items-center justify-between gap-4 border-t pt-6">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push("/dashboard/admin/teachers")}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                {step > 0 && (
+                  <Button type="button" variant="ghost" onClick={goBack} disabled={isSubmitting}>
+                    <ChevronLeft className="mr-1 h-4 w-4" />
+                    Back
+                  </Button>
                 )}
-              </Button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="hidden text-sm text-muted-foreground tabular-nums sm:block">
+                  Step {step + 1} of {STEPS.length}
+                </span>
+                {/* The submit button exists only on the last step. Rendering it throughout
+                    and hiding it would still let a stray Enter or a screen reader fire it.
+                    The `key`s are load-bearing: without them React sees one <button> replaced
+                    by another in the same slot and reuses the DOM node, so clicking "Next" on
+                    the second-to-last step flipped that very node's type to "submit" before
+                    the browser ran the click's default action — advancing a step and
+                    submitting the form in a single click. Distinct keys force a real
+                    unmount/mount, so the node the browser is acting on is still type="button". */}
+                {isLastStep ? (
+                  <Button key="submit" type="submit" disabled={isSubmitting} className="min-w-32">
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="mr-2 h-4 w-4" />
+                        Create Teacher
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <Button key="next" type="button" onClick={goNext} className="min-w-32">
+                    Next
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </div>
           </form>
         </Form>
-      </Tabs>
     </div>
   )
 }

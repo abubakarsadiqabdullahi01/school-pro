@@ -55,6 +55,7 @@ import {
   unassignTeacherFromClass,
   unassignTeacherFromSubject,
 } from "@/app/actions/teacher-assignment";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface Teacher {
   id: string;
@@ -300,9 +301,12 @@ export function AssignmentsManager({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">
-            Assignments for {teacher.fullName}
-          </h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-2xl font-bold tracking-tight">
+              Assignments for {teacher.fullName}
+            </h2>
+            <InfoGuide guideKey="admin.teacherAssignment" />
+          </div>
           <p className="text-muted-foreground">
             Manage class and subject assignments for this teacher
           </p>

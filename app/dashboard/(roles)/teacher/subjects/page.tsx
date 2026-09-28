@@ -4,6 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition";
 import { TeacherSubjectsView } from "@/components/teacher/teacher-subjects-view";
 import Image from "next/image";
 import { requireTeacher } from "@/lib/authz";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function TeacherSubjectsPage() {
   const actor = await requireTeacher().catch(() => null);
@@ -272,9 +273,12 @@ export default async function TeacherSubjectsPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">
-                My Teaching Assignments
-              </h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-3xl font-bold tracking-tight text-foreground">
+                  My Teaching Assignments
+                </h1>
+                <InfoGuide guideKey="teacher.subjects" />
+              </div>
               <p className="text-lg text-muted-foreground mt-1">
                 Current term subjects and classes assigned to you
               </p>

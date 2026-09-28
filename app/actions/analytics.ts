@@ -1,14 +1,11 @@
 "use server"
 
-import { auth } from "@/auth"
+import { requireRole } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 
 export async function getSystemAnalytics() {
   try {
-    const session = await auth()
-    if (!session?.user || session.user.role !== "SUPER_ADMIN") {
-      return { success: false, error: "Unauthorized" }
-    }
+    await requireRole("SUPER_ADMIN")
 
     // Total counts
     const [

@@ -9,9 +9,10 @@ import { CalendarRange, ArrowLeft, Edit, Plus } from "lucide-react"
 import Link from "next/link"
 import { AdminTermsTable } from "@/components/session-management/admin-terms-table"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminSessionDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { schoolId } = await requireAdminSchool("academics.manage")
+  const { actor, schoolId } = await requireAdminSchool("academics.manage")
   const { id } = await params
 
   const sessionData = await prisma.session.findFirst({
@@ -57,7 +58,10 @@ export default async function AdminSessionDetailsPage({ params }: { params: Prom
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">{sessionData.name}</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">{sessionData.name}</h2>
+              <InfoGuide guideKey="admin.sessions" />
+            </div>
             <p className="text-muted-foreground">
               Academic session for {sessionData.school.name} ({sessionData.school.code})
             </p>
@@ -137,7 +141,7 @@ export default async function AdminSessionDetailsPage({ params }: { params: Prom
               </Button>
             </CardHeader>
             <CardContent>
-              <AdminTermsTable terms={formattedTerms} sessionId={sessionData.id} />
+              <AdminTermsTable terms={formattedTerms} sessionId={sessionData.id} viewerRole={actor?.role} />
             </CardContent>
           </Card>
         </div>

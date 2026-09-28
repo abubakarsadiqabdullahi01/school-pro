@@ -4,6 +4,7 @@ import { getActiveSchool } from "@/lib/school-context.server"
 import { schoolLabel } from "@/lib/school-context"
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function TeacherUsersPage() {
   const session = await auth()
@@ -46,7 +47,10 @@ export default async function TeacherUsersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">Teacher Users</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-3xl font-bold tracking-tight">Teacher Users</h2>
+          <InfoGuide guideKey="superAdmin.users" />
+        </div>
         <p className="text-muted-foreground">
           {activeSchool ? `Teacher accounts at ${schoolLabel(activeSchool)}` : "Manage teacher accounts in the system"}
         </p>

@@ -3,6 +3,7 @@
 import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { revokeAllSessionsForUser } from "@/lib/sessions.server"
+import { generateTemporaryPassword } from "@/lib/temporary-password"
 import { revalidatePath } from "next/cache"
 import bcrypt from "bcryptjs"
 import { Gender } from "@prisma/client"
@@ -293,7 +294,7 @@ export async function createAdminUser(data: {
       })
 
       // Create credential with default password (current year)
-      const defaultPassword = new Date().getFullYear().toString()
+      const defaultPassword = generateTemporaryPassword()
       const passwordHash = await bcrypt.hash(defaultPassword, 10)
 
       await tx.credential.create({
@@ -560,13 +561,14 @@ export async function resetAdminPassword(adminId: string) {
       return { success: false, error: "Admin not found" }
     }
 
-    const newPassword = "password123" // A default password, consider generating a random one
+    const newPassword = generateTemporaryPassword()
     const passwordHash = await bcrypt.hash(newPassword, 10)
 
     await prisma.credential.update({
       where: { userId_type: { userId: admin.userId, type: "EMAIL" } },
       data: { passwordHash },
     })
+    await revokeAllSessionsForUser(admin.userId)
 
     revalidatePath(`/dashboard/super-admin/users/admins/${adminId}`)
 

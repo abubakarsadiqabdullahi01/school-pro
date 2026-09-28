@@ -1,7 +1,7 @@
 // components/teacher-management/teacher-details.tsx
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -22,6 +22,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ResetPasswordDialog } from "@/components/auth/reset-password-dialog";
 import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,7 @@ import {
   deleteTeacher,
   resetTeacherPassword,
 } from "@/app/actions/teacher-management";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface ClassInfo {
   id: string;
@@ -134,43 +136,250 @@ interface TeacherDetailsProps {
   teacher: Teacher;
 }
 
+/** One assignment row, whether it came from a class or a subject. */
+interface AssignmentRow {
+  /** The id `onUnassign` is called with — a classTermId or a subject assignment id. */
+  id: string;
+  title: string;
+  subtitle: string;
+  termLabel: string;
+  isCurrent: boolean;
+}
+
+const PAGE_SIZE = 5;
+
+/**
+ * A teacher's assignments, searchable, filterable by term and paged.
+ *
+ * Both panels used to print every row they had. A teacher carrying three terms of history
+ * had 21 subject rows stacked down the page, which pushed the basic information card below
+ * two screens of scrolling and made the current term — the only part anyone usually wants —
+ * no easier to find than the rest.
+ *
+ * Current-term rows still sort to the top and keep their accent, so the default view answers
+ * "what are they teaching now" without touching the controls.
+ */
+function AssignmentPanel({
+  icon,
+  title,
+  rows,
+  termBadge,
+  manageLabel,
+  onManage,
+  onUnassign,
+  emptyIcon,
+  emptyText,
+  emptyActionLabel,
+  accentClass,
+  searchPlaceholder,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  rows: AssignmentRow[];
+  termBadge?: string;
+  manageLabel: string;
+  onManage: () => void;
+  onUnassign: (row: AssignmentRow) => void;
+  emptyIcon: React.ReactNode;
+  emptyText: string;
+  emptyActionLabel: string;
+  accentClass: string;
+  searchPlaceholder: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [termFilter, setTermFilter] = useState("ALL");
+  const [page, setPage] = useState(0);
+
+  const terms = useMemo(
+    () => [...new Set(rows.map((row) => row.termLabel))],
+    [rows],
+  );
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const matched = rows.filter((row) => {
+      if (termFilter === "CURRENT" && !row.isCurrent) return false;
+      if (termFilter !== "ALL" && termFilter !== "CURRENT" && row.termLabel !== termFilter) {
+        return false;
+      }
+      if (!needle) return true;
+      return (
+        row.title.toLowerCase().includes(needle) ||
+        row.subtitle.toLowerCase().includes(needle)
+      );
+    });
+
+    // Current term first, then alphabetically — so the useful rows are on page one.
+    return matched.sort((a, b) => {
+      if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+      return a.title.localeCompare(b.title);
+    });
+  }, [rows, query, termFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // A filter that shortens the list can leave the cursor past the end.
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  const resetTo = (fn: () => void) => {
+    fn();
+    setPage(0);
+  };
+
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {icon}
+          <CardTitle className="text-base">
+            {title} ({rows.length})
+          </CardTitle>
+          {termBadge && (
+            <Badge variant="secondary" className="text-xs">
+              {termBadge}
+            </Badge>
+          )}
+        </div>
+        <Button variant="outline" size="sm" onClick={onManage} className="shrink-0">
+          <Plus className="mr-2 h-4 w-4" />
+          {manageLabel}
+        </Button>
+      </CardHeader>
+
+      <CardContent className="flex flex-1 flex-col gap-3">
+        {rows.length === 0 ? (
+          <div className="py-8 text-center text-muted-foreground">
+            {emptyIcon}
+            <p className="text-lg">{emptyText}</p>
+            <Button variant="outline" size="sm" onClick={onManage} className="mt-2">
+              <Plus className="mr-2 h-4 w-4" />
+              {emptyActionLabel}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => resetTo(() => setQuery(event.target.value))}
+                  placeholder={searchPlaceholder}
+                  className="h-9 pl-8"
+                />
+              </div>
+              <Select
+                value={termFilter}
+                onValueChange={(value) => resetTo(() => setTermFilter(value))}
+              >
+                <SelectTrigger className="h-9 w-full sm:w-[190px]">
+                  <Filter className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                  <SelectValue placeholder="All terms" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All terms</SelectItem>
+                  <SelectItem value="CURRENT">Current term only</SelectItem>
+                  {terms.map((term) => (
+                    <SelectItem key={term} value={term}>
+                      {term}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {visible.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Nothing matches that search.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {visible.map((row) => (
+                  <div
+                    key={row.id}
+                    className={`flex items-center justify-between gap-2 rounded-md border p-2.5 ${
+                      row.isCurrent ? accentClass : "bg-muted/40"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{row.title}</p>
+                      <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>
+                    </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={
+                              row.isCurrent
+                                ? "h-6 w-6 shrink-0 text-destructive"
+                                : "h-6 w-6 shrink-0 cursor-not-allowed text-muted-foreground"
+                            }
+                            disabled={!row.isCurrent}
+                            onClick={() => onUnassign(row)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            {row.isCurrent
+                              ? "Remove this assignment"
+                              : "Past terms are kept as history and cannot be changed"}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-auto flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
+              <span className="tabular-nums">
+                {filtered.length === 0
+                  ? "No results"
+                  : `${safePage * PAGE_SIZE + 1}–${Math.min(
+                      (safePage + 1) * PAGE_SIZE,
+                      filtered.length,
+                    )} of ${filtered.length}`}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={safePage === 0}
+                  onClick={() => setPage(safePage - 1)}
+                >
+                  Previous
+                </Button>
+                <span className="px-1 tabular-nums">
+                  {safePage + 1} / {pageCount}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={safePage >= pageCount - 1}
+                  onClick={() => setPage(safePage + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function TeacherDetails({ teacher }: TeacherDetailsProps) {
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isResetPasswordDialogOpen, setIsResetPasswordDialogOpen] =
-    useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isResettingPassword, setIsResettingPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-
-  // Handle password reset
-  const handlePasswordReset = async () => {
-    setIsResettingPassword(true);
-    try {
-      const result = await resetTeacherPassword(teacher.id);
-
-      if (result.success) {
-        setNewPassword(result.data?.newPassword || "");
-        setShowNewPassword(true);
-        toast.success("Password Reset", {
-          description: "Teacher password has been successfully reset.",
-        });
-      } else {
-        toast.error("Reset Failed", {
-          description:
-            result.error || "Failed to reset password. Please try again.",
-        });
-      }
-    } catch (error) {
-      console.error("Error resetting password:", error);
-      toast.error("Reset Failed", {
-        description: "An unexpected error occurred. Please try again.",
-      });
-    } finally {
-      setIsResettingPassword(false);
-    }
-  };
 
   // Handle teacher deletion
   const handleDeleteClick = () => {
@@ -303,23 +512,37 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">
-            {teacher.fullName}
-          </h2>
-          <p className="text-muted-foreground">
-            <span className="font-medium">Staff ID: </span>
-            {teacher.staffId} •{" "}
-            <span className="font-medium">{teacher.school.name}</span>
-            {currentTerm && (
-              <Badge
-                variant="secondary"
-                className="ml-2 bg-blue-500/10 text-blue-700 dark:text-blue-400"
-              >
-                Current Term: {currentTerm}
-              </Badge>
-            )}
-          </p>
+        <div className="flex items-center gap-4">
+          {/* Avatar was imported here but never rendered, so a teacher's photo could be
+              uploaded and then shown nowhere on their own page. Initials keep the header
+              the same shape when there is no photo. */}
+          <Avatar className="h-16 w-16 border">
+            <AvatarImage src={teacher.avatarUrl} alt="" />
+            <AvatarFallback className="text-lg">
+              {`${teacher.firstName[0] ?? ""}${teacher.lastName[0] ?? ""}`.toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">
+                {teacher.fullName}
+              </h2>
+              <InfoGuide guideKey="admin.teachers" />
+            </div>
+            <p className="text-muted-foreground">
+              <span className="font-medium">Staff ID: </span>
+              {teacher.staffId} •{" "}
+              <span className="font-medium">{teacher.school.name}</span>
+              {currentTerm && (
+                <Badge
+                  variant="secondary"
+                  className="ml-2 bg-blue-500/10 text-blue-700 dark:text-blue-400"
+                >
+                  Current Term: {currentTerm}
+                </Badge>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" asChild>
@@ -328,425 +551,124 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
               Edit Teacher
             </Link>
           </Button>
-          <Dialog
-            open={isResetPasswordDialogOpen}
-            onOpenChange={setIsResetPasswordDialogOpen}
-          >
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Key className="mr-2 h-4 w-4" />
-                Reset Password
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  Reset Password for {teacher.firstName}
-                </DialogTitle>
-                <DialogDescription>
-                  This will reset the teacher's password to a temporary value.
-                  They will be required to change it on their first login.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Are you sure you want to proceed?
-                  </p>
-                  {showNewPassword && (
-                    <div className="p-3 bg-muted rounded-md space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">Temporary Password:</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => copyToClipboard(newPassword)}
-                        >
-                          Copy
-                        </Button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm bg-background px-2 py-1 rounded border">
-                          {newPassword}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowNewPassword(false)}
-                        >
-                          Hide
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsResetPasswordDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handlePasswordReset}
-                  disabled={isResettingPassword}
-                  className="gap-2"
-                >
-                  {isResettingPassword ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Resetting...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Reset Password
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <ResetPasswordDialog
+            personName={teacher.firstName}
+            onReset={() => resetTeacherPassword(teacher.id)}
+            passwordKind="generated"
+          />
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <Card className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      {/* Quick stats. Deliberately small: four numbers do not need a quarter of the screen,
+          and the assignment panels below are what the page is actually for. The outer Card
+          that used to wrap these was drawing a second border around four bordered cards. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card className="bg-muted/50">
-          <CardContent className="p-6 text-center">
-            <div className="text-3xl font-bold text-primary">
-              {totalClasses}
+          <CardContent className="flex items-center justify-between gap-2 p-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Classes
+              </p>
+              <p className="text-xl font-bold leading-tight text-primary tabular-nums">
+                {totalClasses}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground uppercase font-semibold">
-              Total Classes
-            </p>
-            <div className="flex items-center justify-center gap-2 mt-2">
-              {currentTermClasses.length > 0 && (
-                <Badge className="bg-green-500/10 text-green-700 dark:text-green-400">
-                  {currentTermClasses.length} Current
-                </Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-muted/50">
-          <CardContent className="p-6 text-center">
-            <div className="text-3xl font-bold text-primary">
-              {totalSubjects}
-            </div>
-            <p className="text-xs text-muted-foreground uppercase font-semibold">
-              Total Subjects
-            </p>
-            {currentTermSubjects.length > 0 && (
-              <div className="flex items-center justify-center gap-2 mt-2">
-                <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-400">
-                  {currentTermSubjects.length} Current
-                </Badge>
-              </div>
+            {currentTermClasses.length > 0 && (
+              <Badge className="shrink-0 bg-green-500/10 text-xs text-green-700 dark:text-green-400">
+                {currentTermClasses.length} now
+              </Badge>
             )}
           </CardContent>
         </Card>
+
         <Card className="bg-muted/50">
-          <CardContent className="p-6 text-center">
-            <div className="text-3xl font-bold text-primary">
-              {teacher.assessmentsCount}
+          <CardContent className="flex items-center justify-between gap-2 p-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Subjects
+              </p>
+              <p className="text-xl font-bold leading-tight text-primary tabular-nums">
+                {totalSubjects}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground uppercase font-semibold">
+            {currentTermSubjects.length > 0 && (
+              <Badge className="shrink-0 bg-blue-500/10 text-xs text-blue-700 dark:text-blue-400">
+                {currentTermSubjects.length} now
+              </Badge>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-muted/50">
+          <CardContent className="p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Assessments
             </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-muted/50">
-          <CardContent className="p-6 text-center">
-            <div className="text-3xl font-bold text-primary">
-              {format(new Date(teacher.createdAt), "MMM yyyy")}
-            </div>
-            <p className="text-xs text-muted-foreground uppercase font-semibold">
-              Joined
+            <p className="text-xl font-bold leading-tight text-primary tabular-nums">
+              {teacher.assessmentsCount}
             </p>
           </CardContent>
         </Card>
-      </Card>
 
-      {/* Classes and Subjects Overview */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Classes */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              <CardTitle>Assigned Classes ({totalClasses})</CardTitle>
-              {currentTerm && (
-                <Badge variant="secondary" className="text-xs">
-                  {currentTerm}
-                </Badge>
-              )}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                router.push(
-                  `/dashboard/admin/teachers/${teacher.id}/assign-class`,
-                )
-              }
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Manage Classes
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {teacher.classes.length > 0 ? (
-              <div className="space-y-2">
-                {currentTermClasses.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="font-medium text-sm uppercase text-muted-foreground mb-2">
-                      Current Term Classes
-                    </h4>
-                    <div className="space-y-2">
-                      {currentTermClasses.map((cls) => (
-                        <div
-                          key={cls.id}
-                          className="flex items-center justify-between p-3 bg-green-50 border rounded-md"
-                        >
-                          <div className="flex flex-col">
-                            <span className="font-medium">{cls.className}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {cls.termName} - {cls.sessionName}
-                            </span>
-                          </div>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive h-6 w-6"
-                                  onClick={() =>
-                                    handleUnassignClass(
-                                      cls.id,
-                                      cls.className,
-                                      cls.isCurrent || false,
-                                    )
-                                  }
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Remove class assignment</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {teacher.classes.filter((c) => !c.isCurrent).length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-sm uppercase text-muted-foreground mb-2">
-                      Other Terms
-                    </h4>
-                    <div className="space-y-2">
-                      {teacher.classes
-                        .filter((c) => !c.isCurrent)
-                        .map((cls) => (
-                          <div
-                            key={cls.id}
-                            className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                          >
-                            <div className="flex flex-col">
-                              <span className="font-medium text-sm">
-                                {cls.className}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {cls.termName} - {cls.sessionName}
-                              </span>
-                            </div>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-muted-foreground h-6 w-6 cursor-not-allowed"
-                                    disabled
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Cannot remove past term assignments</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg">No classes assigned</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    router.push(
-                      `/dashboard/admin/teachers/${teacher.id}/assign-class`,
-                    )
-                  }
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Assign Class
-                </Button>
-              </div>
-            )}
+        <Card className="bg-muted/50">
+          <CardContent className="p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Joined
+            </p>
+            <p className="text-xl font-bold leading-tight text-primary">
+              {format(new Date(teacher.createdAt), "MMM yyyy")}
+            </p>
           </CardContent>
         </Card>
+      </div>
 
-        {/* Subjects */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4" />
-              <CardTitle>Assigned Subjects ({totalSubjects})</CardTitle>
-              {currentTerm && (
-                <Badge variant="secondary" className="text-xs">
-                  {currentTerm}
-                </Badge>
-              )}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                router.push(
-                  `/dashboard/admin/teachers/${teacher.id}/assign-subject`,
-                )
-              }
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Manage Subjects
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {teacher.subjects.length > 0 ? (
-              <div className="space-y-2">
-                {currentTermSubjects.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="font-medium text-sm uppercase text-muted-foreground mb-2">
-                      Current Term Subjects
-                    </h4>
-                    <div className="space-y-2">
-                      {currentTermSubjects.map((sub) => (
-                        <div
-                          key={sub.id}
-                          className="flex items-center justify-between p-3 bg-blue-50 border rounded-md"
-                        >
-                          <div className="flex flex-col">
-                            <span className="font-medium">{sub.name}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {sub.code} - {sub.termName}
-                            </span>
-                          </div>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive h-6 w-6"
-                                  onClick={() =>
-                                    handleUnassignSubject(
-                                      sub.id,
-                                      sub.name,
-                                      sub.isCurrent,
-                                    )
-                                  }
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Remove subject assignment</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {teacher.subjects.filter((s) => !s.isCurrent).length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-sm uppercase text-muted-foreground mb-2">
-                      Other Terms
-                    </h4>
-                    <div className="space-y-2">
-                      {teacher.subjects
-                        .filter((s) => !s.isCurrent)
-                        .map((sub) => (
-                          <div
-                            key={sub.id}
-                            className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                          >
-                            <div className="flex flex-col">
-                              <span className="font-medium text-sm">
-                                {sub.name}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {sub.code} - {sub.termName}
-                              </span>
-                            </div>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-muted-foreground h-6 w-6 cursor-not-allowed"
-                                    disabled
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Cannot remove past term assignments</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg">No subjects assigned</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    router.push(
-                      `/dashboard/admin/teachers/${teacher.id}/assign-subject`,
-                    )
-                  }
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Assign Subject
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Classes and Subjects */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <AssignmentPanel
+          icon={<Calendar className="h-4 w-4" />}
+          title="Assigned Classes"
+          termBadge={currentTerm}
+          rows={teacher.classes.map((cls) => ({
+            id: cls.id,
+            title: cls.className,
+            subtitle: `${cls.termName} · ${cls.sessionName}`,
+            termLabel: `${cls.termName} · ${cls.sessionName}`,
+            isCurrent: Boolean(cls.isCurrent),
+          }))}
+          manageLabel="Manage Classes"
+          onManage={() =>
+            router.push(`/dashboard/admin/teachers/${teacher.id}/assign-class`)
+          }
+          onUnassign={(row) => handleUnassignClass(row.id, row.title, row.isCurrent)}
+          emptyIcon={<Calendar className="mx-auto mb-4 h-12 w-12 opacity-50" />}
+          emptyText="No classes assigned"
+          emptyActionLabel="Assign Class"
+          accentClass="border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/40"
+          searchPlaceholder="Search classes..."
+        />
+
+        <AssignmentPanel
+          icon={<BookOpen className="h-4 w-4" />}
+          title="Assigned Subjects"
+          termBadge={currentTerm}
+          rows={teacher.subjects.map((sub) => ({
+            id: sub.id,
+            title: sub.name,
+            subtitle: `${sub.code} · ${sub.termName} · ${sub.sessionName}`,
+            termLabel: `${sub.termName} · ${sub.sessionName}`,
+            isCurrent: sub.isCurrent,
+          }))}
+          manageLabel="Manage Subjects"
+          onManage={() =>
+            router.push(`/dashboard/admin/teachers/${teacher.id}/assign-subject`)
+          }
+          onUnassign={(row) => handleUnassignSubject(row.id, row.title, row.isCurrent)}
+          emptyIcon={<BookOpen className="mx-auto mb-4 h-12 w-12 opacity-50" />}
+          emptyText="No subjects assigned"
+          emptyActionLabel="Assign Subject"
+          accentClass="border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/40"
+          searchPlaceholder="Search subjects..."
+        />
       </div>
 
       {/* Basic Information */}

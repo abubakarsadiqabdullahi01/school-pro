@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { createSubject, updateSubject } from "@/app/actions/subject-management"
+import { canUseSubjectCode, canUseSubjectName } from "@/lib/subject-rules"
 
 // Define the form schema with validation
 const subjectFormSchema = z.object({
@@ -36,6 +37,8 @@ type SubjectFormValues = z.infer<typeof subjectFormSchema>
 
 interface SubjectFormProps {
   schoolId: string
+  /** Names and codes already in the school, so a clash is caught while typing. */
+  existing?: { name: string; code: string }[]
   subjectData?: {
     id: string
     name: string
@@ -43,7 +46,7 @@ interface SubjectFormProps {
   }
 }
 
-export function SubjectForm({ schoolId, subjectData }: SubjectFormProps) {
+export function SubjectForm({ schoolId, existing = [], subjectData }: SubjectFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
   const isEditMode = !!subjectData
@@ -56,7 +59,32 @@ export function SubjectForm({ schoolId, subjectData }: SubjectFormProps) {
     },
   })
 
+  // Both checked as they are typed. The server enforces the same rules; this is so nobody
+  // fills the form in only to be told the code was taken.
+  const typedName = form.watch("name") ?? ""
+  const typedCode = form.watch("code") ?? ""
+  const nameVerdict = canUseSubjectName(
+    typedName,
+    existing.map((item) => item.name),
+    subjectData?.name,
+  )
+  const codeVerdict = canUseSubjectCode(
+    typedCode,
+    existing.map((item) => item.code),
+    subjectData?.code,
+  )
+  const blocked = !nameVerdict.allowed || !codeVerdict.allowed
+
   async function onSubmit(data: SubjectFormValues) {
+    if (!nameVerdict.allowed) {
+      form.setError("name", { message: nameVerdict.reason })
+      return
+    }
+    if (!codeVerdict.allowed) {
+      form.setError("code", { message: codeVerdict.reason })
+      return
+    }
+
     setIsLoading(true)
 
     try {
@@ -67,7 +95,7 @@ export function SubjectForm({ schoolId, subjectData }: SubjectFormProps) {
         })
         toast.success("Subject updated successfully")
       } else {
-        const result = await createSubject({
+        await createSubject({
           ...data,
           schoolId,
         })
@@ -105,9 +133,17 @@ export function SubjectForm({ schoolId, subjectData }: SubjectFormProps) {
                     Subject Name <span className="text-destructive">*</span>
                   </FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Mathematics, English, Physics, etc." {...field} />
+                    <Input
+                      placeholder="e.g., Mathematics, English Language, Physics"
+                      aria-invalid={!nameVerdict.allowed}
+                      {...field}
+                    />
                   </FormControl>
-                  <FormDescription>Enter a descriptive name for the subject</FormDescription>
+                  {nameVerdict.allowed ? (
+                    <FormDescription>Must be unique within the school.</FormDescription>
+                  ) : (
+                    <p className="text-sm font-medium text-destructive">{nameVerdict.reason}</p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -122,11 +158,20 @@ export function SubjectForm({ schoolId, subjectData }: SubjectFormProps) {
                     Subject Code <span className="text-destructive">*</span>
                   </FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., MATH, ENG, PHY, etc." {...field} />
+                    <Input
+                      placeholder="e.g., MTH, ENG, PHY"
+                      aria-invalid={!codeVerdict.allowed}
+                      {...field}
+                      onChange={(event) => field.onChange(event.target.value.toUpperCase())}
+                    />
                   </FormControl>
-                  <FormDescription>
-                    Enter a unique code for the subject (uppercase letters and numbers only)
-                  </FormDescription>
+                  {codeVerdict.allowed ? (
+                    <FormDescription>
+                      Uppercase letters and numbers only — this is what appears on the report card.
+                    </FormDescription>
+                  ) : (
+                    <p className="text-sm font-medium text-destructive">{codeVerdict.reason}</p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -136,7 +181,7 @@ export function SubjectForm({ schoolId, subjectData }: SubjectFormProps) {
             <Button type="button" variant="outline" onClick={() => router.push("/dashboard/admin/subjects")}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" disabled={isLoading || blocked}>
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

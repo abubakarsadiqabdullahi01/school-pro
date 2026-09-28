@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { updateSchoolInformation } from "@/app/actions/school-settings"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { formatDocumentDate } from "@/lib/format"
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -358,7 +359,7 @@ export function SchoolInformationForm({ data }: SchoolInformationFormProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ReadOnlyInfo label="School Name" value={data.school.name} />
             <ReadOnlyInfo label="School Code" value={data.school.code} mono />
-            <ReadOnlyInfo label="Registration Date" value={new Date(data.school.createdAt).toLocaleDateString()} />
+            <ReadOnlyInfo label="Registration Date" value={formatDocumentDate(data.school.createdAt)} />
             <ReadOnlyInfo
               label="Status"
               value={<Badge variant={data.school.isActive ? "default" : "secondary"}>{data.school.isActive ? "Active" : "Inactive"}</Badge>}

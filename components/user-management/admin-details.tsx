@@ -35,6 +35,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { toggleUserStatus, resetAdminPassword } from "@/app/actions/user-management"
 import { motion } from "framer-motion"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface AdminDetailsProps {
   admin: {
@@ -135,7 +136,10 @@ export function AdminDetails({ admin }: AdminDetailsProps) {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Admin Details</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">Admin Details</h2>
+              <InfoGuide guideKey="superAdmin.users" />
+            </div>
             <p className="text-muted-foreground">View and manage administrator information</p>
           </div>
         </div>

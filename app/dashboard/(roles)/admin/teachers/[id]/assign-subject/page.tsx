@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { AssignSubjectsToTeacherForm } from "@/components/teacher-management/assign-subjects-to-teacher-form";
 import { requireAdminSchool } from "@/lib/admin-page-context";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminAssignSubjectsPage({
   params,
@@ -84,7 +85,10 @@ export default async function AdminAssignSubjectsPage({
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Assign Subjects</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Assign Subjects</h2>
+            <InfoGuide guideKey="admin.teacherAssignment" />
+          </div>
           <p className="text-muted-foreground">
             Manage subjects for {teacher.user.firstName} {teacher.user.lastName}{" "}
             - {teacher.school.name} ({teacher.school.code})

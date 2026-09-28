@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { ClassTermsTable } from "@/components/class-term-management/class-terms-table"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertTriangle } from "lucide-react"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminClassTermsPage() {
   const { schoolId } = await requireAdminSchool("academics.manage")
@@ -45,6 +48,19 @@ export default async function AdminClassTermsPage() {
     },
   })
 
+  // The roll per class, so the table can say what removing a class would cost instead of
+  // offering the button and refusing afterwards.
+  const classTermIds = classes.flatMap((cls) => cls.classTerms.map((classTerm) => classTerm.id))
+  const rolls =
+    classTermIds.length > 0
+      ? await prisma.studentClassTerm.groupBy({
+          by: ["classTermId"],
+          where: { classTermId: { in: classTermIds } },
+          _count: { _all: true },
+        })
+      : []
+  const rollByClassTerm = new Map(rolls.map((row) => [row.classTermId, row._count._all]))
+
   // Format classes for the table
   const formattedClasses = classes.map((cls) => ({
     id: cls.id,
@@ -52,6 +68,7 @@ export default async function AdminClassTermsPage() {
     level: cls.level,
     isAssignedToCurrentTerm: cls.classTerms.length > 0,
     classTermId: cls.classTerms[0]?.id || null,
+    enrolledStudents: cls.classTerms[0] ? (rollByClassTerm.get(cls.classTerms[0].id) ?? 0) : 0,
   }))
 
   // After fetching currentTerm
@@ -63,7 +80,10 @@ export default async function AdminClassTermsPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Class Term Management</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Class Term Management</h2>
+            <InfoGuide guideKey="admin.classTerms" />
+          </div>
           <p className="text-muted-foreground">
             Manage classes for {currentTerm ? `${currentTerm.name} (${sessionDetails ? sessionDetails.name : "No session"})` : "No current term"}
           </p>
@@ -78,28 +98,16 @@ export default async function AdminClassTermsPage() {
             }}
           />
         ) : (
-          <div className="rounded-md bg-yellow-50 p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-yellow-800">No Current Term</h3>
-                <div className="mt-2 text-sm text-yellow-700">
-                  <p>
-                    There is no current term set for your school. Please contact a super admin to set a current term
-                    before managing class terms.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          // Was a hand-rolled box in fixed yellow-50/yellow-800, which turned into a
+          // bright panel with unreadable text in dark mode.
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>No current term</AlertTitle>
+            <AlertDescription>
+              There is no current term set for your school. A super admin has to make a term current before
+              classes can be managed for it.
+            </AlertDescription>
+          </Alert>
         )}
       </div>
     </PageTransition>

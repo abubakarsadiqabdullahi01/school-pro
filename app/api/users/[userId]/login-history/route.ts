@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
+import { AuthorizationError, requireActor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
@@ -8,9 +8,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { userId } = await params
 
     // Verify the current user is authorized to view this login history
-    const session = await auth()
-
-    if (!session?.user || (session.user.id !== userId && session.user.role !== "SUPER_ADMIN")) {
+    const actor = await requireActor()
+    if (actor.userId !== userId && actor.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
 
@@ -23,6 +22,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     return NextResponse.json(loginAttempts)
   } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     console.error("Error fetching login history:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/db"
 import { requirePermission } from "@/lib/authz"
+import { recordAudit } from "@/lib/audit"
 import {
   PERMISSION_GROUPS,
   PERMISSION_LABELS,
@@ -19,6 +20,22 @@ const profileSchema = z.object({
   description: z.string().trim().max(500).optional().nullable(),
   permissions: z.array(z.string()).min(1),
 })
+
+async function requireSchoolStaffUser(userId: string, schoolId: string) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      OR: [
+        { admin: { schoolId } },
+        { teacher: { schoolId } },
+        { staffRecord: { schoolId } },
+      ],
+    },
+    select: { id: true, firstName: true, lastName: true, role: true },
+  })
+  if (!user) throw new Error("Staff user not found in this school")
+  return user
+}
 
 export async function ensureSystemPermissionProfiles() {
   try {
@@ -253,11 +270,7 @@ export async function assignPermissionProfile(input: {
     })
     if (!profile) throw new Error("Permission profile not found")
 
-    const user = await prisma.user.findUnique({
-      where: { id: input.userId },
-      select: { id: true },
-    })
-    if (!user) throw new Error("User not found")
+    const user = await requireSchoolStaffUser(input.userId, actor.schoolId)
 
     await prisma.userPermissionProfile.upsert({
       where: {
@@ -281,6 +294,15 @@ export async function assignPermissionProfile(input: {
       },
     })
 
+    await recordAudit({
+      actor,
+      action: "permission_profile.assign",
+      entityType: "UserPermissionProfile",
+      entityId: input.profileId,
+      summary: `Assigned a permission profile to ${user.firstName} ${user.lastName}`,
+      after: { userId: user.id, profileId: input.profileId, role: user.role },
+    })
+
     revalidatePath("/dashboard/admin/users")
     revalidatePath("/dashboard/admin/permissions")
     return { success: true }
@@ -300,7 +322,14 @@ export async function revokePermissionProfile(input: {
     const actor = await requirePermission("users.manage")
     if (!actor.schoolId) throw new Error("Select a school before revoking permission profiles")
 
-    await prisma.userPermissionProfile.updateMany({
+    const user = await requireSchoolStaffUser(input.userId, actor.schoolId)
+    const profile = await prisma.permissionProfile.findFirst({
+      where: { id: input.profileId, schoolId: actor.schoolId },
+      select: { id: true, name: true },
+    })
+    if (!profile) throw new Error("Permission profile not found")
+
+    const revoked = await prisma.userPermissionProfile.updateMany({
       where: {
         userId: input.userId,
         schoolId: actor.schoolId,
@@ -311,6 +340,17 @@ export async function revokePermissionProfile(input: {
         isActive: false,
         revokedAt: new Date(),
       },
+    })
+    if (revoked.count === 0) throw new Error("This permission profile is not assigned")
+
+    await recordAudit({
+      actor,
+      action: "permission_profile.revoke",
+      entityType: "UserPermissionProfile",
+      entityId: input.profileId,
+      summary: `Revoked ${profile.name} from ${user.firstName} ${user.lastName}`,
+      before: { userId: user.id, profileId: profile.id, isActive: true },
+      after: { userId: user.id, profileId: profile.id, isActive: false },
     })
 
     revalidatePath("/dashboard/admin/users")

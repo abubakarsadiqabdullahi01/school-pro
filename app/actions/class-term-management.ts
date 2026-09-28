@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
 import { assertSchoolAccess, requirePermission } from "@/lib/authz"
+import { canRemoveClassFromTerm, canRemoveSubjectFromClassTerm } from "@/lib/class-term-rules"
 
 // Assign a class to a term
 export async function assignClassToTerm({
@@ -99,36 +100,25 @@ export async function removeClassFromTerm(classTermId: string) {
     // If admin, verify they are managing a class for their assigned school
     assertSchoolAccess(actor, classTerm.class.schoolId)
 
-    // Check if there are any class subjects
-    const classSubjects = await prisma.classSubject.findMany({
-      where: {
-        classTermId,
-      },
-    })
+    // Everything that would be lost is counted BEFORE anything is deleted. This used to
+    // delete the class's subject assignments first and only then check the roll, so
+    // removing a class that had students wiped its subject list and *then* refused —
+    // the school lost the subjects and was told nothing had happened.
+    const [enrolledStudents, recordedScores] = await Promise.all([
+      prisma.studentClassTerm.count({ where: { classTermId } }),
+      prisma.assessment.count({ where: { studentClassTerm: { classTermId } } }),
+    ])
 
-    // Delete all class subjects first
-    if (classSubjects.length > 0) {
-      await prisma.classSubject.deleteMany({
-        where: {
-          classTermId,
-        },
-      })
+    const verdict = canRemoveClassFromTerm({ enrolledStudents, recordedScores })
+    if (!verdict.allowed) {
+      throw new Error(`Cannot remove this class from the term: ${verdict.reason}`)
     }
 
-    // Delete the class term
-    // Ensure there are no students still enrolled in this class term
-    const enrolledStudentsCount = await prisma.studentClassTerm.count({
-      where: { classTermId },
-    })
-
-    if (enrolledStudentsCount > 0) {
-      throw new Error(
-        "Cannot remove class from term: there are students enrolled in this class term. Remove or reassign students before deleting the class term",
-      )
-    }
-
-    await prisma.classTerm.delete({
-      where: { id: classTermId },
+    // One transaction, so a failure part-way cannot leave a class term with its subjects
+    // already gone.
+    await prisma.$transaction(async (tx) => {
+      await tx.classSubject.deleteMany({ where: { classTermId } })
+      await tx.classTerm.delete({ where: { id: classTermId } })
     })
 
     revalidatePath("/dashboard/admin/class-terms")
@@ -182,6 +172,43 @@ export async function assignSubjectsToClassTerm({
 
     // Find subjects to remove (in current but not in new list)
     const subjectsToRemove = currentSubjectIds.filter((id) => !subjectIds.includes(id))
+
+    // Dropping a subject does not delete its scores, but it does take the subject off the
+    // class — so those scores stop appearing on the entry sheet and the report card with
+    // nothing to say why. Refused here as well as greyed out in the form, because the
+    // form's counts were read when the page loaded.
+    if (subjectsToRemove.length > 0) {
+      const marked = await prisma.assessment.groupBy({
+        by: ["subjectId"],
+        where: {
+          subjectId: { in: subjectsToRemove },
+          studentClassTerm: { classTermId },
+        },
+        _count: { _all: true },
+      })
+
+      const blocked = marked.filter(
+        (row) => !canRemoveSubjectFromClassTerm({ recordedScores: row._count._all }).allowed,
+      )
+
+      if (blocked.length > 0) {
+        const names = await prisma.subject.findMany({
+          where: { id: { in: blocked.map((row) => row.subjectId) } },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+        const detail = names
+          .map((subject) => {
+            const count = blocked.find((row) => row.subjectId === subject.id)?._count._all ?? 0
+            return `${subject.name} (${count})`
+          })
+          .join(", ")
+        throw new Error(
+          `Cannot remove ${names.length === 1 ? "this subject" : "these subjects"} — scores have ` +
+            `already been recorded for them this term: ${detail}`,
+        )
+      }
+    }
 
     // Find subjects to add (in new list but not in current)
     const subjectsToAdd = subjectIds.filter((id) => !currentSubjectIds.includes(id))

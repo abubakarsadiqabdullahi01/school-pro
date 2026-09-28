@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { assignClassToTerm, removeClassFromTerm } from "@/app/actions/class-term-management"
+import { canRemoveClassFromTerm } from "@/lib/class-term-rules"
 import { ClassLevel } from "@prisma/client"
 import {
   Pagination,
@@ -38,6 +39,20 @@ interface Class {
   level: ClassLevel
   isAssignedToCurrentTerm: boolean
   classTermId: string | null
+  /** How many students are on this class's roll for the current term. */
+  enrolledStudents: number
+}
+
+/**
+ * Whether this class may be taken off the term.
+ *
+ * `recordedScores` is passed as 0 rather than fetched: a score belongs to an enrolment and
+ * is deleted with it, so scores can only exist where the roll is not empty — and a
+ * non-empty roll already blocks removal. The verdict here is therefore always the one the
+ * server will reach.
+ */
+function removalVerdict(cls: Class) {
+  return canRemoveClassFromTerm({ enrolledStudents: cls.enrolledStudents, recordedScores: 0 })
 }
 
 interface CurrentTerm {
@@ -176,6 +191,7 @@ export function ClassTermsTable({ classes, currentTerm }: ClassTermsTableProps) 
                   </div>
                 </TableHead>
                 <TableHead className="whitespace-nowrap">Level</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Students</TableHead>
                 <TableHead className="whitespace-nowrap">Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -183,7 +199,7 @@ export function ClassTermsTable({ classes, currentTerm }: ClassTermsTableProps) 
             <TableBody>
               {paginatedClasses.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center">
+                  <TableCell colSpan={5} className="h-24 text-center">
                     No classes found.
                   </TableCell>
                 </TableRow>
@@ -193,6 +209,13 @@ export function ClassTermsTable({ classes, currentTerm }: ClassTermsTableProps) 
                     <TableCell className="font-medium">{cls.name}</TableCell>
                     <TableCell>
                       <Badge variant="outline">{formatClassLevel(cls.level)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {cls.isAssignedToCurrentTerm ? (
+                        cls.enrolledStudents
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {cls.isAssignedToCurrentTerm ? (
@@ -215,18 +238,33 @@ export function ClassTermsTable({ classes, currentTerm }: ClassTermsTableProps) 
                               <BookOpen className="mr-2 h-4 w-4" />
                               Manage Subjects
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-destructive hover:bg-destructive/10"
-                              onClick={() => {
-                                setClassToRemove(cls)
-                                setConfirmDialogOpen(true)
-                              }}
-                              disabled={isProcessing === cls.id}
-                            >
-                              {isProcessing === cls.id ? "Processing..." : "Remove from Term"}
-                            </Button>
+                            {(() => {
+                              const verdict = removalVerdict(cls)
+                              const button = (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-destructive hover:bg-destructive/10"
+                                  onClick={() => {
+                                    setClassToRemove(cls)
+                                    setConfirmDialogOpen(true)
+                                  }}
+                                  disabled={isProcessing === cls.id || !verdict.allowed}
+                                >
+                                  {isProcessing === cls.id ? "Processing..." : "Remove from Term"}
+                                </Button>
+                              )
+
+                              // A disabled button cannot be hovered for a tooltip, so the
+                              // reason is wrapped around it instead.
+                              return verdict.allowed ? (
+                                button
+                              ) : (
+                                <span title={verdict.reason} className="inline-flex">
+                                  {button}
+                                </span>
+                              )
+                            })()}
                           </>
                         ) : (
                           <Button
@@ -328,15 +366,12 @@ export function ClassTermsTable({ classes, currentTerm }: ClassTermsTableProps) 
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the class <span className="font-semibold">{classToRemove?.name}</span> from the current
-              term{" "}
+              This will take <span className="font-semibold">{classToRemove?.name}</span> off{" "}
               <span className="font-semibold">
                 {currentTerm.name} ({currentTerm.sessionName})
               </span>
-              .
-              <span className="block mt-2 text-destructive">
-                Warning: This will also remove all subject assignments for this class in this term.
-              </span>
+              , along with the subjects assigned to it for this term. The class
+              itself, and every other term it has run in, are untouched.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

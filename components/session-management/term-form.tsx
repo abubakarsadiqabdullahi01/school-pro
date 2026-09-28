@@ -5,13 +5,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { toast } from "sonner"
-import { Loader2, CalendarIcon, Search, BookOpen, Info, CheckCircle, Clock } from "lucide-react"
+import { Loader2, CalendarIcon, BookOpen, Info, CheckCircle, Clock } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -20,6 +19,8 @@ import { Badge } from "@/components/ui/badge"
 import { Calendar } from "@/components/ui/calendar"
 import { cn } from "@/lib/utils"
 import { createTerm, updateTerm } from "@/app/actions/term-management"
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select"
+import { canAddTermToSession, canSetTermCurrent, canUseTermName, TERM_NAMES } from "@/lib/term-rules"
 
 // Define the form schema with validation
 const termFormSchema = z
@@ -50,11 +51,18 @@ interface Session {
   name: string
   startDate: Date
   endDate: Date
+  isCurrent: boolean
+  /** The terms this session already has, so the form can grey out the names that are taken. */
+  existingTermNames: string[]
 }
 
 interface TermFormProps {
   sessions: Session[]
   preselectedSessionId?: string
+  /** Where Cancel and a successful save go back to. */
+  listHref: string
+  /** The viewer's role, because the session and current-term rules turn on it. */
+  viewerRole?: string | null
   termData?: {
     id: string
     name: string
@@ -65,9 +73,14 @@ interface TermFormProps {
   }
 }
 
-export function TermForm({ sessions, preselectedSessionId, termData }: TermFormProps) {
+export function TermForm({
+  sessions,
+  preselectedSessionId,
+  listHref,
+  viewerRole,
+  termData,
+}: TermFormProps) {
   const [isLoading, setIsLoading] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const router = useRouter()
 
@@ -91,10 +104,27 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
     },
   })
 
-  // Filter sessions based on search query
-  const filteredSessions = sessions.filter((session) =>
-    session.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  /**
+   * A session that has finished is listed but not selectable.
+   *
+   * Hiding it would leave an admin looking for last year and assuming the page is broken;
+   * greying it with the reason says what the rule is. The same verdict is enforced in
+   * `createTerm`, so this cannot be worked around from the client.
+   */
+  const sessionOptions: SearchableOption[] = sessions.map((session) => {
+    const verdict = canAddTermToSession(session, viewerRole)
+    const range = `${format(parseDate(session.startDate) || new Date(), "MMM yyyy")} – ${format(
+      parseDate(session.endDate) || new Date(),
+      "MMM yyyy",
+    )}`
+    return {
+      value: session.id,
+      label: session.isCurrent ? `${session.name} · current` : session.name,
+      hint: range,
+      disabled: !verdict.allowed,
+      disabledReason: verdict.allowed ? undefined : `${range} — ${verdict.reason}`,
+    }
+  })
 
   // Update selected session when sessionId changes
   useEffect(() => {
@@ -115,8 +145,40 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
     const session = sessions.find((s) => s.id === sessionId)
     if (session) {
       setSelectedSession(session)
+      // A name chosen before the session may already exist in it; clearing it is better
+      // than leaving a selection the Create button will reject.
+      const chosenName = form.getValues("name")
+      if (chosenName && !canUseTermName(chosenName, session.existingTermNames, termData?.name).allowed) {
+        form.setValue("name", "")
+      }
     }
   }
+
+  /**
+   * Whether this term may be marked current, given the end date chosen so far.
+   *
+   * A term whose end date is already in the past is history; making it current again moves
+   * where new scores and fee charges are filed, which is a super admin's call. Watched
+   * rather than read once, so the checkbox reacts as the dates are picked.
+   */
+  /**
+   * The term names still free in the chosen session.
+   *
+   * A session holds one First, one Second and one Third Term. Without this the form let an
+   * admin fill everything in and press Create, only to be told the name was taken.
+   */
+  const watchedSessionId = form.watch("sessionId")
+  const takenNames = sessions.find((s) => s.id === watchedSessionId)?.existingTermNames ?? []
+  const nameVerdicts = TERM_NAMES.map((name) => ({
+    name,
+    verdict: canUseTermName(name, takenNames, termData?.name),
+  }))
+  const allNamesTaken = watchedSessionId && nameVerdicts.every((entry) => !entry.verdict.allowed)
+
+  const watchedEndDate = form.watch("endDate")
+  const currentVerdict = watchedEndDate
+    ? canSetTermCurrent({ endDate: watchedEndDate, isCurrent: false }, viewerRole)
+    : ({ allowed: true } as const)
 
   async function onSubmit(data: TermFormValues) {
     setIsLoading(true)
@@ -148,7 +210,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
 
       if (result.success) {
         toast.success("Success", { description: result.message })
-        router.push("/dashboard/super-admin/terms")
+        router.push(listHref)
         router.refresh()
       } else {
         toast.error("Error", { description: result.error })
@@ -185,25 +247,32 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
               <div className="grid gap-5 md:grid-cols-2">
                 <FormField
                   control={form.control}
-                  name="name"
+                  name="sessionId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="font-semibold">
-                        Term Name <span className="text-destructive">*</span>
+                        Academic Session <span className="text-destructive">*</span>
                       </FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger className="h-11 w-full">
-                            <SelectValue placeholder="Select a term" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="First Term">First Term</SelectItem>
-                          <SelectItem value="Second Term">Second Term</SelectItem>
-                          <SelectItem value="Third Term">Third Term</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>Select First, Second, or Third Term.</FormDescription>
+                      <FormControl>
+                        <SearchableSelect
+                          options={sessionOptions}
+                          value={field.value}
+                          onChange={(value) => {
+                            field.onChange(value)
+                            handleSessionChange(value)
+                          }}
+                          disabled={isEditMode || !!preselectedSessionId}
+                          placeholder="Select a session"
+                          searchPlaceholder="Search sessions..."
+                          emptyMessage="No sessions found."
+                          className="h-11"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {isEditMode || preselectedSessionId
+                          ? "Session cannot be changed after term creation."
+                          : "Only sessions that are still running can take a new term."}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -211,58 +280,41 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
 
                 <FormField
                   control={form.control}
-                  name="sessionId"
+                  name="name"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="font-semibold">
-                        Academic Session <span className="text-destructive">*</span>
+                        Term Name <span className="text-destructive">*</span>
                       </FormLabel>
                       <Select
-                        onValueChange={(value) => {
-                          field.onChange(value)
-                          handleSessionChange(value)
-                        }}
+                        onValueChange={field.onChange}
                         value={field.value}
-                        disabled={isEditMode || !!preselectedSessionId}
+                        disabled={!watchedSessionId}
                       >
                         <FormControl>
                           <SelectTrigger className="h-11 w-full">
-                            <SelectValue placeholder="Select a session" />
+                            <SelectValue
+                              placeholder={watchedSessionId ? "Select a term" : "Choose a session first"}
+                            />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <div className="sticky top-0 z-10 border-b bg-background p-2">
-                            <div className="relative">
-                              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                              <Input
-                                placeholder="Search sessions..."
-                                className="pl-8"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          {filteredSessions.length === 0 ? (
-                            <div className="py-4 text-center text-sm text-muted-foreground">No sessions found</div>
-                          ) : (
-                            filteredSessions.map((session) => (
-                              <SelectItem key={session.id} value={session.id} className="py-3">
-                                <div className="flex flex-col">
-                                  <span className="font-medium">{session.name}</span>
-                                  <span className="text-sm text-muted-foreground">
-                                    {format(parseDate(session.startDate) || new Date(), "MMM yyyy")} -{" "}
-                                    {format(parseDate(session.endDate) || new Date(), "MMM yyyy")}
-                                  </span>
-                                </div>
-                              </SelectItem>
-                            ))
-                          )}
+                          {nameVerdicts.map(({ name, verdict }) => (
+                            <SelectItem key={name} value={name} disabled={!verdict.allowed}>
+                              <span className="flex flex-col items-start">
+                                <span>{name}</span>
+                                {!verdict.allowed && (
+                                  <span className="text-xs text-muted-foreground">{verdict.reason}</span>
+                                )}
+                              </span>
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <FormDescription>
-                        {isEditMode || preselectedSessionId
-                          ? "Session cannot be changed after term creation."
-                          : "Select the session this term belongs to."}
+                        {allNamesTaken
+                          ? "This session already has all three terms."
+                          : "A session runs one First, one Second and one Third Term."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -401,7 +453,11 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                   <FormItem>
                     <div className="flex items-start space-x-3 space-y-0 rounded-md border p-3">
                       <FormControl>
-                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                        <Checkbox
+                          checked={field.value && currentVerdict.allowed}
+                          disabled={!currentVerdict.allowed}
+                          onCheckedChange={field.onChange}
+                        />
                       </FormControl>
                       <div className="space-y-2 leading-none">
                         <FormLabel className="flex items-center gap-2 font-semibold">
@@ -409,10 +465,11 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
                           Set as Current Term
                         </FormLabel>
                         <FormDescription className="text-sm">
-                          If checked, this will be set as the current active term for the session. This will
-                          automatically deactivate any other current term for this session.
+                          {currentVerdict.allowed
+                            ? "If checked, this becomes the session's current term, and any other current term for the session is deactivated."
+                            : currentVerdict.reason}
                         </FormDescription>
-                        {field.value && (
+                        {field.value && currentVerdict.allowed && (
                           <Badge variant="secondary" className="mt-2">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             Will be set as current
@@ -438,7 +495,7 @@ export function TermForm({ sessions, preselectedSessionId, termData }: TermFormP
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => router.push("/dashboard/super-admin/terms")}
+                onClick={() => router.push(listHref)}
                 disabled={isLoading}
               >
                 Cancel

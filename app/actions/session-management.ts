@@ -23,6 +23,30 @@ export async function createSession(data: {
 }) {
   try {
     const actor = await requirePermission("academics.manage")
+    if (!(data.startDate instanceof Date) || !(data.endDate instanceof Date) || data.startDate > data.endDate) {
+      return { success: false, error: "Session start date must be on or before its end date" }
+    }
+
+    // Sessions are the spine every other record hangs off: terms, class terms, fee
+    // schedules, charges, results and promotions are all filed under one. A school admin
+    // opening a second session by mistake splits a year's data in two, and nothing in the
+    // app makes that obvious afterwards. So the calendar is opened at platform level and
+    // the school works inside it.
+    if (actor.role !== "SUPER_ADMIN") {
+      return {
+        success: false,
+        error:
+          "Only a super admin can create an academic session. Ask them to open the session, " +
+          "then you can add its terms.",
+      }
+    }
+    if (data.isCurrent) {
+      return {
+        success: false,
+        error: "Create at least one term first, then make the session current by selecting its current term.",
+      }
+    }
+
     const schoolId = getWritableSessionSchoolId(actor, data.schoolId)
 
     if (!schoolId) {
@@ -41,25 +65,23 @@ export async function createSession(data: {
       return { success: false, error: "Session name already exists for this school" }
     }
 
-    // If setting as current, deactivate other current sessions for this school
-    if (data.isCurrent) {
-      await prisma.session.updateMany({
-        where: {
+    const newSession = await prisma.$transaction(async (tx) => {
+      if (data.isCurrent) {
+        await tx.session.updateMany({ where: { schoolId, isCurrent: true }, data: { isCurrent: false } })
+        await tx.term.updateMany({
+          where: { session: { schoolId }, isCurrent: true },
+          data: { isCurrent: false },
+        })
+      }
+      return tx.session.create({
+        data: {
+          name: data.name,
           schoolId,
-          isCurrent: true,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          isCurrent: data.isCurrent,
         },
-        data: { isCurrent: false },
       })
-    }
-
-    const newSession = await prisma.session.create({
-      data: {
-        name: data.name,
-        schoolId,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        isCurrent: data.isCurrent,
-      },
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
@@ -82,6 +104,9 @@ export async function updateSession(data: {
 }) {
   try {
     const actor = await requirePermission("academics.manage")
+    if (!(data.startDate instanceof Date) || !(data.endDate instanceof Date) || data.startDate > data.endDate) {
+      return { success: false, error: "Session start date must be on or before its end date" }
+    }
     const schoolId = getWritableSessionSchoolId(actor, data.schoolId)
 
     if (!schoolId) {
@@ -93,7 +118,11 @@ export async function updateSession(data: {
         id: data.id,
         schoolId,
       },
-      select: { id: true },
+      select: {
+        id: true,
+        isCurrent: true,
+        terms: { select: { id: true, isCurrent: true, startDate: true, endDate: true }, orderBy: { startDate: "asc" } },
+      },
     })
 
     if (!targetSession) {
@@ -113,26 +142,49 @@ export async function updateSession(data: {
       return { success: false, error: "Session name already exists for this school" }
     }
 
-    // If setting as current, deactivate other current sessions for this school
-    if (data.isCurrent) {
-      await prisma.session.updateMany({
-        where: {
-          schoolId,
-          isCurrent: true,
-          id: { not: data.id },
-        },
-        data: { isCurrent: false },
-      })
+    const now = new Date()
+    const pointerTerm = data.isCurrent
+      ? targetSession.terms.find((term) => term.isCurrent) ??
+        targetSession.terms.find((term) => term.startDate <= now && term.endDate >= now) ??
+        targetSession.terms[0]
+      : null
+    if (data.isCurrent && !pointerTerm) {
+      return { success: false, error: "A session must contain a term before it can become current" }
+    }
+    if (targetSession.isCurrent && !data.isCurrent) {
+      return { success: false, error: "Select another current term instead of clearing the current session" }
     }
 
-    const updatedSession = await prisma.session.update({
-      where: { id: data.id },
-      data: {
-        name: data.name,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        isCurrent: data.isCurrent,
-      },
+    const updatedSession = await prisma.$transaction(async (tx) => {
+      if (data.isCurrent) {
+        await tx.session.updateMany({
+          where: { schoolId, isCurrent: true, id: { not: data.id } },
+          data: { isCurrent: false },
+        })
+        await tx.term.updateMany({
+          where: { session: { schoolId, id: { not: data.id } }, isCurrent: true },
+          data: { isCurrent: false },
+        })
+        await tx.term.updateMany({
+          where: { sessionId: data.id, isCurrent: true, id: { not: pointerTerm!.id } },
+          data: { isCurrent: false },
+        })
+        await tx.term.update({ where: { id: pointerTerm!.id }, data: { isCurrent: true } })
+        await tx.schoolAcademicPeriod.upsert({
+          where: { schoolId },
+          create: { schoolId, sessionId: data.id, termId: pointerTerm!.id, updatedBy: actor.userId },
+          update: { sessionId: data.id, termId: pointerTerm!.id, updatedBy: actor.userId },
+        })
+      }
+      return tx.session.update({
+        where: { id: data.id },
+        data: {
+          name: data.name,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          isCurrent: data.isCurrent,
+        },
+      })
     })
 
     revalidatePath("/dashboard/super-admin/sessions")
@@ -201,11 +253,23 @@ export async function setCurrentSession(sessionId: string, schoolId: string) {
         id: sessionId,
         schoolId: authorizedSchoolId,
       },
-      select: { id: true },
+      select: {
+        id: true,
+        terms: { select: { id: true, isCurrent: true, startDate: true, endDate: true }, orderBy: { startDate: "asc" } },
+      },
     })
 
     if (!targetSession) {
       return { success: false, error: "Session not found for this school" }
+    }
+
+    const now = new Date()
+    const targetTerm =
+      targetSession.terms.find((term) => term.isCurrent) ??
+      targetSession.terms.find((term) => term.startDate <= now && term.endDate >= now) ??
+      targetSession.terms[0]
+    if (!targetTerm) {
+      return { success: false, error: "A session must contain a term before it can become current" }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -222,6 +286,16 @@ export async function setCurrentSession(sessionId: string, schoolId: string) {
       await tx.session.update({
         where: { id: sessionId },
         data: { isCurrent: true },
+      })
+      await tx.term.updateMany({
+        where: { session: { schoolId: authorizedSchoolId }, isCurrent: true },
+        data: { isCurrent: false },
+      })
+      await tx.term.update({ where: { id: targetTerm.id }, data: { isCurrent: true } })
+      await tx.schoolAcademicPeriod.upsert({
+        where: { schoolId: authorizedSchoolId },
+        create: { schoolId: authorizedSchoolId, sessionId, termId: targetTerm.id, updatedBy: actor.userId },
+        update: { sessionId, termId: targetTerm.id, updatedBy: actor.userId },
       })
     })
 

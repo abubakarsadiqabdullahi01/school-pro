@@ -50,6 +50,9 @@ interface Term {
   name: string;
   sessionName: string;
   isCurrent: boolean;
+  /** Whether this viewer may change assignments in this term — decided by the server. */
+  canAssign?: boolean;
+  assignBlockedReason?: string | null;
 }
 
 interface AssignClassesFormProps {
@@ -239,30 +242,39 @@ export function AssignClassesForm({
                 <SelectValue placeholder="Choose a term" />
               </SelectTrigger>
               <SelectContent>
-                {availableTerms.map((term) => (
-                  <SelectItem key={term.id} value={term.id}>
-                    <div className="flex items-center gap-2">
-                      <span>
-                        {term.name} - {term.sessionName}
+                {availableTerms.map((term) => {
+                  // Listed but unselectable when the server would refuse it. Hiding an
+                  // ended term reads as a bug; greying it with the reason reads as a rule.
+                  const blocked = term.canAssign === false;
+                  return (
+                    <SelectItem key={term.id} value={term.id} disabled={blocked}>
+                      <span className="flex flex-col items-start">
+                        <span className="flex items-center gap-2">
+                          {term.name} - {term.sessionName}
+                          {term.isCurrent && (
+                            <Badge
+                              variant="secondary"
+                              className="bg-green-500/10 text-green-700 dark:text-green-400"
+                            >
+                              Current
+                            </Badge>
+                          )}
+                        </span>
+                        {blocked && term.assignBlockedReason && (
+                          <span className="text-xs text-muted-foreground">
+                            {term.assignBlockedReason}
+                          </span>
+                        )}
                       </span>
-                      {term.isCurrent && (
-                        <Badge
-                          variant="secondary"
-                          className="ml-2 bg-green-500/10 text-green-700 dark:text-green-400"
-                        >
-                          Current
-                        </Badge>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
-            {currentTermObject && !currentTermObject.isCurrent && (
+            {currentTermObject?.canAssign === false && (
               <Alert>
                 <AlertDescription className="text-sm text-muted-foreground">
-                  ⚠️ You are assigning classes for a past term. This will create
-                  a historical record.
+                  {currentTermObject.assignBlockedReason}
                 </AlertDescription>
               </Alert>
             )}

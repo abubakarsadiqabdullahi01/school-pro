@@ -30,6 +30,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { deleteTerm, setCurrentTerm } from "@/app/actions/term-management"
+import { canDeleteTerm, canSetTermCurrent } from "@/lib/term-rules"
+import { rowOpenHandler } from "@/lib/row-open"
+import { TermActionItem } from "@/components/session-management/term-action-item"
 
 interface Term {
   id: string
@@ -47,9 +50,11 @@ interface Term {
 
 interface AllTermsTableProps {
   terms: Term[]
+  /** The viewer's role, because only a super admin may reopen a term that has ended. */
+  viewerRole?: string | null
 }
 
-export function AllTermsTable({ terms }: AllTermsTableProps) {
+export function AllTermsTable({ terms, viewerRole }: AllTermsTableProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [termToDelete, setTermToDelete] = useState<Term | null>(null)
@@ -181,7 +186,11 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
                 </TableRow>
               ) : (
                 filteredTerms.map((term) => (
-                  <TableRow key={term.id}>
+                  <TableRow
+                    key={term.id}
+                    className="cursor-pointer"
+                    onClick={rowOpenHandler(() => handleViewTerm(term.id))}
+                  >
                     <TableCell className="font-medium">{term.name}</TableCell>
                     <TableCell>{term.sessionName}</TableCell>
                     <TableCell>
@@ -196,7 +205,7 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
                         <Badge variant="outline">Inactive</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon">
@@ -212,25 +221,27 @@ export function AllTermsTable({ terms }: AllTermsTableProps) {
                             Edit
                           </DropdownMenuItem> */}
                           {!term.isCurrent && (
-                            <DropdownMenuItem
-                              onClick={() => handleSetCurrentTerm(term.id, term.sessionId)}
-                              disabled={isSettingCurrent}
+                            <TermActionItem
+                              verdict={canSetTermCurrent(term, viewerRole)}
+                              onSelect={() => handleSetCurrentTerm(term.id, term.sessionId)}
+                              busy={isSettingCurrent}
                             >
                               <CalendarRange className="mr-2 h-4 w-4" />
                               Set as Current
-                            </DropdownMenuItem>
+                            </TermActionItem>
                           )}
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => {
+                          <TermActionItem
+                            verdict={canDeleteTerm(term)}
+                            destructive
+                            onSelect={() => {
                               setTermToDelete(term)
                               setDeleteDialogOpen(true)
                             }}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete
-                          </DropdownMenuItem>
+                          </TermActionItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

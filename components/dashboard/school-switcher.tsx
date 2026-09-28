@@ -22,9 +22,12 @@ export function SchoolSwitcher({ schools, activeSchool }: SchoolSwitcherProps) {
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
 
-  // With only one school there is nothing to switch between, and a dropdown that never
-  // changes anything is just noise. Show it as a plain label instead.
-  const isSwitchable = schools.length > 1
+  // A single school is still switchable, because "All schools" is the other destination.
+  // Requiring two schools here left a super admin on a one-school platform stuck inside
+  // that school with no way back to the platform-wide view — which is where schools, users
+  // across schools and system settings are managed. Only an empty platform has nothing to
+  // offer, and that renders as a plain label below.
+  const isSwitchable = schools.length > 0
 
   const filtered = schools.filter(
     (s) =>

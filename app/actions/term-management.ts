@@ -5,11 +5,17 @@ import { assertSchoolAccess, authActive, requirePermission, type Actor } from "@
 import { recordAudit } from "@/lib/audit";
 import { getActiveSchool } from "@/lib/school-context.server";
 import { revalidatePath } from "next/cache";
+import {
+  canAddTermToSession,
+  canEditTerm,
+  canSetTermCurrent,
+  canUseTermName,
+} from "@/lib/term-rules";
 
 async function canManageSession(actor: Actor, sessionId: string) {
   const sessionData = await prisma.session.findUnique({
     where: { id: sessionId },
-    select: { schoolId: true, startDate: true, endDate: true },
+    select: { schoolId: true, startDate: true, endDate: true, isCurrent: true },
   });
 
   if (!sessionData) {
@@ -34,20 +40,23 @@ export async function createTerm(data: {
 }) {
   try {
     const actor = await requirePermission("academics.manage");
+    if (!(data.startDate instanceof Date) || !(data.endDate instanceof Date) || data.startDate > data.endDate) {
+      return { success: false, error: "Term start date must be on or before its end date" };
+    }
 
-    // Check if term name already exists for this session
-    const existingTerm = await prisma.term.findFirst({
-      where: {
-        name: data.name,
-        sessionId: data.sessionId,
-      },
+    // A session holds one First, one Second and one Third Term. The form greys out the
+    // names already taken; this is the same rule at the boundary.
+    const siblingTerms = await prisma.term.findMany({
+      where: { sessionId: data.sessionId },
+      select: { name: true },
     });
 
-    if (existingTerm) {
-      return {
-        success: false,
-        error: "Term name already exists for this session",
-      };
+    const nameVerdict = canUseTermName(
+      data.name,
+      siblingTerms.map((term) => term.name),
+    );
+    if (!nameVerdict.allowed) {
+      return { success: false, error: `${data.name}: ${nameVerdict.reason}` };
     }
 
     // Validate that term dates are within session dates
@@ -66,26 +75,71 @@ export async function createTerm(data: {
         error: "Term dates must be within the session date range",
       };
     }
-
-    // If setting as current, deactivate other current terms for this session
-    if (data.isCurrent) {
-      await prisma.term.updateMany({
-        where: {
-          sessionId: data.sessionId,
-          isCurrent: true,
-        },
-        data: { isCurrent: false },
-      });
+    const overlapping = await prisma.term.findFirst({
+      where: {
+        sessionId: data.sessionId,
+        startDate: { lte: data.endDate },
+        endDate: { gte: data.startDate },
+      },
+      select: { name: true },
+    });
+    if (overlapping) {
+      return { success: false, error: `Term dates overlap ${overlapping.name}` };
     }
 
-    const newTerm = await prisma.term.create({
-      data: {
-        name: data.name,
-        sessionId: data.sessionId,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        isCurrent: data.isCurrent,
-      },
+    // A finished session is a closed year — adding a term to it rewrites a calendar that
+    // results, fee charges and promotion trails are already filed against.
+    const sessionVerdict = canAddTermToSession(sessionData, actor.role);
+    if (!sessionVerdict.allowed) {
+      return { success: false, error: sessionVerdict.reason };
+    }
+
+    // Marking a term current from this form is the same decision as Set as Current on the
+    // list, and answers to the same rule — otherwise the form is a way around it.
+    if (data.isCurrent) {
+      const currentVerdict = canSetTermCurrent(
+        { endDate: data.endDate, isCurrent: false },
+        actor.role,
+      );
+      if (!currentVerdict.allowed) {
+        return { success: false, error: currentVerdict.reason };
+      }
+    }
+
+    const newTerm = await prisma.$transaction(async (tx) => {
+      if (data.isCurrent) {
+        await tx.session.updateMany({
+          where: { schoolId: sessionData.schoolId, isCurrent: true },
+          data: { isCurrent: false },
+        });
+        await tx.session.update({ where: { id: data.sessionId }, data: { isCurrent: true } });
+        await tx.term.updateMany({
+          where: { session: { schoolId: sessionData.schoolId }, isCurrent: true },
+          data: { isCurrent: false },
+        });
+      }
+      const term = await tx.term.create({
+        data: {
+          name: data.name,
+          sessionId: data.sessionId,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          isCurrent: data.isCurrent,
+        },
+      });
+      if (data.isCurrent) {
+        await tx.schoolAcademicPeriod.upsert({
+          where: { schoolId: sessionData.schoolId },
+          create: {
+            schoolId: sessionData.schoolId,
+            sessionId: data.sessionId,
+            termId: term.id,
+            updatedBy: actor.userId,
+          },
+          update: { sessionId: data.sessionId, termId: term.id, updatedBy: actor.userId },
+        });
+      }
+      return term;
     });
 
     revalidatePath("/dashboard/super-admin/terms");
@@ -113,34 +167,46 @@ export async function updateTerm(data: {
 }) {
   try {
     const actor = await requirePermission("academics.manage");
+    if (!(data.startDate instanceof Date) || !(data.endDate instanceof Date) || data.startDate > data.endDate) {
+      return { success: false, error: "Term start date must be on or before its end date" };
+    }
 
     const targetTerm = await prisma.term.findUnique({
       where: { id: data.id },
-      select: { sessionId: true },
+      select: { sessionId: true, endDate: true, isCurrent: true },
     });
 
     if (!targetTerm) {
       return { success: false, error: "Term not found" };
+    }
+    if (targetTerm.isCurrent && !data.isCurrent) {
+      return { success: false, error: "Select another current term instead of clearing the current term" };
     }
 
     if (targetTerm.sessionId !== data.sessionId) {
       return { success: false, error: "Term session cannot be changed from this form" };
     }
 
-    // Check if term name already exists for another term in this session
-    const existingTerm = await prisma.term.findFirst({
-      where: {
-        name: data.name,
-        sessionId: data.sessionId,
-        id: { not: data.id },
-      },
+    // Judged on the stored dates, not the submitted ones: the question is whether the term
+    // being edited is already history, which is not something the form gets to restate.
+    const editVerdict = canEditTerm(targetTerm, actor.role);
+    if (!editVerdict.allowed) {
+      return { success: false, error: editVerdict.reason };
+    }
+
+    // Same rule as creation. The term's own name is not a clash with itself, which the
+    // `id: { not: ... }` filter takes care of here.
+    const siblingTerms = await prisma.term.findMany({
+      where: { sessionId: data.sessionId, id: { not: data.id } },
+      select: { name: true },
     });
 
-    if (existingTerm) {
-      return {
-        success: false,
-        error: "Term name already exists for this session",
-      };
+    const nameVerdict = canUseTermName(
+      data.name,
+      siblingTerms.map((term) => term.name),
+    );
+    if (!nameVerdict.allowed) {
+      return { success: false, error: `${data.name}: ${nameVerdict.reason}` };
     }
 
     // Validate that term dates are within session dates
@@ -159,27 +225,65 @@ export async function updateTerm(data: {
         error: "Term dates must be within the session date range",
       };
     }
-
-    // If setting as current, deactivate other current terms for this session
-    if (data.isCurrent) {
-      await prisma.term.updateMany({
-        where: {
-          sessionId: data.sessionId,
-          isCurrent: true,
-          id: { not: data.id },
-        },
-        data: { isCurrent: false },
-      });
+    const overlapping = await prisma.term.findFirst({
+      where: {
+        sessionId: data.sessionId,
+        id: { not: data.id },
+        startDate: { lte: data.endDate },
+        endDate: { gte: data.startDate },
+      },
+      select: { name: true },
+    });
+    if (overlapping) {
+      return { success: false, error: `Term dates overlap ${overlapping.name}` };
     }
 
-    const updatedTerm = await prisma.term.update({
-      where: { id: data.id },
-      data: {
-        name: data.name,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        isCurrent: data.isCurrent,
-      },
+    // Marking a term current from this form is the same decision as Set as Current on the
+    // list, and answers to the same rule — otherwise the form is a way around it.
+    if (data.isCurrent) {
+      const currentVerdict = canSetTermCurrent(
+        { endDate: data.endDate, isCurrent: false },
+        actor.role,
+      );
+      if (!currentVerdict.allowed) {
+        return { success: false, error: currentVerdict.reason };
+      }
+    }
+
+    const updatedTerm = await prisma.$transaction(async (tx) => {
+      if (data.isCurrent) {
+        await tx.session.updateMany({
+          where: { schoolId: sessionData.schoolId, isCurrent: true },
+          data: { isCurrent: false },
+        });
+        await tx.session.update({ where: { id: data.sessionId }, data: { isCurrent: true } });
+        await tx.term.updateMany({
+          where: { session: { schoolId: sessionData.schoolId }, isCurrent: true, id: { not: data.id } },
+          data: { isCurrent: false },
+        });
+      }
+      const term = await tx.term.update({
+        where: { id: data.id },
+        data: {
+          name: data.name,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          isCurrent: data.isCurrent,
+        },
+      });
+      if (data.isCurrent) {
+        await tx.schoolAcademicPeriod.upsert({
+          where: { schoolId: sessionData.schoolId },
+          create: {
+            schoolId: sessionData.schoolId,
+            sessionId: data.sessionId,
+            termId: data.id,
+            updatedBy: actor.userId,
+          },
+          update: { sessionId: data.sessionId, termId: data.id, updatedBy: actor.userId },
+        });
+      }
+      return term;
     });
 
     revalidatePath("/dashboard/super-admin/terms");
@@ -238,6 +342,17 @@ export async function deleteTerm(id: string) {
       return { success: false, error: "Cannot delete current term" };
     }
 
+    // A term that has already ended is history. Even one that happens to carry no
+    // assessments or classes yet is part of the school's calendar, and deleting it
+    // silently rewrites which terms a session ever had — which is how a promotion trail
+    // ends up pointing at a term that no longer exists.
+    if (termWithData.endDate < new Date()) {
+      return {
+        success: false,
+        error: "Cannot delete a term that has already ended — it is part of the school's record.",
+      };
+    }
+
     const totalRelatedData =
       termWithData._count.assessments +
       termWithData._count.classTerms +
@@ -292,11 +407,29 @@ export async function setCurrentTerm(termId: string, sessionId: string) {
       return { success: false, error: "Unauthorized for this school" };
     }
 
+    // Reopening a term that has already ended is a real operation — a school that closed a
+    // term early, or needs to correct released results, has to be able to do it. But it
+    // rewrites which term every score entry, fee charge and promotion is filed against, so
+    // it is a platform-level decision rather than one a school admin makes on their own.
+    //
+    // The rule itself lives in lib/term-rules.ts, which is also what the term tables and the
+    // term form read, so there is one definition rather than four that drift. The term name
+    // is added here because only this side knows it.
+    const currentVerdict = canSetTermCurrent(targetTerm, actor.role);
+    if (!currentVerdict.allowed) {
+      return { success: false, error: `${targetTerm.name}: ${currentVerdict.reason}` };
+    }
+
     await prisma.$transaction(async (tx) => {
-      // Deactivate all current terms for this session
+      // A school has one current session and one current term inside it.
+      await tx.session.updateMany({
+        where: { schoolId: targetTerm.session.schoolId, isCurrent: true },
+        data: { isCurrent: false },
+      });
+      await tx.session.update({ where: { id: sessionId }, data: { isCurrent: true } });
       await tx.term.updateMany({
         where: {
-          sessionId: sessionId,
+          session: { schoolId: targetTerm.session.schoolId },
           isCurrent: true,
         },
         data: { isCurrent: false },
@@ -306,6 +439,16 @@ export async function setCurrentTerm(termId: string, sessionId: string) {
       await tx.term.update({
         where: { id: termId },
         data: { isCurrent: true },
+      });
+      await tx.schoolAcademicPeriod.upsert({
+        where: { schoolId: targetTerm.session.schoolId },
+        create: {
+          schoolId: targetTerm.session.schoolId,
+          sessionId,
+          termId,
+          updatedBy: actor.userId,
+        },
+        update: { sessionId, termId, updatedBy: actor.userId },
       });
     });
 

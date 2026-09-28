@@ -17,6 +17,7 @@ import {
   GraduationCap,
   ArrowRightLeft,
 } from "lucide-react"
+import { formatDocumentDate } from "@/lib/format"
 
 interface SystemHealthProps {
   data: {
@@ -212,7 +213,7 @@ export function SystemHealth({ data }: SystemHealthProps) {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Last Backup</span>
-                  <span className="font-medium">{new Date(data.system.lastBackup).toLocaleDateString()}</span>
+                  <span className="font-medium">{formatDocumentDate(data.system.lastBackup)}</span>
                 </div>
               </div>
             </motion.div>

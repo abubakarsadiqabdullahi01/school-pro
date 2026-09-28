@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
 import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 import type { ClassLevel } from "@prisma/client"
+import { canChangeClassLevel, canDeleteClass, canUseClassName } from "@/lib/class-rules"
 
 // Create a new class
 export async function createClass({
@@ -22,10 +23,26 @@ export async function createClass({
     // If admin, verify they are creating a class for their assigned school
     assertSchoolAccess(actor, schoolId)
 
+    // Nothing in the schema stops a school having two classes called "JSS 1A", and once it
+    // does, every enrolment and report card afterwards names a class the school cannot tell
+    // apart. The form greys the name as you type; this is the same rule at the boundary.
+    const siblings = await prisma.class.findMany({
+      where: { schoolId },
+      select: { name: true },
+    })
+
+    const nameVerdict = canUseClassName(
+      name,
+      siblings.map((sibling) => sibling.name),
+    )
+    if (!nameVerdict.allowed) {
+      throw new Error(nameVerdict.reason)
+    }
+
     // Create the class
     const newClass = await prisma.class.create({
       data: {
-        name,
+        name: name.trim(),
         level,
         schoolId,
       },
@@ -56,7 +73,7 @@ export async function updateClass({
     // Get the class to update
     const classToUpdate = await prisma.class.findUnique({
       where: { id },
-      select: { id: true, schoolId: true },
+      select: { id: true, schoolId: true, name: true, level: true },
     })
 
     if (!classToUpdate) {
@@ -66,11 +83,37 @@ export async function updateClass({
     // If admin, verify they are updating a class for their assigned school
     assertSchoolAccess(actor, classToUpdate.schoolId)
 
+    const siblings = await prisma.class.findMany({
+      where: { schoolId: classToUpdate.schoolId, id: { not: id } },
+      select: { name: true },
+    })
+
+    const nameVerdict = canUseClassName(
+      name,
+      siblings.map((sibling) => sibling.name),
+      classToUpdate.name,
+    )
+    if (!nameVerdict.allowed) {
+      throw new Error(nameVerdict.reason)
+    }
+
+    // The section decides how results are graded and how promotion is evaluated, so moving
+    // a marked class from Junior to Senior reinterprets results that have already gone out.
+    if (level !== classToUpdate.level) {
+      const recordedScores = await prisma.assessment.count({
+        where: { studentClassTerm: { classTerm: { classId: id } } },
+      })
+      const levelVerdict = canChangeClassLevel({ recordedScores })
+      if (!levelVerdict.allowed) {
+        throw new Error(levelVerdict.reason)
+      }
+    }
+
     // Update the class
     await prisma.class.update({
       where: { id },
       data: {
-        name,
+        name: name.trim(),
         level,
       },
     })
@@ -118,45 +161,26 @@ export async function deleteClass(id: string) {
     // Deleting one also cascades StudentEnrollmentHistory and StudentTransition (both
     // ends), so an unguarded delete took enrolment history, promotion history and every
     // score any student earned in the class. There was no guard at all.
-    const enrolmentCount = await prisma.studentClassTerm.count({
-      where: { classTerm: { classId: id } },
-    })
+    const [enrolments, recordedScores] = await Promise.all([
+      prisma.studentClassTerm.count({ where: { classTerm: { classId: id } } }),
+      prisma.assessment.count({ where: { studentClassTerm: { classTerm: { classId: id } } } }),
+    ])
 
-    if (enrolmentCount > 0) {
-      const assessmentCount = await prisma.assessment.count({
-        where: { studentClassTerm: { classTerm: { classId: id } } },
-      })
-
-      throw new Error(
-        assessmentCount > 0
-          ? `Cannot delete this class: ${enrolmentCount} student enrolment(s) and ${assessmentCount} recorded result(s) belong to it. Move the students to another class first.`
-          : `Cannot delete this class: ${enrolmentCount} student enrolment(s) belong to it. Move the students to another class first.`,
-      )
+    const verdict = canDeleteClass({ enrolments, recordedScores })
+    if (!verdict.allowed) {
+      throw new Error(`Cannot delete this class: ${verdict.reason}`)
     }
 
-    // Delete all related data. Fees go first: they hang off ClassTerm, so deleting the
+    // One transaction, so a failure part-way cannot leave a class stripped of its terms and
+    // subjects but still standing. Fees go first: they hang off ClassTerm, so deleting the
     // class terms would cascade them away and leave this deleteMany matching nothing.
-    if (feeStructureCount > 0) {
-      await prisma.feeStructure.deleteMany({
-        where: { classTerm: { classId: id } },
-      })
-    }
-
-    if (classToDelete.classTerms.length > 0) {
-      await prisma.classTerm.deleteMany({
-        where: { classId: id },
-      })
-    }
-
-    if (classToDelete.subjects.length > 0) {
-      await prisma.classSubject.deleteMany({
-        where: { classId: id },
-      })
-    }
-
-    // Delete the class
-    await prisma.class.delete({
-      where: { id },
+    await prisma.$transaction(async (tx) => {
+      if (feeStructureCount > 0) {
+        await tx.feeStructure.deleteMany({ where: { classTerm: { classId: id } } })
+      }
+      await tx.classTerm.deleteMany({ where: { classId: id } })
+      await tx.classSubject.deleteMany({ where: { classId: id } })
+      await tx.class.delete({ where: { id } })
     })
 
     revalidatePath("/dashboard/admin/classes")
@@ -167,126 +191,9 @@ export async function deleteClass(id: string) {
   }
 }
 
-// Assign subjects to a class
-export async function assignSubjectsToClass({
-  classId,
-  subjectIds,
-}: {
-  classId: string
-  subjectIds: string[]
-}) {
-  // Verify the current user is authorized to assign subjects
-  const actor = await requirePermission("academics.manage")
-
-  try {
-    // Get the class
-    const classData = await prisma.class.findUnique({
-      where: { id: classId },
-      select: {
-        id: true,
-        schoolId: true,
-        subjects: {
-          select: {
-            subjectId: true,
-          },
-        },
-      },
-    })
-
-    if (!classData) {
-      throw new Error("Class not found")
-    }
-
-    // If admin, verify they are managing a class for their assigned school
-    assertSchoolAccess(actor, classData.schoolId)
-
-    // Get the current term for this school
-    const currentTerm = await prisma.term.findFirst({
-      where: {
-        isCurrent: true,
-        session: {
-          school: {
-            id: classData.schoolId,
-          },
-        },
-      },
-      select: {
-        id: true,
-      },
-    })
-
-    if (!currentTerm) {
-      throw new Error("No current term found for this school")
-    }
-
-    // Find or create a ClassTerm for this class and the current term
-    let classTerm = await prisma.classTerm.findUnique({
-      where: {
-        classId_termId: {
-          classId: classId,
-          termId: currentTerm.id,
-        },
-      },
-    })
-
-    if (!classTerm) {
-      classTerm = await prisma.classTerm.create({
-        data: {
-          class: {
-            connect: { id: classId },
-          },
-          term: {
-            connect: { id: currentTerm.id },
-          },
-        },
-      })
-    }
-
-    // Get currently assigned subject IDs
-    const currentSubjectIds = classData.subjects.map((s) => s.subjectId)
-
-    // Find subjects to remove (in current but not in new list)
-    const subjectsToRemove = currentSubjectIds.filter((id) => !subjectIds.includes(id))
-
-    // Find subjects to add (in new list but not in current)
-    const subjectsToAdd = subjectIds.filter((id) => !currentSubjectIds.includes(id))
-
-    // Start a transaction to ensure all operations succeed or fail together
-    await prisma.$transaction(async (tx) => {
-      // Remove subjects that are no longer assigned
-      if (subjectsToRemove.length > 0) {
-        await tx.classSubject.deleteMany({
-          where: {
-            classId,
-            subjectId: { in: subjectsToRemove },
-            classTermId: classTerm.id,
-          },
-        })
-      }
-
-      // Add newly assigned subjects
-      for (const subjectId of subjectsToAdd) {
-        await tx.classSubject.create({
-          data: {
-            class: {
-              connect: { id: classId },
-            },
-            subject: {
-              connect: { id: subjectId },
-            },
-            classTerm: {
-              connect: { id: classTerm.id },
-            },
-          },
-        })
-      }
-    })
-
-    revalidatePath(`/dashboard/admin/classes/${classId}`)
-    revalidatePath(`/dashboard/admin/classes/${classId}/subjects/assign`)
-    return { success: true }
-  } catch (error) {
-    console.error("Failed to assign subjects:", error)
-    throw new Error(error instanceof Error ? error.message : "Failed to assign subjects")
-  }
-}
+// `assignSubjectsToClass` used to live here: a class-level "assign subjects" action that
+// wrote to whichever term happened to be current, while reading the class's existing
+// subjects across *every* term. Anything already taught in an earlier term therefore looked
+// "already assigned" and was silently skipped, so a subject could never be brought back
+// into the current term. Subjects belong to a ClassTerm, and `assignSubjectsToClassTerm`
+// in app/actions/class-term-management.ts is the one place that manages them.

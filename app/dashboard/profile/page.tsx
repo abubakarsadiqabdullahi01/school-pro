@@ -1,10 +1,11 @@
-import { auth } from "@/auth"
+import { authActive } from "@/lib/authz"
 import { redirect } from "next/navigation"
 import { ProfileTabs } from "@/components/profile/profile-tabs"
 import { prisma } from "@/lib/db"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function ProfilePage() {
-  const session = await auth()
+  const session = await authActive()
 
   if (!session?.user) {
     redirect("/auth/login")
@@ -85,7 +86,10 @@ export default async function ProfilePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">Profile</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-3xl font-bold tracking-tight">Profile</h2>
+          <InfoGuide guideKey="profile" />
+        </div>
         <p className="text-muted-foreground">Manage your account settings and preferences</p>
       </div>
 
@@ -93,4 +97,3 @@ export default async function ProfilePage() {
     </div>
   )
 }
-

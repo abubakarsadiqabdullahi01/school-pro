@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { updateSystemSettings, type SystemConfig } from "@/app/actions/system-settings"
 import { PLATFORM_SETTINGS } from "@/lib/system-config"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 /**
  * Platform settings, health and backup status.
@@ -108,7 +109,10 @@ export function SystemSettings({ settings, health, backup }: SystemSettingsProps
       className="space-y-6"
     >
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">System Settings</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-3xl font-bold tracking-tight">System Settings</h2>
+          <InfoGuide guideKey="superAdmin.system" />
+        </div>
         <p className="text-muted-foreground">Platform-wide configuration, health and backups</p>
       </div>
 

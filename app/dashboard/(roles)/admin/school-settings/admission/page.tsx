@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdmissionSettingsPage() {
   await requireAdminSchool("school.manage")
@@ -14,7 +15,10 @@ export default async function AdmissionSettingsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Admission Settings</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Admission Settings</h1>
+            <InfoGuide guideKey="admin.schoolSettings" />
+          </div>
           <p className="text-muted-foreground">Configure admission number format and sequence management</p>
         </div>
         <Button variant="outline" size="sm" asChild>

@@ -2,13 +2,14 @@ import { prisma } from "@/lib/db"
 import { TermForm } from "@/components/session-management/term-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminCreateTermPage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const { school, schoolId } = await requireAdminSchool("academics.manage")
+  const { actor, school, schoolId } = await requireAdminSchool("academics.manage")
 
   const params = await searchParams
   const rawSessionId = params.sessionId
@@ -16,6 +17,8 @@ export default async function AdminCreateTermPage({
 
   const sessions = await prisma.session.findMany({
     where: { schoolId },
+    // The names already used, so the form can grey out a term this session has.
+    include: { terms: { select: { name: true } } },
     orderBy: [{ isCurrent: "desc" }, { startDate: "desc" }],
   })
 
@@ -25,6 +28,8 @@ export default async function AdminCreateTermPage({
     name: session.name,
     startDate: session.startDate,
     endDate: session.endDate,
+    isCurrent: session.isCurrent,
+    existingTermNames: session.terms.map((term) => term.name),
   }))
 
   // If sessionId is provided, fetch the session details
@@ -53,7 +58,10 @@ export default async function AdminCreateTermPage({
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Create Academic Term</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Create Academic Term</h2>
+            <InfoGuide guideKey="admin.terms" />
+          </div>
           <p className="text-muted-foreground">
             {selectedSession
               ? `Add a new term to ${selectedSession.name}`
@@ -61,7 +69,12 @@ export default async function AdminCreateTermPage({
           </p>
         </div>
 
-        <TermForm sessions={formattedSessions} preselectedSessionId={sessionId} />
+        <TermForm
+          sessions={formattedSessions}
+          preselectedSessionId={sessionId}
+          listHref="/dashboard/admin/school-terms"
+          viewerRole={actor?.role}
+        />
       </div>
     </PageTransition>
   )

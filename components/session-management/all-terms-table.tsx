@@ -43,6 +43,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { deleteTerm, setCurrentTerm } from "@/app/actions/term-management"
+import { canDeleteTerm, canEditTerm, canSetTermCurrent } from "@/lib/term-rules"
+import { rowOpenHandler } from "@/lib/row-open"
+import { TermActionItem } from "@/components/session-management/term-action-item"
 import { motion } from "framer-motion"
 import { queryKeys } from "@/lib/query-keys"
 
@@ -64,9 +67,11 @@ interface Term {
 interface AllTermsTableProps {
   terms: Term[]
   hideSchoolColumn?: boolean
+  /** The viewer's role, because only a super admin may reopen a term that has ended. */
+  viewerRole?: string | null
 }
 
-export function AllTermsTable({ terms, hideSchoolColumn = false }: AllTermsTableProps) {
+export function AllTermsTable({ terms, hideSchoolColumn = false, viewerRole }: AllTermsTableProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [termToDelete, setTermToDelete] = useState<Term | null>(null)
@@ -267,7 +272,11 @@ export function AllTermsTable({ terms, hideSchoolColumn = false }: AllTermsTable
                   filteredTerms.map((term) => {
                     const status = getTermStatus(term)
                     return (
-                      <TableRow key={term.id}>
+                      <TableRow
+                        key={term.id}
+                        className="cursor-pointer"
+                        onClick={rowOpenHandler(() => handleViewTerm(term.id))}
+                      >
                         <TableCell>
                           <div className="font-medium">{term.name}</div>
                         </TableCell>
@@ -302,7 +311,7 @@ export function AllTermsTable({ terms, hideSchoolColumn = false }: AllTermsTable
                         <TableCell>
                           <Badge className={status.color}>{status.label}</Badge>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon">
@@ -316,31 +325,35 @@ export function AllTermsTable({ terms, hideSchoolColumn = false }: AllTermsTable
                                 <Eye className="mr-2 h-4 w-4" />
                                 View Details
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleEditTerm(term.id)}>
+                              <TermActionItem
+                                verdict={canEditTerm(term, viewerRole)}
+                                onSelect={() => handleEditTerm(term.id)}
+                              >
                                 <Edit className="mr-2 h-4 w-4" />
                                 Edit Term
-                              </DropdownMenuItem>
+                              </TermActionItem>
                               {!term.isCurrent && (
-                                <DropdownMenuItem
-                                  onClick={() => handleSetCurrentTerm(term.id, term.sessionId)}
-                                  disabled={isSettingCurrent === term.id}
+                                <TermActionItem
+                                  verdict={canSetTermCurrent(term, viewerRole)}
+                                  onSelect={() => handleSetCurrentTerm(term.id, term.sessionId)}
+                                  busy={isSettingCurrent === term.id}
                                 >
                                   <CalendarRange className="mr-2 h-4 w-4" />
                                   {isSettingCurrent === term.id ? "Setting..." : "Set as Current"}
-                                </DropdownMenuItem>
+                                </TermActionItem>
                               )}
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onClick={() => {
+                              <TermActionItem
+                                verdict={canDeleteTerm(term)}
+                                destructive
+                                onSelect={() => {
                                   setTermToDelete(term)
                                   setDeleteDialogOpen(true)
                                 }}
-                                disabled={term.isCurrent}
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Delete
-                              </DropdownMenuItem>
+                              </TermActionItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

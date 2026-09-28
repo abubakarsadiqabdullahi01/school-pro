@@ -8,6 +8,7 @@ import { Plus } from "lucide-react"
 import Link from "next/link"
 import { getActiveSchool } from "@/lib/school-context.server"
 import { schoolLabel } from "@/lib/school-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function SessionsPage() {
   const session = await auth()
@@ -59,7 +60,10 @@ export default async function SessionsPage() {
       <div className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Academic Sessions</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">Academic Sessions</h2>
+              <InfoGuide guideKey="admin.sessions" />
+            </div>
             <p className="text-muted-foreground">
               {activeSchool
                 ? `Sessions for ${schoolLabel(activeSchool)}`

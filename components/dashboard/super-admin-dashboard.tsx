@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
 import { formatDate } from "@/lib/format"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface SystemStats {
   totalSchools: number
@@ -96,7 +97,10 @@ export function SuperAdminDashboard({ stats, schoolPerformance }: SuperAdminDash
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">System Dashboard</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">System Dashboard</h2>
+            <InfoGuide guideKey="superAdmin.dashboard" />
+          </div>
           <p className="text-muted-foreground">Overview of all schools and system performance</p>
         </div>
         <div className="flex items-center gap-2">

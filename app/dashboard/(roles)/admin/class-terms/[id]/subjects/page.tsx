@@ -59,22 +59,27 @@ export default async function AdminClassTermSubjectsPage({ params }: { params: P
   // Get the IDs of subjects already assigned to the class term
   const assignedSubjectIds = classTerm.classSubjects.map((cs) => cs.subjectId)
 
+  // How many scores each subject already carries for this class this term. Unticking such
+  // a subject takes it off the class, which hides those scores from the entry sheet and the
+  // report card — so the form shows the count and locks the tick rather than letting an
+  // admin find out from an error toast.
+  const marked = await prisma.assessment.groupBy({
+    by: ["subjectId"],
+    where: { studentClassTerm: { classTermId: classTerm.id } },
+    _count: { _all: true },
+  })
+  const scoresBySubject = Object.fromEntries(marked.map((row) => [row.subjectId, row._count._all]))
+
   return (
     <PageTransition>
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Assign Subjects to Class Term</h2>
-          <p className="text-muted-foreground">
-            Manage subjects for {classTerm.class.name} - {classTerm.term.name} ({classTerm.term.session.name})
-          </p>
-        </div>
-
         <ClassTermSubjectsForm
           classTermId={classTerm.id}
           className={classTerm.class.name}
           termName={`${classTerm.term.name} (${classTerm.term.session.name})`}
           subjects={subjects}
           assignedSubjectIds={assignedSubjectIds}
+          scoresBySubject={scoresBySubject}
         />
       </div>
     </PageTransition>

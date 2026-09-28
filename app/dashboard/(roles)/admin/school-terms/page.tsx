@@ -2,9 +2,10 @@ import { prisma } from "@/lib/db"
 import { AllTermsTable } from "@/components/session-management/admin-all-terms"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminSchoolTermsPage() {
-  const { school, schoolId } = await requireAdminSchool("academics.manage")
+  const { actor, school, schoolId } = await requireAdminSchool("academics.manage")
 
   const terms = await prisma.term.findMany({
     where: {
@@ -47,13 +48,16 @@ export default async function AdminSchoolTermsPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Academic Terms</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Academic Terms</h2>
+            <InfoGuide guideKey="admin.terms" />
+          </div>
           <p className="text-muted-foreground">
             Manage academic terms for {school.name} ({school.code})
           </p>
         </div>
 
-        <AllTermsTable terms={formattedTerms} />
+        <AllTermsTable terms={formattedTerms} viewerRole={actor?.role} />
       </div>
     </PageTransition>
   )

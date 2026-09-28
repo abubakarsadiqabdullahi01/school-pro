@@ -10,6 +10,7 @@ import { DashboardOverview } from "@/components/admin-dashboard/DashboardOvervie
 import { SystemHealth } from "@/components/admin-dashboard/SystemHealth"
 import { getDashboardData, getSystemHealth } from "@/app/actions/admin-dashboard"
 import { toast } from "sonner"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export function AdminDashboardClient() {
   const [isLoading, setIsLoading] = useState(true)
@@ -83,9 +84,12 @@ export function AdminDashboardClient() {
         className="flex flex-col justify-between gap-4 md:flex-row md:items-center"
       >
         <div>
-          <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-            Admin Dashboard
-          </h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+              Admin Dashboard
+            </h1>
+            <InfoGuide guideKey="admin.dashboard" />
+          </div>
           <p className="text-muted-foreground">
             Welcome back! Here's what's happening at {dashboardData.school?.name || "your school"}
           </p>

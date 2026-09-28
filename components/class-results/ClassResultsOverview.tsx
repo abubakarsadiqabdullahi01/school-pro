@@ -382,6 +382,9 @@ export function ClassResultsOverview({
         },
         subjects,
         action: "save",
+        // The switch governed only the on-screen table, so an exported sheet still ranked
+        // every child however it was set.
+        showPositions: form.showPositions,
       })
 
       toast.success("PDF exported successfully")
@@ -398,6 +401,7 @@ export function ClassResultsOverview({
     subjects,
     form.termId,
     form.classId,
+    form.showPositions,
     schoolName,
     schoolCode,
     schoolAddress,
@@ -436,6 +440,7 @@ export function ClassResultsOverview({
         },
         subjects,
         action: "preview",
+        showPositions: form.showPositions,
       })
 
       toast.success("Print preview opened")
@@ -452,6 +457,7 @@ export function ClassResultsOverview({
     subjects,
     form.termId,
     form.classId,
+    form.showPositions,
     schoolName,
     schoolCode,
     schoolAddress,

@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { StateLgaFields } from "@/components/forms/state-lga-fields"
 import { updateTeacher } from "@/app/actions/teacher-management"
 
 // Define the form schema
@@ -242,33 +243,7 @@ export function TeacherEditForm({ teacherData }: TeacherEditFormProps) {
                   />
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="state"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>State</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Enter state" {...field} value={field.value || ""} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="lga"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Local Government Area</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Enter LGA" {...field} value={field.value || ""} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <StateLgaFields form={form} stateName="state" lgaName="lga" />
                   </div>
                 </CardContent>
               </Card>

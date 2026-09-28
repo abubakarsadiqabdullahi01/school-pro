@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { assignSubjectsToClassTerm } from "@/app/actions/class-term-management"
 import { Badge } from "@/components/ui/badge"
+import { canRemoveSubjectFromClassTerm } from "@/lib/class-term-rules"
 
 // Define the form schema with validation
 const classTermSubjectsFormSchema = z.object({
@@ -35,6 +36,8 @@ interface ClassTermSubjectsFormProps {
   termName: string
   subjects: Subject[]
   assignedSubjectIds: string[]
+  /** Scores already recorded for this class this term, keyed by subject id. */
+  scoresBySubject?: Record<string, number>
 }
 
 export function ClassTermSubjectsForm({
@@ -43,6 +46,7 @@ export function ClassTermSubjectsForm({
   termName,
   subjects,
   assignedSubjectIds,
+  scoresBySubject = {},
 }: ClassTermSubjectsFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -61,6 +65,20 @@ export function ClassTermSubjectsForm({
       subject.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       subject.code.toLowerCase().includes(searchQuery.toLowerCase()),
   )
+
+  /**
+   * A subject that is on the class and has been marked cannot be taken off it.
+   *
+   * Only assigned subjects can be locked: a subject that is not on the class has nothing to
+   * lose, even in the odd case where scores exist against it from an earlier arrangement.
+   */
+  const lockedReason = (subjectId: string): string | null => {
+    if (!assignedSubjectIds.includes(subjectId)) return null
+    const verdict = canRemoveSubjectFromClassTerm({ recordedScores: scoresBySubject[subjectId] ?? 0 })
+    return verdict.allowed ? null : verdict.reason
+  }
+
+  const lockedCount = subjects.filter((subject) => lockedReason(subject.id) !== null).length
 
   async function onSubmit(data: ClassTermSubjectsFormValues) {
     setIsLoading(true)
@@ -82,17 +100,22 @@ export function ClassTermSubjectsForm({
     }
   }
 
-  // Handle select all subjects
+  // Both act on what is currently listed, not on every subject in the school. Clicking
+  // "Select All" after searching for "Math" used to tick all ten subjects, which is not
+  // what the button appears to offer.
   const handleSelectAll = () => {
-    form.setValue(
-      "subjectIds",
-      subjects.map((subject) => subject.id),
-    )
+    const current = form.getValues("subjectIds")
+    const toAdd = filteredSubjects.map((subject) => subject.id).filter((id) => !current.includes(id))
+    form.setValue("subjectIds", [...current, ...toAdd])
   }
 
-  // Handle deselect all subjects
   const handleDeselectAll = () => {
-    form.setValue("subjectIds", [])
+    const visible = new Set(filteredSubjects.map((subject) => subject.id))
+    form.setValue(
+      "subjectIds",
+      // A locked subject stays ticked: the server would refuse to drop it anyway.
+      form.getValues("subjectIds").filter((id) => !visible.has(id) || lockedReason(id) !== null),
+    )
   }
 
   return (
@@ -117,10 +140,10 @@ export function ClassTermSubjectsForm({
               </div>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={handleSelectAll}>
-                  Select All
+                  Select all{searchQuery ? " shown" : ""}
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={handleDeselectAll}>
-                  Deselect All
+                  Clear{searchQuery ? " shown" : ""}
                 </Button>
               </div>
             </div>
@@ -136,51 +159,56 @@ export function ClassTermSubjectsForm({
                 {filteredSubjects.length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">No subjects found</div>
                 ) : (
-                  filteredSubjects.map((subject) => (
-                    <div key={subject.id} className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`subject-${subject.id}`}
-                            checked={form.watch("subjectIds").includes(subject.id)}
-                            onCheckedChange={(checked) => {
-                              const currentSubjects = form.getValues("subjectIds")
-                              if (checked) {
-                                form.setValue("subjectIds", [...currentSubjects, subject.id])
-                              } else {
-                                form.setValue(
-                                  "subjectIds",
-                                  currentSubjects.filter((id) => id !== subject.id),
-                                )
-                              }
-                            }}
-                          />
-                          <label
-                            htmlFor={`subject-${subject.id}`}
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                          >
-                            {subject.name}
-                          </label>
-                        </div>
-                        <div className="flex items-center">
-                          <Badge variant="outline" className="mr-2">
+                  filteredSubjects.map((subject) => {
+                    const locked = lockedReason(subject.id)
+                    return (
+                      <div key={subject.id} className="px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-start gap-2">
+                            <Checkbox
+                              id={`subject-${subject.id}`}
+                              className="mt-0.5"
+                              disabled={locked !== null}
+                              checked={form.watch("subjectIds").includes(subject.id)}
+                              onCheckedChange={(checked) => {
+                                const currentSubjects = form.getValues("subjectIds")
+                                if (checked) {
+                                  form.setValue("subjectIds", [...currentSubjects, subject.id])
+                                } else {
+                                  form.setValue(
+                                    "subjectIds",
+                                    currentSubjects.filter((id) => id !== subject.id),
+                                  )
+                                }
+                              }}
+                            />
+                            <div className="min-w-0">
+                              <label
+                                htmlFor={`subject-${subject.id}`}
+                                className="text-sm font-medium leading-none"
+                              >
+                                {subject.name}
+                              </label>
+                              {locked && <p className="mt-1 text-xs text-muted-foreground">{locked}</p>}
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="shrink-0">
                             {subject.code}
                           </Badge>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Selected: {form.watch("subjectIds").length} of {subjects.length} subjects
-                </p>
-              </div>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {form.watch("subjectIds").length} of {subjects.length} subjects selected
+              {lockedCount > 0 &&
+                ` · ${lockedCount} locked by recorded scores`}
+              {searchQuery && ` · showing ${filteredSubjects.length}`}
+            </p>
           </CardContent>
           <CardFooter className="flex justify-between">
             <Button type="button" variant="outline" onClick={() => router.push("/dashboard/admin/class-terms")}>

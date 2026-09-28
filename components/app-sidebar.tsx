@@ -24,10 +24,12 @@ import {
   Users,
   ScreenShare,
   ComputerIcon,
+  Activity,
   CreditCard,
   Percent,
   Receipt,
   Banknote,
+  Landmark,
   Wallet,
   ReceiptText,
   Scale,
@@ -492,6 +494,29 @@ export function AppSidebar({
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </NavGroup>
+
+                    {/* What DigiSchool charges a school it collects for. Deliberately here
+                        rather than on the school's own payment screen: a school cannot be
+                        allowed to edit the platform's cut of its own settlements. */}
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/super-admin/payments"
+                        isActive={pathname === "/dashboard/super-admin/payments"}
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        <span>Payment Charges</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/super-admin/payments/monitor"
+                        isActive={pathname === "/dashboard/super-admin/payments/monitor"}
+                      >
+                        <Activity className="h-4 w-4" />
+                        <span>Payment Monitor</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
 
                     <SidebarMenuItem>
                       <SidebarMenuButton
@@ -1495,6 +1520,9 @@ function financeLinks(basePath: string, canManageFees: boolean): FinanceLink[] {
       exact: true,
     },
     { href: `${basePath}/receipts`, label: "Receipts", icon: Receipt, exact: false },
+    { href: `${basePath}/online-payments`, label: "Online Payments", icon: ShieldCheck, exact: false },
+    { href: `${basePath}/dedicated-accounts`, label: "Dedicated Accounts", icon: Landmark, exact: true },
+    { href: `${basePath}/unapplied-payments`, label: "Unapplied Money", icon: Wallet, exact: true },
     { href: `${basePath}/debtors`, label: "Debtors", icon: Users, exact: true },
     {
       href: `${basePath}/class-summary`,

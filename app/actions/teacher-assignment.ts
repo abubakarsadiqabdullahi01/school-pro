@@ -3,6 +3,7 @@
 import { assertSchoolAccess, requirePermission, type Actor } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { canAssignInTerm } from "@/lib/term-rules";
 
 function assertTeacherAssignmentSchool(actor: Actor, schoolId: string, message: string) {
   try {
@@ -40,7 +41,7 @@ export async function assignTeacherToClass(data: {
           select: { schoolId: true },
         },
         term: {
-          select: { id: true, name: true, isCurrent: true },
+          select: { id: true, name: true, isCurrent: true, endDate: true },
         },
       },
     });
@@ -50,6 +51,11 @@ export async function assignTeacherToClass(data: {
     }
 
     assertTeacherAssignmentSchool(actor, classTerm.class.schoolId, "Unauthorized to assign to this class");
+
+    const termVerdict = canAssignInTerm(classTerm.term, actor.role);
+    if (!termVerdict.allowed) {
+      return { success: false, error: `${classTerm.term.name}: ${termVerdict.reason}` };
+    }
 
     // Check if the assignment already exists
     const existingAssignment = await prisma.teacherClassTerm.findUnique({
@@ -111,7 +117,7 @@ export async function unassignTeacherFromClass(teacherClassTermId: string) {
               select: { schoolId: true, name: true },
             },
             term: {
-              select: { id: true, name: true, isCurrent: true },
+              select: { id: true, name: true, isCurrent: true, endDate: true },
             },
           },
         },
@@ -125,13 +131,11 @@ export async function unassignTeacherFromClass(teacherClassTermId: string) {
     assertTeacherAssignmentSchool(actor, assignment.teacher.schoolId, "Unauthorized to unassign this teacher");
     assertTeacherAssignmentSchool(actor, assignment.classTerm.class.schoolId, "Unauthorized to unassign this teacher");
 
-    // Warning: Check if this is a past term assignment
-    if (!assignment.classTerm.term.isCurrent) {
-      return {
-        success: false,
-        error:
-          "Cannot unassign teachers from past terms. This helps maintain historical records.",
-      };
+    // Same rule as the assign paths, so both directions agree. Was `!isCurrent`, which also
+    // blocked a term that has not started yet.
+    const termVerdict = canAssignInTerm(assignment.classTerm.term, actor.role);
+    if (!termVerdict.allowed) {
+      return { success: false, error: `${assignment.classTerm.term.name}: ${termVerdict.reason}` };
     }
 
     // Delete the assignment
@@ -179,6 +183,26 @@ export async function assignClassesToTeacher(data: {
     }
 
     assertTeacherAssignmentSchool(actor, teacher.schoolId, "Unauthorized to assign this teacher");
+
+    // A closed term takes no new timetable. Checked before anything is written, because the
+    // save below is a set-the-list operation: it deletes assignments missing from the new
+    // list, which is how past-term rows could be removed despite `unassignTeacherFromSubject`
+    // refusing to remove them one at a time.
+    const targetTerm = await prisma.term.findUnique({
+      where: { id: data.termId },
+      select: { name: true, endDate: true, isCurrent: true, session: { select: { schoolId: true } } },
+    });
+
+    if (!targetTerm) {
+      return { success: false, error: "Term not found" };
+    }
+
+    assertTeacherAssignmentSchool(actor, targetTerm.session.schoolId, "Unauthorized to assign in this term");
+
+    const classesTermVerdict = canAssignInTerm(targetTerm, actor.role);
+    if (!classesTermVerdict.allowed) {
+      return { success: false, error: `${targetTerm.name}: ${classesTermVerdict.reason}` };
+    }
 
     // Verify all class terms belong to the specified term
     const classTerms = await prisma.classTerm.findMany({
@@ -313,7 +337,13 @@ export async function assignTeacherToSubject(data: {
     // pointing across the tenancy boundary.
     const term = await prisma.term.findUnique({
       where: { id: data.termId },
-      select: { id: true, name: true, isCurrent: true, session: { select: { schoolId: true } } },
+      select: {
+        id: true,
+        name: true,
+        isCurrent: true,
+        endDate: true,
+        session: { select: { schoolId: true } },
+      },
     });
 
     if (!term) {
@@ -321,6 +351,11 @@ export async function assignTeacherToSubject(data: {
     }
 
     assertTeacherAssignmentSchool(actor, term.session.schoolId, "Unauthorized to assign in this term");
+
+    const subjectTermVerdict = canAssignInTerm(term, actor.role);
+    if (!subjectTermVerdict.allowed) {
+      return { success: false, error: `${term.name}: ${subjectTermVerdict.reason}` };
+    }
 
     // Check if the assignment already exists
     const existingAssignment = await prisma.teacherSubject.findUnique({
@@ -385,7 +420,7 @@ export async function unassignTeacherFromSubject(teacherSubjectId: string) {
           select: { schoolId: true, name: true },
         },
         term: {
-          select: { id: true, name: true, isCurrent: true },
+          select: { id: true, name: true, isCurrent: true, endDate: true },
         },
       },
     });
@@ -397,13 +432,12 @@ export async function unassignTeacherFromSubject(teacherSubjectId: string) {
     assertTeacherAssignmentSchool(actor, assignment.teacher.schoolId, "Unauthorized to unassign this teacher");
     assertTeacherAssignmentSchool(actor, assignment.subject.schoolId, "Unauthorized to unassign this teacher");
 
-    // Warning: Check if this is a past term assignment
-    if (!assignment.term.isCurrent) {
-      return {
-        success: false,
-        error:
-          "Cannot unassign teachers from past term subjects. This helps maintain historical records.",
-      };
+    // The same rule the assign paths use, so the two directions agree. This used to test
+    // `!isCurrent`, which also blocked a term that has not started yet — undoing a mistake
+    // on next term's timetable is not rewriting history.
+    const termVerdict = canAssignInTerm(assignment.term, actor.role);
+    if (!termVerdict.allowed) {
+      return { success: false, error: `${assignment.term.name}: ${termVerdict.reason}` };
     }
 
     // Delete the assignment
@@ -458,7 +492,13 @@ export async function assignSubjectsToTeacher(data: {
     // pointing across the tenancy boundary.
     const term = await prisma.term.findUnique({
       where: { id: data.termId },
-      select: { id: true, name: true, isCurrent: true, session: { select: { schoolId: true } } },
+      select: {
+        id: true,
+        name: true,
+        isCurrent: true,
+        endDate: true,
+        session: { select: { schoolId: true } },
+      },
     });
 
     if (!term) {
@@ -466,6 +506,13 @@ export async function assignSubjectsToTeacher(data: {
     }
 
     assertTeacherAssignmentSchool(actor, term.session.schoolId, "Unauthorized to assign in this term");
+
+    // See the note in `assignClassesToTeacher`: this save also removes what is missing from
+    // the list, so a closed term has to be refused before the transaction opens.
+    const bulkTermVerdict = canAssignInTerm(term, actor.role);
+    if (!bulkTermVerdict.allowed) {
+      return { success: false, error: `${term.name}: ${bulkTermVerdict.reason}` };
+    }
 
     const subjects = await prisma.subject.findMany({
       where: { id: { in: data.subjectIds } },
@@ -665,14 +712,22 @@ export async function getAvailableTerms() {
       orderBy: [{ isCurrent: "desc" }, { startDate: "desc" }],
     });
 
-    const formattedTerms = terms.map((term) => ({
-      id: term.id,
-      name: term.name,
-      sessionName: term.session.name,
-      isCurrent: term.isCurrent,
-      startDate: term.startDate,
-      endDate: term.endDate,
-    }));
+    // `canAssign` travels with each term so the picker can grey out the ones the server
+    // would refuse, rather than warning that a past term "creates a historical record" and
+    // then letting the save through.
+    const formattedTerms = terms.map((term) => {
+      const verdict = canAssignInTerm(term, actor.role);
+      return {
+        id: term.id,
+        name: term.name,
+        sessionName: term.session.name,
+        isCurrent: term.isCurrent,
+        startDate: term.startDate,
+        endDate: term.endDate,
+        canAssign: verdict.allowed,
+        assignBlockedReason: verdict.allowed ? null : verdict.reason,
+      };
+    });
 
     return {
       success: true,

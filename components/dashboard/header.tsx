@@ -39,7 +39,7 @@ export function DashboardHeader({ isSidebarOpen, toggleSidebar, userRole = "admi
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 print:hidden md:px-6">
       <Button variant="ghost" size="icon" onClick={toggleSidebar} className="lg:hidden">
         <Menu className="h-5 w-5" />
         <span className="sr-only">Toggle sidebar</span>

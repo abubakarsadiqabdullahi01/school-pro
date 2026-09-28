@@ -49,16 +49,16 @@
     margin: 14mm;
   }
 
-  @page finance-landscape {
-    size: A4 landscape;
-    margin: 12mm;
-  }
-
   body {
     background: white;
   }
 
+  /* `[data-slot="sidebar"]` is the layout spacer, not the panel: the panel itself is fixed
+     and carries `data-sidebar`. Hiding only the panel left a 16rem column of nothing on the
+     page, so every report printed into two thirds of the sheet with its right-hand columns
+     falling off the edge. Receipts and vouchers escaped it by being absolutely positioned. */
   [data-sidebar],
+  [data-slot="sidebar"],
   aside,
   nav {
     display: none !important;
@@ -98,13 +98,68 @@
     width: 100% !important;
   }
 
-  body:has([data-print-landscape]) [data-print-landscape] {
-    page: finance-landscape;
+  /* A receipt is a one-page document by nature: a parent files it or hands it over at the
+     gate, and a signature block stranded alone on a second sheet looks like a fault. Type
+     here is rem-based, so scaling the root scales the whole sheet in proportion — far more
+     reliable than hand-tuning a dozen elements until it happens to fit, and it keeps the
+     letterhead, figures and signatures in the same relationship to each other. */
+  html:has([data-print-fit]) {
+    font-size: 12.5px;
   }
+
+  /* A consolidated payment can cover several fee schedules. Keep every allocation on the
+     receipt, but progressively tighten the same layout instead of allowing a final row or
+     signature to spill onto a second sheet. */
+  html:has([data-print-fit="dense"]) {
+    font-size: 11px;
+  }
+
+  html:has([data-print-fit="compact"]) {
+    font-size: 9.5px;
+  }
+
+  /* Keep the colour a badge or a totals panel carries. Most browsers drop backgrounds when
+     printing, which turned the "Paid" stamp into unexplained grey text. */
+  [data-print-fit] [data-print-colour] {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Landscape is asked for with `PrintLandscape`, which renders a plain `@page` rule inside
+     the one view that wants it. The named page that used to do this laid the document out at
+     landscape width and then printed it on a portrait sheet: the right third of every wide
+     report was cut off and the leftover height came out as a blank final page. */
 
   body:has([data-print-report]) [data-print-document] {
     max-width: none !important;
     position: static !important;
+    /* A multi-page report must be allowed to break. `break-inside: avoid` above is meant
+       for a one-page document like a receipt; left on a statement that runs past a page,
+       the browser pushes the whole block to the next sheet and prints a blank first page. */
+    break-inside: auto;
+  }
+
+  /* Keep a table's header with its rows, and never split a row down the middle. */
+  body:has([data-print-report]) [data-print-document] tr {
+    break-inside: avoid;
+  }
+
+  body:has([data-print-report]) [data-print-document] thead {
+    display: table-header-group;
+  }
+
+  /* A `tfoot` defaults to `table-footer-group`, which repeats it at the bottom of every
+     page — so the closing balance printed once under page one's last row and again at the
+     true end, reading as though the account closed twice. It belongs at the end only. */
+  body:has([data-print-report]) [data-print-document] tfoot {
+    display: table-row-group;
+  }
+
+  /* Money and dates must not wrap: "N52,500.00 CR" broken over two lines is unreadable in
+     a column of figures. The description column absorbs the space instead. */
+  body:has([data-print-report]) [data-print-document] td,
+  body:has([data-print-report]) [data-print-document] th {
+    padding-right: 0.5rem;
   }
 
   body:has([data-print-report]) [data-print-document] .overflow-x-auto {

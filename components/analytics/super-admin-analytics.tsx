@@ -43,6 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
 import { motion } from "framer-motion"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface AnalyticsData {
   totalSchools: number
@@ -162,7 +163,10 @@ export function SuperAdminAnalytics() {
     >
       {/* Header */}
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">System Analytics</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-3xl font-bold tracking-tight">System Analytics</h2>
+          <InfoGuide guideKey="superAdmin.analytics" />
+        </div>
         <p className="text-muted-foreground">Comprehensive overview of the entire school management system</p>
       </div>
 

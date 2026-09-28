@@ -8,6 +8,7 @@ import { schoolLabel } from "@/lib/school-context"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import Link from "next/link"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AllTermsPage() {
   const session = await auth()
@@ -37,7 +38,10 @@ export default async function AllTermsPage() {
       <div className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Academic Terms</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">Academic Terms</h2>
+              <InfoGuide guideKey="admin.terms" />
+            </div>
             <p className="text-muted-foreground">
               {activeSchool
                 ? `Terms for ${schoolLabel(activeSchool)}`
@@ -52,7 +56,11 @@ export default async function AllTermsPage() {
           </Button>
         </div>
 
-        <AllTermsTable terms={termsResult.data} hideSchoolColumn={!!activeSchool} />
+        <AllTermsTable
+          terms={termsResult.data}
+          hideSchoolColumn={!!activeSchool}
+          viewerRole={session.user.role}
+        />
       </div>
     </PageTransition>
   )

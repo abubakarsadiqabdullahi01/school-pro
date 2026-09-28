@@ -3,6 +3,7 @@
 import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { SYSTEM_PERMISSION_PROFILES } from "@/lib/permissions"
 
 // Create a new school
 export async function createSchool(data: {
@@ -51,44 +52,64 @@ export async function createSchool(data: {
       return { success: false, error: "School email already exists" }
     }
 
-    const school = await prisma.school.create({
-      data: {
-        name: data.name,
-        code: data.code,
-        address: data.address,
-        phone: data.phone,
-        email: data.email,
-        website: data.website,
-        logoUrl: data.logoUrl,
-        admissionPrefix: data.admissionPrefix || "STD",
-        admissionFormat: data.admissionFormat || "{PREFIX}-{YEAR}-{NUMBER}",
-        admissionSequenceStart: data.admissionSequenceStart || 1,
-        isActive: true,
-      }
-    })
+    const school = await prisma.$transaction(async (tx) => {
+      const created = await tx.school.create({
+        data: {
+          name: data.name.trim(),
+          code: data.code.trim().toUpperCase(),
+          address: data.address.trim(),
+          phone: data.phone.trim(),
+          email: data.email.trim().toLowerCase(),
+          website: data.website?.trim() || null,
+          logoUrl: data.logoUrl?.trim() || null,
+          admissionPrefix: data.admissionPrefix?.trim().toUpperCase() || "STD",
+          admissionFormat: data.admissionFormat?.trim() || "{PREFIX}-{YEAR}-{NUMBER}",
+          admissionSequenceStart: Math.max(1, Math.trunc(data.admissionSequenceStart ?? 1)),
+          isActive: true,
+        },
+      })
 
-    // Create default grading system for the school
-    await prisma.gradingSystem.create({
-      data: {
-        schoolId: school.id,
-        name: "WAEC Standard",
-        description: "West African Examination Council Standard Grading",
-        isDefault: true,
-        passMark: 40,
-        levels: {
-          create: [
-            { minScore: 75, maxScore: 100, grade: "A1", remark: "Excellent" },
-            { minScore: 70, maxScore: 74, grade: "B2", remark: "Very Good" },
-            { minScore: 65, maxScore: 69, grade: "B3", remark: "Good" },
-            { minScore: 60, maxScore: 64, grade: "C4", remark: "Credit" },
-            { minScore: 55, maxScore: 59, grade: "C5", remark: "Credit" },
-            { minScore: 50, maxScore: 54, grade: "C6", remark: "Credit" },
-            { minScore: 45, maxScore: 49, grade: "D7", remark: "Pass" },
-            { minScore: 40, maxScore: 44, grade: "E8", remark: "Pass" },
-            { minScore: 0, maxScore: 39, grade: "F9", remark: "Fail" },
-          ]
-        }
-      }
+      await tx.gradingSystem.create({
+        data: {
+          schoolId: created.id,
+          name: "WAEC Standard",
+          description: "West African Examination Council Standard Grading",
+          isDefault: true,
+          passMark: 40,
+          levels: {
+            create: [
+              { minScore: 75, maxScore: 100, grade: "A1", remark: "Excellent" },
+              { minScore: 70, maxScore: 74, grade: "B2", remark: "Very Good" },
+              { minScore: 65, maxScore: 69, grade: "B3", remark: "Good" },
+              { minScore: 60, maxScore: 64, grade: "C4", remark: "Credit" },
+              { minScore: 55, maxScore: 59, grade: "C5", remark: "Credit" },
+              { minScore: 50, maxScore: 54, grade: "C6", remark: "Credit" },
+              { minScore: 45, maxScore: 49, grade: "D7", remark: "Pass" },
+              { minScore: 40, maxScore: 44, grade: "E8", remark: "Pass" },
+              { minScore: 0, maxScore: 39, grade: "F9", remark: "Fail" },
+            ],
+          },
+        },
+      })
+      await tx.assessmentScheme.create({
+        data: { schoolId: created.id, name: "Three CAs and an exam", ca1Max: 10, ca2Max: 10, ca3Max: 10, examMax: 70 },
+      })
+      await tx.transitionPolicy.create({ data: { schoolId: created.id } })
+      await Promise.all(
+        Object.entries(SYSTEM_PERMISSION_PROFILES).map(([code, profile]) =>
+          tx.permissionProfile.create({
+            data: {
+              schoolId: created.id,
+              code,
+              name: profile.name,
+              description: `System profile: ${profile.name}`,
+              permissions: profile.permissions,
+              isSystem: true,
+            },
+          }),
+        ),
+      )
+      return created
     })
 
     revalidatePath("/dashboard/super-admin/schools")
@@ -201,11 +222,30 @@ export async function toggleSchoolStatus(id: string) {
       return { success: false, error: "School not found" }
     }
 
-    const updatedSchool = await prisma.school.update({
-      where: { id },
-      data: {
-        isActive: !school.isActive
+    const updatedSchool = await prisma.$transaction(async (tx) => {
+      const updated = await tx.school.update({
+        where: { id },
+        data: { isActive: !school.isActive },
+      })
+      if (!updated.isActive) {
+        const members = await tx.user.findMany({
+          where: {
+            OR: [
+              { admin: { schoolId: id } },
+              { teacher: { schoolId: id } },
+              { parent: { schoolId: id } },
+              { student: { schoolId: id } },
+              { staffRecord: { schoolId: id } },
+            ],
+          },
+          select: { id: true },
+        })
+        await tx.loginSession.updateMany({
+          where: { userId: { in: members.map((member) => member.id) }, revokedAt: null },
+          data: { revokedAt: new Date() },
+        })
       }
+      return updated
     })
 
     revalidatePath("/dashboard/super-admin/schools")

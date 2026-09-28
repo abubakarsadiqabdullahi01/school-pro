@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Calendar } from "lucide-react";
 import { requireTeacher } from "@/lib/authz";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function TeacherMyClassesPage() {
   const actor = await requireTeacher().catch(() => null);
@@ -119,7 +120,10 @@ export default async function TeacherMyClassesPage() {
         {/* Header Section */}
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-3xl font-bold tracking-tight">My Classes</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">My Classes</h2>
+              <InfoGuide guideKey="teacher.myClasses" />
+            </div>
             {currentTerm && (
               <Badge
                 variant="secondary"

@@ -10,6 +10,7 @@ import { UserPlus } from "lucide-react"
 import { TableActions } from "@/components/user-management/table-actions"
 import { formatDate } from "@/lib/format"
 import { getActiveSchool } from "@/lib/school-context.server"
+import { InfoGuide } from "@/components/ui/info-guide"
 import { schoolLabel } from "@/lib/school-context"
 
 export default async function AdminUsersPage() {
@@ -26,7 +27,10 @@ export default async function AdminUsersPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Admin Users</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Admin Users</h2>
+            <InfoGuide guideKey="superAdmin.users" />
+          </div>
           <p className="text-red-500">Error: {result.error}</p>
         </div>
       </div>
@@ -44,7 +48,10 @@ export default async function AdminUsersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">Admin Users</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-3xl font-bold tracking-tight">Admin Users</h2>
+          <InfoGuide guideKey="superAdmin.users" />
+        </div>
         <p className="text-muted-foreground">
           {activeSchool
             ? `Administrators at ${schoolLabel(activeSchool)}`

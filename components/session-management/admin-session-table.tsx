@@ -46,9 +46,16 @@ interface Session {
 
 interface SessionsTableProps {
   sessions: Session[]
+  /**
+   * Whether the viewer may open a new session.
+   *
+   * Only a super admin can, so a school admin is not offered a button that the server will
+   * refuse — an action you can click and cannot complete is worse than one that is absent.
+   */
+  canCreateSession?: boolean
 }
 
-export function AdminSessionsTable({ sessions }: SessionsTableProps) {
+export function AdminSessionsTable({ sessions, canCreateSession = false }: SessionsTableProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
@@ -144,10 +151,12 @@ export function AdminSessionsTable({ sessions }: SessionsTableProps) {
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
-          <Button onClick={handleAddSession}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Session
-          </Button>
+          {canCreateSession && (
+            <Button onClick={handleAddSession}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Session
+            </Button>
+          )}
         </div>
       </div>
 

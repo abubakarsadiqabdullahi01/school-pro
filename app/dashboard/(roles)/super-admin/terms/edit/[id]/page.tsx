@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { TermForm } from "@/components/session-management/term-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { notFound } from "next/navigation"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 // Add this interface to properly type the params
 interface Props {
@@ -55,6 +56,8 @@ export default async function EditTermPage({ params }: Props) {
           code: true,
         },
       },
+      // The names already used, so the form can grey out a term this session has.
+      terms: { select: { name: true } },
     },
     orderBy: [{ isCurrent: "desc" }, { school: { name: "asc" } }, { startDate: "desc" }],
   })
@@ -65,13 +68,18 @@ export default async function EditTermPage({ params }: Props) {
     name: `${session.name} - ${session.school.name} (${session.school.code})`,
     startDate: session.startDate,
     endDate: session.endDate,
+    isCurrent: session.isCurrent,
+    existingTermNames: session.terms.map((term) => term.name),
   }))
 
   return (
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Edit Academic Term</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Edit Academic Term</h2>
+            <InfoGuide guideKey="admin.terms" />
+          </div>
           <p className="text-muted-foreground">
             Update the term for {termData.session.name} - {termData.session.school.name} ({termData.session.school.code}
             )
@@ -79,6 +87,8 @@ export default async function EditTermPage({ params }: Props) {
         </div>
         <TermForm
           sessions={formattedSessions}
+          listHref="/dashboard/super-admin/terms"
+          viewerRole={session.user.role}
           termData={{
             id: termData.id,
             name: termData.name,

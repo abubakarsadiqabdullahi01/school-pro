@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { TermForm } from "@/components/session-management/term-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface CreateTermPageProps {
   searchParams: Promise<{
@@ -31,6 +32,8 @@ export default async function CreateTermPage({ searchParams }: CreateTermPagePro
           code: true,
         },
       },
+      // The names already used, so the form can grey out a term this session has.
+      terms: { select: { name: true } },
     },
     orderBy: [{ isCurrent: "desc" }, { school: { name: "asc" } }, { startDate: "desc" }],
   })
@@ -41,6 +44,8 @@ export default async function CreateTermPage({ searchParams }: CreateTermPagePro
     name: `${session.name} - ${session.school.name} (${session.school.code})`,
     startDate: session.startDate,
     endDate: session.endDate,
+    isCurrent: session.isCurrent,
+    existingTermNames: session.terms.map((term) => term.name),
   }))
 
   // If sessionId is provided, fetch the session details
@@ -73,14 +78,22 @@ export default async function CreateTermPage({ searchParams }: CreateTermPagePro
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Create Academic Term</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Create Academic Term</h2>
+            <InfoGuide guideKey="admin.terms" />
+          </div>
           <p className="text-muted-foreground">
             {selectedSession
               ? `Add a new term to ${selectedSession.name} - ${selectedSession.schoolName} (${selectedSession.schoolCode})`
               : "Add a new academic term to a session"}
           </p>
         </div>
-        <TermForm sessions={formattedSessions} preselectedSessionId={sessionId} />
+        <TermForm
+          sessions={formattedSessions}
+          preselectedSessionId={sessionId}
+          listHref="/dashboard/super-admin/terms"
+          viewerRole={session.user.role}
+        />
       </div>
     </PageTransition>
   )

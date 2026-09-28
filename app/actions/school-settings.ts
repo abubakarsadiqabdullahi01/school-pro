@@ -4,6 +4,12 @@ import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { schemeTotal } from "@/lib/assessment-scheme"
 import { revalidatePath } from "next/cache"
+import { recordAudit } from "@/lib/audit"
+import {
+  SCHOOL_SETTINGS_BY_KEY,
+  WITHHOLD_RESULTS_KEY,
+  serialiseSettingValue,
+} from "@/lib/system-config"
 
 async function requireSchoolSettingsAccess(requestedSchoolId?: string) {
   const actor = await requirePermission("school.manage")
@@ -17,6 +23,25 @@ async function requireSchoolSettingsAccess(requestedSchoolId?: string) {
   }
 
   return actor.schoolId
+}
+
+function assertValidPassMark(passMark: number) {
+  if (!Number.isFinite(passMark) || passMark < 0 || passMark > 100) {
+    throw new Error("Pass mark must be between 0 and 100")
+  }
+}
+
+function assertCompleteGradeCoverage(levels: Array<{ minScore: number; maxScore: number }>) {
+  for (let score = 0; score <= 100; score += 1) {
+    const matches = levels.filter((level) => score >= level.minScore && score <= level.maxScore)
+    if (matches.length !== 1) {
+      throw new Error(
+        matches.length === 0
+          ? `The grading bands do not cover score ${score}`
+          : `More than one grading band covers score ${score}`,
+      )
+    }
+  }
 }
 
 export async function getSchoolSettingsData() {
@@ -391,6 +416,7 @@ export async function createGradingSystem({
 }) {
   try {
     await requireSchoolSettingsAccess(schoolId)
+    assertValidPassMark(passMark)
 
     // Check if there are any existing grading systems for this school
     const existingCount = await prisma.gradingSystem.count({
@@ -443,6 +469,7 @@ export async function updateGradingSystem({
     }
 
     await requireSchoolSettingsAccess(gradingSystem.schoolId)
+    assertValidPassMark(passMark)
 
     // Update the grading system
     const updatedGradingSystem = await prisma.gradingSystem.update({
@@ -511,7 +538,7 @@ export async function setDefaultGradingSystem({ id, schoolId }: { id: string; sc
     // Get the grading system to verify it belongs to the admin's school
     const gradingSystem = await prisma.gradingSystem.findUnique({
       where: { id },
-      select: { schoolId: true },
+      select: { schoolId: true, levels: { select: { minScore: true, maxScore: true } } },
     })
 
     if (!gradingSystem) {
@@ -521,20 +548,19 @@ export async function setDefaultGradingSystem({ id, schoolId }: { id: string; sc
     if (gradingSystem.schoolId !== schoolId) {
       throw new Error("Grading system not found for this school")
     }
+    if (gradingSystem.levels.length === 0) throw new Error("Add grading bands before making this system the default")
+    assertCompleteGradeCoverage(gradingSystem.levels)
 
     // Scope the reset to the school on the record that was just verified, not to the
     // schoolId the caller passed. Using the parameter let an admin pair a legitimate id of
     // their own with another school's id and clear that school's default — leaving it with
     // none, which makes every result there fall back to the built-in scale.
-    await prisma.gradingSystem.updateMany({
-      where: { schoolId: gradingSystem.schoolId },
-      data: { isDefault: false },
-    })
-
-    // Set the selected grading system as default
-    await prisma.gradingSystem.update({
-      where: { id },
-      data: { isDefault: true },
+    await prisma.$transaction(async (tx) => {
+      await tx.gradingSystem.updateMany({
+        where: { schoolId: gradingSystem.schoolId },
+        data: { isDefault: false },
+      })
+      await tx.gradingSystem.update({ where: { id }, data: { isDefault: true } })
     })
 
     revalidatePath("/dashboard/admin/settings/grading-systems")
@@ -650,7 +676,11 @@ export async function updateGradeLevel({
       where: { id },
       include: {
         gradingSystem: {
-          select: { schoolId: true },
+          select: {
+            schoolId: true,
+            isDefault: true,
+            levels: { select: { id: true, minScore: true, maxScore: true } },
+          },
         },
       },
     })
@@ -699,6 +729,13 @@ export async function updateGradeLevel({
         `Scores ${minScore}-${maxScore} overlap grade "${overlapping.grade}" (${overlapping.minScore}-${overlapping.maxScore})`,
       )
     }
+    if (gradeLevel.gradingSystem.isDefault) {
+      assertCompleteGradeCoverage(
+        gradeLevel.gradingSystem.levels.map((level) =>
+          level.id === id ? { minScore, maxScore } : level,
+        ),
+      )
+    }
 
     // Update the grade level
     const updatedGradeLevel = await prisma.gradeLevel.update({
@@ -727,7 +764,7 @@ export async function deleteGradeLevel({ id }: { id: string }) {
       where: { id },
       include: {
         gradingSystem: {
-          select: { schoolId: true },
+          select: { schoolId: true, isDefault: true },
         },
       },
     })
@@ -737,6 +774,9 @@ export async function deleteGradeLevel({ id }: { id: string }) {
     }
 
     await requireSchoolSettingsAccess(gradeLevel.gradingSystem.schoolId)
+    if (gradeLevel.gradingSystem.isDefault) {
+      throw new Error("A grade band cannot be removed from the active grading system")
+    }
 
     // Delete the grade level
     await prisma.gradeLevel.delete({
@@ -748,5 +788,103 @@ export async function deleteGradeLevel({ id }: { id: string }) {
   } catch (error) {
     console.error("Failed to delete grade level:", error)
     return { success: false, error: error instanceof Error ? error.message : "Failed to delete grade level" }
+  }
+}
+
+// ============================================
+// RESULTS POLICY
+// ============================================
+
+/**
+ * Whether this school holds a term's results while that term's fees are unpaid.
+ *
+ * Kept as a school setting rather than a product rule because schools genuinely differ:
+ * some consider withholding the only leverage they have, others consider it unfair to
+ * punish a child for a parent's arrears. Neither is the software's decision.
+ */
+export async function getResultsPolicy() {
+  try {
+    const schoolId = await requireSchoolSettingsAccess()
+
+    const row = await prisma.systemConfiguration.findFirst({
+      where: { schoolId, configKey: WITHHOLD_RESULTS_KEY },
+      select: { configValue: true, isActive: true },
+    })
+
+    return {
+      success: true as const,
+      data: { withholdResultsWhenOwing: row?.isActive === true && row.configValue === "true" },
+    }
+  } catch (error) {
+    console.error("Error reading the results policy:", error)
+    return { success: false as const, error: "Failed to load the results policy" }
+  }
+}
+
+export async function updateResultsPolicy(withhold: boolean) {
+  try {
+    const actor = await requirePermission("school.manage")
+    if (!actor.schoolId) return { success: false as const, error: "No school on this account" }
+    const schoolId = actor.schoolId
+
+    if (typeof withhold !== "boolean") {
+      return { success: false as const, error: "That is not a yes or no answer." }
+    }
+
+    const definition = SCHOOL_SETTINGS_BY_KEY.get(WITHHOLD_RESULTS_KEY)!
+    const serialised = serialiseSettingValue(definition, withhold)
+    if (!serialised.ok) return { success: false as const, error: serialised.error }
+
+    // findFirst-then-write rather than upsert, for the reason system-config.ts explains:
+    // the unique key includes a nullable schoolId and MySQL does not collide NULLs.
+    const existing = await prisma.systemConfiguration.findFirst({
+      where: { schoolId, configKey: WITHHOLD_RESULTS_KEY },
+      select: { id: true, configValue: true },
+    })
+
+    if (existing) {
+      await prisma.systemConfiguration.update({
+        where: { id: existing.id },
+        data: { configValue: serialised.value, isActive: true, description: definition.description },
+      })
+    } else {
+      await prisma.systemConfiguration.create({
+        data: {
+          schoolId,
+          configKey: WITHHOLD_RESULTS_KEY,
+          configValue: serialised.value,
+          configType: definition.type,
+          description: definition.description,
+          isActive: true,
+        },
+      })
+    }
+
+    await recordAudit({
+      actor,
+      action: "school_settings.results_policy",
+      entityType: "SystemConfiguration",
+      entityId: existing?.id ?? null,
+      schoolId,
+      summary: withhold
+        ? "Results are now held from parents and students while that term's fees are unpaid"
+        : "Results are now shown regardless of unpaid fees",
+      before: { withholdResultsWhenOwing: existing?.configValue ?? "false" },
+      after: { withholdResultsWhenOwing: serialised.value },
+    })
+
+    revalidatePath("/dashboard/admin/school-settings")
+    revalidatePath("/dashboard/parent", "layout")
+    revalidatePath("/dashboard/student", "layout")
+
+    return {
+      success: true as const,
+      message: withhold
+        ? "Results will be held while a term's fees are unpaid."
+        : "Results will be shown regardless of unpaid fees.",
+    }
+  } catch (error) {
+    console.error("Error updating the results policy:", error)
+    return { success: false as const, error: "Failed to save the results policy" }
   }
 }

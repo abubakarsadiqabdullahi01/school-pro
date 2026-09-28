@@ -13,6 +13,7 @@ import { TermTimeline } from "./TermTimeline"
 import { CalendarStats } from "./CalendarStats"
 import { UpcomingEvents } from "./UpcomingEvents"
 import { CalendarSettings } from "./CalendarSettings"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface CalendarOverviewProps {
   initialData: any
@@ -62,7 +63,10 @@ export function CalendarOverview({ initialData }: CalendarOverviewProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">School Calendar</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">School Calendar</h1>
+            <InfoGuide guideKey="admin.calendar" />
+          </div>
           <p className="text-muted-foreground">Manage and track your academic sessions, terms, and schedules</p>
         </div>
         <div className="flex items-center gap-2">

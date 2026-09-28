@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { StateLgaFields } from "@/components/forms/state-lga-fields"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -46,46 +47,6 @@ const availablePermissions = [
   { id: "VIEW_REPORTS", label: "View Reports" },
   { id: "MANAGE_SESSIONS", label: "Manage Sessions" },
   { id: "MANAGE_SETTINGS", label: "Manage System Settings" },
-]
-
-const nigerianStates = [
-  "Abia",
-  "Adamawa",
-  "Akwa Ibom",
-  "Anambra",
-  "Bauchi",
-  "Bayelsa",
-  "Benue",
-  "Borno",
-  "Cross River",
-  "Delta",
-  "Ebonyi",
-  "Edo",
-  "Ekiti",
-  "Enugu",
-  "FCT",
-  "Gombe",
-  "Imo",
-  "Jigawa",
-  "Kaduna",
-  "Kano",
-  "Katsina",
-  "Kebbi",
-  "Kogi",
-  "Kwara",
-  "Lagos",
-  "Nasarawa",
-  "Niger",
-  "Ogun",
-  "Ondo",
-  "Osun",
-  "Oyo",
-  "Plateau",
-  "Rivers",
-  "Sokoto",
-  "Taraba",
-  "Yobe",
-  "Zamfara",
 ]
 
 interface AdminEditFormProps {
@@ -350,48 +311,7 @@ export function AdminEditForm({ admin, schools }: AdminEditFormProps) {
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>State</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(value === "NO_STATE" ? "" : value)}
-                        value={field.value || "NO_STATE"}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select state" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="NO_STATE">Select State</SelectItem>
-                          {nigerianStates.map((state) => (
-                            <SelectItem key={state} value={state}>
-                              {state}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="lga"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Local Government Area</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter LGA" {...field} value={field.value || ""} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <StateLgaFields form={form} stateName="state" lgaName="lga" />
               </div>
 
               <FormField

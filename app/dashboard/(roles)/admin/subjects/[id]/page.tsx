@@ -8,6 +8,7 @@ import Link from "next/link"
 import { SubjectClassesTable } from "@/components/subject-management/subject-classes-table"
 import { SubjectTeachersTable } from "@/components/subject-management/subject-teachers-table"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminSubjectDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { schoolId } = await requireAdminSchool("academics.manage")
@@ -101,7 +102,10 @@ export default async function AdminSubjectDetailsPage({ params }: { params: Prom
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">{subjectData.name}</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">{subjectData.name}</h2>
+              <InfoGuide guideKey="admin.subjects" />
+            </div>
             <p className="text-muted-foreground">
               Subject in {subjectData.school.name} ({subjectData.school.code})
             </p>

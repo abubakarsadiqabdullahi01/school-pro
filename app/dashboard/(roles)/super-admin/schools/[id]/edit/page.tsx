@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { getSchool } from "@/app/actions/school-management"
 import { SchoolForm } from "@/components/school-management/school-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function EditSchoolPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
@@ -25,7 +26,10 @@ export default async function EditSchoolPage({ params }: { params: Promise<{ id:
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Edit School</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Edit School</h2>
+            <InfoGuide guideKey="superAdmin.schools" />
+          </div>
           <p className="text-muted-foreground">
             Update information for {school.name}
           </p>

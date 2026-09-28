@@ -17,13 +17,13 @@ export async function GET() {
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Health check failed:', error);
     
     return NextResponse.json({
       status: "unhealthy",
       timestamp: new Date().toISOString(),
-      error: error.message,
+      error: "A required service is unavailable",
     }, { status: 500 });
   }
 }

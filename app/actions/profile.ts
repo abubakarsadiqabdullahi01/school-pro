@@ -1,181 +1,181 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
 import bcrypt from "bcryptjs"
+import { revalidatePath } from "next/cache"
+import { z } from "zod"
 import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
+import { requireActor } from "@/lib/authz"
+import { recordAudit } from "@/lib/audit"
 
-export async function updateProfile(data: {
-  userId: string
-  firstName: string
-  lastName: string
-  avatarUrl?: string | null
-}) {
-  try {
-    const session = await auth()
-    
-    // Verify user can only update their own profile
-    if (!session?.user || session.user.id !== data.userId) {
-      throw new Error("Unauthorized")
-    }
+const profileSchema = z.object({
+  userId: z.string().uuid(),
+  firstName: z.string().trim().min(2).max(80),
+  lastName: z.string().trim().min(2).max(80),
+  avatarUrl: z.string().trim().url().nullable().optional(),
+})
 
-    const updatedUser = await prisma.user.update({
-      where: { id: data.userId },
-      data: {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        avatarUrl: data.avatarUrl,
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        avatarUrl: true,
-      },
-    })
+const passwordSchema = z.object({
+  userId: z.string().uuid(),
+  currentPassword: z.string().min(1),
+  newPassword: z
+    .string()
+    .min(8, "Use at least 8 characters")
+    .max(128)
+    .regex(/[a-z]/, "Include a lowercase letter")
+    .regex(/[A-Z]/, "Include an uppercase letter")
+    .regex(/[0-9]/, "Include a number"),
+})
 
-    revalidatePath("/dashboard/profile")
-    revalidatePath("/dashboard")
+const optionalEmail = z.union([z.literal(""), z.string().trim().email()]).optional()
+const optionalPhone = z.union([z.literal(""), z.string().trim().min(7).max(30)]).optional()
+const optionalRegistration = z.union([z.literal(""), z.string().trim().min(2).max(80)]).optional()
 
-    return updatedUser
-  } catch (error) {
-    console.error("Failed to update profile:", error)
-    throw new Error("Failed to update profile")
-  }
+const contactSchema = z.object({
+  userId: z.string().uuid(),
+  email: optionalEmail,
+  phone: optionalPhone,
+  registrationNumber: optionalRegistration,
+  // Accepted for compatibility with older clients, but deliberately never trusted.
+  emailCredentialId: z.string().optional(),
+  phoneCredentialId: z.string().optional(),
+  regNumberCredentialId: z.string().optional(),
+})
+
+async function requireSelf(userId: string) {
+  const actor = await requireActor()
+  if (actor.userId !== userId) throw new Error("You can only change your own profile")
+  return actor
 }
-// Change user password
-export async function changePassword({
-  userId,
-  currentPassword,
-  newPassword,
-}: {
-  userId: string
-  currentPassword: string
-  newPassword: string
-}) {
-  // Verify the current user is authorized to change this password
-  const session = await auth()
 
-  if (!session?.user || (session.user.id !== userId && session.user.role !== "SUPER_ADMIN")) {
-    throw new Error("Unauthorized")
-  }
-
-  // Get the user's primary credential
-  const primaryCredential = await prisma.credential.findFirst({
-    where: {
-      userId,
-      isPrimary: true,
-    },
+export async function updateProfile(input: z.input<typeof profileSchema>) {
+  const data = profileSchema.parse(input)
+  const actor = await requireSelf(data.userId)
+  const before = await prisma.user.findUnique({
+    where: { id: data.userId },
+    select: { firstName: true, lastName: true, avatarUrl: true },
   })
+  if (!before) throw new Error("User profile not found")
 
-  if (!primaryCredential) {
-    throw new Error("No primary credential found")
-  }
-
-  // Verify the current password
-  const isPasswordValid = await bcrypt.compare(currentPassword, primaryCredential.passwordHash)
-
-  if (!isPasswordValid) {
-    throw new Error("Current password is incorrect")
-  }
-
-  // Hash the new password
-  const newPasswordHash = await bcrypt.hash(newPassword, 10)
-
-  // Update all credentials with the new password
-  await prisma.credential.updateMany({
-    where: { userId },
+  const updatedUser = await prisma.user.update({
+    where: { id: data.userId },
     data: {
-      passwordHash: newPasswordHash,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      avatarUrl: data.avatarUrl || null,
     },
+    select: { id: true, firstName: true, lastName: true, avatarUrl: true },
   })
 
+  await recordAudit({
+    actor,
+    action: "profile.update",
+    entityType: "User",
+    entityId: data.userId,
+    summary: "Updated personal profile information",
+    before,
+    after: updatedUser,
+  })
+  revalidatePath("/dashboard/profile")
+  revalidatePath("/dashboard")
+  return updatedUser
+}
+
+export async function changePassword(input: z.input<typeof passwordSchema>) {
+  const data = passwordSchema.parse(input)
+  const actor = await requireSelf(data.userId)
+  const primaryCredential = await prisma.credential.findFirst({
+    where: { userId: data.userId, isPrimary: true },
+    select: { passwordHash: true },
+  })
+  if (!primaryCredential) throw new Error("No primary credential found")
+
+  const isPasswordValid = await bcrypt.compare(data.currentPassword, primaryCredential.passwordHash)
+  if (!isPasswordValid) throw new Error("Current password is incorrect")
+  if (await bcrypt.compare(data.newPassword, primaryCredential.passwordHash)) {
+    throw new Error("The new password must be different from the current password")
+  }
+
+  const newPasswordHash = await bcrypt.hash(data.newPassword, 12)
+  await prisma.$transaction([
+    prisma.credential.updateMany({
+      where: { userId: data.userId },
+      data: { passwordHash: newPasswordHash },
+    }),
+    // Password changes invalidate every existing JWT-backed login immediately.
+    prisma.loginSession.updateMany({
+      where: { userId: data.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ])
+
+  await recordAudit({
+    actor,
+    action: "profile.password_change",
+    entityType: "User",
+    entityId: data.userId,
+    summary: "Changed password and signed out existing sessions",
+  })
   return { success: true }
 }
 
-// Update contact information
-export async function updateContactInfo({
-  userId,
-  email,
-  phone,
-  registrationNumber,
-  emailCredentialId,
-  phoneCredentialId,
-  regNumberCredentialId,
-}: {
-  userId: string
-  email?: string
-  phone?: string
-  registrationNumber?: string
-  emailCredentialId?: string
-  phoneCredentialId?: string
-  regNumberCredentialId?: string
-}) {
-  // Verify the current user is authorized to update this contact info
-  const session = await auth()
+export async function updateContactInfo(input: z.input<typeof contactSchema>) {
+  const data = contactSchema.parse(input)
+  const actor = await requireSelf(data.userId)
 
-  if (!session?.user || (session.user.id !== userId && session.user.role !== "SUPER_ADMIN")) {
-    throw new Error("Unauthorized")
-  }
+  await prisma.$transaction(async (tx) => {
+    const [user, primaryCredential] = await Promise.all([
+      tx.user.findUnique({
+        where: { id: data.userId },
+        select: { student: { select: { id: true } } },
+      }),
+      tx.credential.findFirst({
+        where: { userId: data.userId, isPrimary: true },
+        select: { passwordHash: true },
+      }),
+    ])
+    if (!user) throw new Error("User profile not found")
+    if (!primaryCredential?.passwordHash) throw new Error("No valid primary credential found")
 
-  // Update email credential if it exists and has changed
-  if (email && emailCredentialId) {
-    await prisma.credential.update({
-      where: { id: emailCredentialId },
-      data: { value: email },
-    })
-  } else if (email) {
-    // Create new email credential if it doesn't exist
-    await prisma.credential.create({
-      data: {
-        userId,
-        type: "EMAIL",
-        value: email,
-        passwordHash: "", // This would need to be set properly in a real implementation
-        isPrimary: false,
-      },
-    })
-  }
+    const saveCredential = async (
+      type: "EMAIL" | "PHONE" | "REGISTRATION_NUMBER",
+      value: string | undefined,
+    ) => {
+      if (!value) return
+      await tx.credential.upsert({
+        where: { userId_type: { userId: data.userId, type } },
+        create: {
+          userId: data.userId,
+          type,
+          value,
+          passwordHash: primaryCredential.passwordHash,
+          isPrimary: false,
+        },
+        update: { value },
+      })
+    }
 
-  // Update phone credential if it exists and has changed
-  if (phone && phoneCredentialId) {
-    await prisma.credential.update({
-      where: { id: phoneCredentialId },
-      data: { value: phone },
-    })
-  } else if (phone) {
-    // Create new phone credential if it doesn't exist
-    await prisma.credential.create({
-      data: {
-        userId,
-        type: "PHONE",
-        value: phone,
-        passwordHash: "", // This would need to be set properly in a real implementation
-        isPrimary: false,
-      },
-    })
-  }
+    await saveCredential("EMAIL", data.email)
+    await saveCredential("PHONE", data.phone)
+    await saveCredential("REGISTRATION_NUMBER", data.registrationNumber)
 
-  // Update registration number credential if it exists and has changed
-  if (registrationNumber && regNumberCredentialId) {
-    await prisma.credential.update({
-      where: { id: regNumberCredentialId },
-      data: { value: registrationNumber },
-    })
-  } else if (registrationNumber) {
-    // Create new registration number credential if it doesn't exist
-    await prisma.credential.create({
-      data: {
-        userId,
-        type: "REGISTRATION_NUMBER",
-        value: registrationNumber,
-        passwordHash: "", // This would need to be set properly in a real implementation
-        isPrimary: false,
-      },
-    })
-  }
+    if (data.registrationNumber && user.student) {
+      await tx.student.update({
+        where: { id: user.student.id },
+        data: { admissionNo: data.registrationNumber },
+      })
+    }
+    if (data.phone) {
+      await tx.user.update({ where: { id: data.userId }, data: { phone: data.phone } })
+    }
+  })
 
+  await recordAudit({
+    actor,
+    action: "profile.contact_update",
+    entityType: "User",
+    entityId: data.userId,
+    summary: "Updated contact and login information",
+  })
   revalidatePath("/dashboard/profile")
   return { success: true }
 }
-

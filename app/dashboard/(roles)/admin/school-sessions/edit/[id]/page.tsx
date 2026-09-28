@@ -3,6 +3,7 @@ import { AdminSessionEditForm } from "@/components/session-management/admin-sess
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { notFound } from "next/navigation"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminEditSessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { schoolId } = await requireAdminSchool("academics.manage")
@@ -32,7 +33,10 @@ export default async function AdminEditSessionPage({ params }: { params: Promise
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Edit Academic Session</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Edit Academic Session</h2>
+            <InfoGuide guideKey="admin.sessions" />
+          </div>
           <p className="text-muted-foreground">
             Update the academic session for {sessionData.school.name} ({sessionData.school.code})
           </p>

@@ -4,6 +4,7 @@ import { getSchoolCalendarData } from "@/app/actions/school-calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarDays } from "lucide-react";
 import { requireAdminSchool } from "@/lib/admin-page-context";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 // Force dynamic rendering for this page
 export const dynamic = 'force-dynamic';
@@ -13,7 +14,10 @@ function CalendarLoading() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">School Calendar</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">School Calendar</h1>
+            <InfoGuide guideKey="admin.calendar" />
+          </div>
           <p className="text-muted-foreground">Loading calendar data...</p>
         </div>
       </div>
@@ -61,7 +65,10 @@ export default async function AdminCalendarPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">School Calendar</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">School Calendar</h1>
+              <InfoGuide guideKey="admin.calendar" />
+            </div>
             <p className="text-muted-foreground md:text-red-600">Failed to load calendar data</p>
           </div>
         </div>

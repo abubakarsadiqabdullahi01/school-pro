@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { TeacherDashboardOverview } from "@/components/teacher/teacher-dashboard-overview";
 import { requireTeacher } from "@/lib/authz";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function TeacherDashboardPage() {
   const actor = await requireTeacher().catch(() => null);
@@ -123,9 +124,12 @@ export default async function TeacherDashboardPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">
-            Welcome, {teacher.user.firstName} {teacher.user.lastName}
-          </h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">
+              Welcome, {teacher.user.firstName} {teacher.user.lastName}
+            </h2>
+            <InfoGuide guideKey="teacher.dashboard" />
+          </div>
           <p className="text-muted-foreground">
             {teacher.school.name} ({teacher.school.code}) -{" "}
             {currentTerm

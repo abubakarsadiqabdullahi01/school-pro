@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { cookies } from "next/headers"
-import { auth } from "@/auth"
+import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { ACTIVE_SCHOOL_COOKIE, ALL_SCHOOLS } from "@/lib/school-context"
 
@@ -13,7 +13,7 @@ import { ACTIVE_SCHOOL_COOKIE, ALL_SCHOOLS } from "@/lib/school-context"
  * their own record, so letting them set this cookie would imply a choice they do not have.
  */
 export async function setActiveSchool(schoolId: string) {
-  const session = await auth()
+  const session = await authActive()
 
   if (!session?.user || session.user.role !== "SUPER_ADMIN") {
     return { success: false, error: "Unauthorized" }

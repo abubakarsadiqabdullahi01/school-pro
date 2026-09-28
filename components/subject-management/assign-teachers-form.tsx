@@ -33,11 +33,22 @@ interface Teacher {
 interface AssignTeachersFormProps {
   subjectId: string
   subjectName: string
+  /** The term being edited — a teacher assignment belongs to one term, not to the subject. */
+  termLabel: string
   teachers: Teacher[]
   assignedTeacherIds: string[]
+  /** Scores this teacher has already entered for this subject this term, by teacher id. */
+  scoresByTeacher?: Record<string, number>
 }
 
-export function AssignTeachersForm({ subjectId, subjectName, teachers, assignedTeacherIds }: AssignTeachersFormProps) {
+export function AssignTeachersForm({
+  subjectId,
+  subjectName,
+  termLabel,
+  teachers,
+  assignedTeacherIds,
+  scoresByTeacher = {},
+}: AssignTeachersFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const router = useRouter()
@@ -64,7 +75,7 @@ export function AssignTeachersForm({ subjectId, subjectName, teachers, assignedT
         subjectId,
         teacherIds: data.teacherIds,
       })
-      toast.success("Teachers assigned successfully")
+      toast.success(`Teachers updated for ${termLabel}`)
 
       // Redirect after successful submission
       router.push(`/dashboard/admin/subjects/${subjectId}`)
@@ -79,8 +90,11 @@ export function AssignTeachersForm({ subjectId, subjectName, teachers, assignedT
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Assign Teachers to {subjectName}</CardTitle>
-        <CardDescription>Select the teachers who will teach this subject</CardDescription>
+        <CardTitle>Who teaches {subjectName}?</CardTitle>
+        <CardDescription>
+          For <span className="font-medium text-foreground">{termLabel}</span> only. Other terms keep the
+          teachers they already have.
+        </CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -96,6 +110,10 @@ export function AssignTeachersForm({ subjectId, subjectName, teachers, assignedT
               />
             </div>
 
+            <p className="text-sm text-muted-foreground">
+              {form.watch("teacherIds").length} of {teachers.length} teachers selected
+            </p>
+
             <div className="border rounded-md">
               <div className="p-4 border-b">
                 <div className="flex items-center justify-between">
@@ -107,36 +125,46 @@ export function AssignTeachersForm({ subjectId, subjectName, teachers, assignedT
                 {filteredTeachers.length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">No teachers found</div>
                 ) : (
-                  filteredTeachers.map((teacher) => (
-                    <div key={teacher.id} className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`teacher-${teacher.id}`}
-                            checked={form.watch("teacherIds").includes(teacher.id)}
-                            onCheckedChange={(checked) => {
-                              const currentTeachers = form.getValues("teacherIds")
-                              if (checked) {
-                                form.setValue("teacherIds", [...currentTeachers, teacher.id])
-                              } else {
-                                form.setValue(
-                                  "teacherIds",
-                                  currentTeachers.filter((id) => id !== teacher.id),
-                                )
-                              }
-                            }}
-                          />
-                          <label
-                            htmlFor={`teacher-${teacher.id}`}
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                          >
-                            {teacher.fullName}
-                          </label>
+                  filteredTeachers.map((teacher) => {
+                    const scores = scoresByTeacher[teacher.id] ?? 0
+                    const selected = form.watch("teacherIds").includes(teacher.id)
+                    return (
+                      <div key={teacher.id} className="px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-start gap-2">
+                            <Checkbox
+                              id={`teacher-${teacher.id}`}
+                              className="mt-0.5"
+                              checked={selected}
+                              onCheckedChange={(checked) => {
+                                const currentTeachers = form.getValues("teacherIds")
+                                if (checked) {
+                                  form.setValue("teacherIds", [...currentTeachers, teacher.id])
+                                } else {
+                                  form.setValue(
+                                    "teacherIds",
+                                    currentTeachers.filter((id) => id !== teacher.id),
+                                  )
+                                }
+                              }}
+                            />
+                            <div className="min-w-0">
+                              <label htmlFor={`teacher-${teacher.id}`} className="text-sm font-medium leading-none">
+                                {teacher.fullName}
+                              </label>
+                              {scores > 0 && (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {scores} {scores === 1 ? "score" : "scores"} entered this term
+                                  {!selected && " — removing them takes away their entry sheet"}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-sm text-muted-foreground">{teacher.staffId}</span>
                         </div>
-                        <span className="text-sm text-muted-foreground">{teacher.staffId}</span>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </div>

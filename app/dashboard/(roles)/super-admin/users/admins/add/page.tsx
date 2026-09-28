@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { AdminCreationForm } from "@/components/user-management/admin-creation-form"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AddAdminPage() {
   const session = await auth()
@@ -24,7 +25,10 @@ export default async function AddAdminPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Add Administrator</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Add Administrator</h2>
+            <InfoGuide guideKey="superAdmin.users" />
+          </div>
           <p className="text-muted-foreground">Create a new administrator account</p>
         </div>
         <AdminCreationForm schools={schools} />

@@ -5,6 +5,7 @@ import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
+import { WelcomeTour } from "@/components/dashboard/welcome-tour"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { NavigationProgress } from "@/components/navigation-progress"
 import { LoadingOverlay } from "@/components/dashboard/loading-overlay"
@@ -30,6 +31,13 @@ interface SchoolOption {
 
 interface DashboardLayoutClientProps {
   children: React.ReactNode
+  /**
+   * Keys the one-time welcome tour, so it is per person rather than per browser.
+   * Optional only because `components/dashboard/layout.tsx` — a client-side shell
+   * nothing currently imports — has no session to take it from; the tour is
+   * skipped rather than shown to an unidentified user.
+   */
+  userId?: string
   userRole: Role
   userName: string
   userAvatar?: string | null
@@ -43,6 +51,7 @@ interface DashboardLayoutClientProps {
 
 export function DashboardLayoutClient({
   children,
+  userId,
   userRole,
   userName,
   userAvatar,
@@ -64,7 +73,18 @@ export function DashboardLayoutClient({
       <SidebarProvider>
         <NavigationProgress />
         <LoadingOverlay />
-        <AppSidebar userRole={userRole} schoolInfo={schoolInfo} permissions={permissions} />
+        <WelcomeTour
+          userId={userId}
+          userRole={userRole}
+          userName={userName}
+          permissions={permissions}
+        />
+        <AppSidebar
+          userRole={userRole}
+          schoolInfo={schoolInfo}
+          permissions={permissions}
+          activeSchool={activeSchool}
+        />
         {/* min-w-0: the inset is a flex child beside a 256px sidebar and carries
             w-full, so without this any wide child — a results table, a payroll
             run — sets the floor and pushes the whole page sideways instead of

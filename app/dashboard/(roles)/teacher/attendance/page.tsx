@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { TeacherAttendanceView } from "@/components/teacher/teacher-attendance-view"
 import { requireTeacher } from "@/lib/authz"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function TeacherAttendancePage() {
   const actor = await requireTeacher().catch(() => null)
@@ -48,7 +49,10 @@ export default async function TeacherAttendancePage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Attendance Management</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Attendance Management</h2>
+            <InfoGuide guideKey="teacher.attendance" />
+          </div>
           <p className="text-muted-foreground">
             Mark and manage student attendance for{" "}
             {currentTerm ? `${currentTerm.name} (${currentTerm.session.name})` : "No current term"}

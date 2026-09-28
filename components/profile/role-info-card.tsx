@@ -3,6 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { formatDocumentDate } from "@/lib/format"
 
 export function RoleInfoCard({ user, roleData }: { user: any; roleData: any }) {
   // Format role name for display
@@ -28,7 +29,7 @@ export function RoleInfoCard({ user, roleData }: { user: any; roleData: any }) {
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Admission Date</h3>
                 <p>
-                  {roleData?.admissionDate ? new Date(roleData.admissionDate).toLocaleDateString() : "Not specified"}
+                  {roleData?.admissionDate ? formatDocumentDate(roleData.admissionDate) : "Not specified"}
                 </p>
               </div>
               <div>
@@ -53,7 +54,7 @@ export function RoleInfoCard({ user, roleData }: { user: any; roleData: any }) {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Joining Date</h3>
-                <p>{roleData?.joiningDate ? new Date(roleData.joiningDate).toLocaleDateString() : "Not specified"}</p>
+                <p>{roleData?.joiningDate ? formatDocumentDate(roleData.joiningDate) : "Not specified"}</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Teacher ID</h3>
@@ -110,7 +111,7 @@ export function RoleInfoCard({ user, roleData }: { user: any; roleData: any }) {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Joining Date</h3>
-                <p>{roleData?.joiningDate ? new Date(roleData.joiningDate).toLocaleDateString() : "Not specified"}</p>
+                <p>{roleData?.joiningDate ? formatDocumentDate(roleData.joiningDate) : "Not specified"}</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Admin ID</h3>

@@ -29,6 +29,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { deleteTerm, setCurrentTerm } from "@/app/actions/term-management"
+import { canDeleteTerm, canEditTerm, canSetTermCurrent } from "@/lib/term-rules"
+import { rowOpenHandler } from "@/lib/row-open"
+import { TermActionItem } from "@/components/session-management/term-action-item"
 import { queryKeys } from "@/lib/query-keys"
 
 interface Term {
@@ -43,9 +46,11 @@ interface Term {
 interface TermsTableProps {
   terms: Term[]
   sessionId: string
+  /** The viewer's role, because only a super admin may reopen a term that has ended. */
+  viewerRole?: string | null
 }
 
-export function TermsTable({ terms, sessionId }: TermsTableProps) {
+export function TermsTable({ terms, sessionId, viewerRole }: TermsTableProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [termToDelete, setTermToDelete] = useState<Term | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -141,7 +146,11 @@ export function TermsTable({ terms, sessionId }: TermsTableProps) {
         </TableHeader>
         <TableBody>
           {terms.map((term) => (
-            <TableRow key={term.id}>
+            <TableRow
+              key={term.id}
+              className="cursor-pointer"
+              onClick={rowOpenHandler(() => handleViewTerm(term.id))}
+            >
               <TableCell className="font-medium">{term.name}</TableCell>
               <TableCell>{formatDate(term.startDate)}</TableCell>
               <TableCell>{formatDate(term.endDate)}</TableCell>
@@ -152,7 +161,7 @@ export function TermsTable({ terms, sessionId }: TermsTableProps) {
                   <Badge variant="outline">Inactive</Badge>
                 )}
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon">
@@ -163,27 +172,35 @@ export function TermsTable({ terms, sessionId }: TermsTableProps) {
                   <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Actions</DropdownMenuLabel>
                     <DropdownMenuItem onClick={() => handleViewTerm(term.id)}>View details</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleEditTerm(term.id)}>
+                    <TermActionItem
+                      verdict={canEditTerm(term, viewerRole)}
+                      onSelect={() => handleEditTerm(term.id)}
+                    >
                       <Edit className="mr-2 h-4 w-4" />
                       Edit
-                    </DropdownMenuItem>
+                    </TermActionItem>
                     {!term.isCurrent && (
-                      <DropdownMenuItem onClick={() => handleSetCurrentTerm(term.id)} disabled={isSettingCurrent}>
+                      <TermActionItem
+                        verdict={canSetTermCurrent(term, viewerRole)}
+                        onSelect={() => handleSetCurrentTerm(term.id)}
+                        busy={isSettingCurrent}
+                      >
                         <CalendarRange className="mr-2 h-4 w-4" />
                         Set as Current
-                      </DropdownMenuItem>
+                      </TermActionItem>
                     )}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => {
+                    <TermActionItem
+                      verdict={canDeleteTerm(term)}
+                      destructive
+                      onSelect={() => {
                         setTermToDelete(term)
                         setDeleteDialogOpen(true)
                       }}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
-                    </DropdownMenuItem>
+                    </TermActionItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
