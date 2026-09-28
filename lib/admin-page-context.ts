@@ -1,29 +1,17 @@
 import { prisma } from "@/lib/db"
 import { requirePermission } from "@/lib/authz"
-import type { PermissionKey } from "@/lib/permissions"
+import { PERMISSIONS, type PermissionKey } from "@/lib/permissions"
 import { redirect } from "next/navigation"
 
-export const ADMIN_AREA_PERMISSIONS: PermissionKey[] = [
-  "school.manage",
-  "users.manage",
-  "students.manage",
-  "teachers.manage",
-  "parents.manage",
-  "academics.manage",
-  "compiler.enter_scores",
-  "compiler.review_results",
-  "compiler.publish_results",
-  "compiler.lock_results",
-  "finance.setup",
-  "finance.manage_gateway",
-  "finance.approve_refunds",
-  "finance.collect_payments",
-  "finance.view_reports",
-  "expenditure.manage",
-  "expenditure.approve",
-  "payroll.manage",
-  "payroll.pay",
-]
+/**
+ * Any office permission opens the admin area; each page then asks for its own.
+ *
+ * Derived from the catalogue rather than listed. The hand-kept list had drifted two keys
+ * behind it - `compiler.configure_policy` and `reports.export` - so a profile holding only
+ * the promotion-policy key was turned away at the door of the one page that asks for
+ * exactly that key.
+ */
+export const ADMIN_AREA_PERMISSIONS: PermissionKey[] = [...PERMISSIONS]
 
 export async function requireAdminSchool(permission: PermissionKey | PermissionKey[] = ADMIN_AREA_PERMISSIONS) {
   const permissions = Array.isArray(permission) ? permission : [permission]

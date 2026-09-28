@@ -8,6 +8,7 @@ import {
   BookOpen,
   BookOpenCheck,
   Calendar,
+  Megaphone,
   ChevronDown,
   ClipboardList,
   DollarSign,
@@ -574,8 +575,21 @@ export function AppSidebar({
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                     )}
+                    {can("school.manage") && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        href="/dashboard/admin/communications"
+                        isActive={pathname.startsWith("/dashboard/admin/communications")}
+                      >
+                        <Megaphone className="h-4 w-4" />
+                        <span>Communications</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    )}
 
-                    {can("teachers.manage") && (
+                    {/* The Exams Officer (academics.manage) comes here to assign subjects; only
+                        HR's teachers.manage is offered Add Teacher, because hiring is employment. */}
+                    {canAny("teachers.manage", "academics.manage") && (
                     <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/teachers", "/dashboard/admin/teachers/new"])}>
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
@@ -601,6 +615,7 @@ export function AppSidebar({
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
+                            {can("teachers.manage") && (
                             <SidebarMenuSubItem>
                               <SidebarMenuSubButton
                                 asChild
@@ -613,6 +628,7 @@ export function AppSidebar({
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
+                            )}
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>

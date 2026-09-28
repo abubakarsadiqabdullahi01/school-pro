@@ -319,8 +319,12 @@ describe("signed Paystack webhook confirmation", () => {
     const outbox = await prisma.notificationOutbox.findFirstOrThrow({
       where: { schoolId, dedupeKey: { startsWith: `payment-receipt:${paid.paymentId}:email:` } },
     })
+    // Every other queued message is pushed out of reach, not just this school's: the drain
+    // claims across the whole deployment, so a row another fixture queued for a different
+    // school would be drained here too and counted as a second failure. Scoping this to
+    // `schoolId` made the assertion depend on which files had run first.
     await prisma.notificationOutbox.updateMany({
-      where: { schoolId, status: "QUEUED", id: { not: outbox.id } },
+      where: { status: "QUEUED", id: { not: outbox.id } },
       data: { availableAt: new Date(Date.now() + 60 * 60_000) },
     })
     const previousToken = process.env.SMARTSMS_API_TOKEN

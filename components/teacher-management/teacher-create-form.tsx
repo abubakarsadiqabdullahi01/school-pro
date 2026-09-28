@@ -87,12 +87,27 @@ const STEPS = [
 
 type StepFields = (typeof STEPS)[number]["fields"][number]
 
+/** Details carried over from an HR record, when HR hired this teacher first. */
+export type TeacherPrefill = {
+  staffId: string
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  department: string
+  qualification: string
+  gender: TeacherFormValues["gender"]
+  dateOfBirth: string
+  address: string
+}
+
 interface TeacherCreateFormProps {
   schoolId: string
   schoolName: string
+  prefill?: TeacherPrefill | null
 }
 
-export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormProps) {
+export function TeacherCreateForm({ schoolId, schoolName, prefill = null }: TeacherCreateFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -101,18 +116,18 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
   const form = useForm<TeacherFormValues>({
     resolver: zodResolver(teacherFormSchema),
     defaultValues: {
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      staffId: "",
-      department: "",
-      qualification: "",
-      gender: null,
-      dateOfBirth: "",
+      firstName: prefill?.firstName ?? "",
+      lastName: prefill?.lastName ?? "",
+      email: prefill?.email ?? "",
+      phone: prefill?.phone ?? "",
+      staffId: prefill?.staffId ?? "",
+      department: prefill?.department ?? "",
+      qualification: prefill?.qualification ?? "",
+      gender: prefill?.gender ?? null,
+      dateOfBirth: prefill?.dateOfBirth ?? "",
       state: "",
       lga: "",
-      address: "",
+      address: prefill?.address ?? "",
       generatePassword: true,
       customPassword: "",
     },
@@ -177,7 +192,13 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
       if (result.success) {
         const issuedPassword = result.data?.temporaryPassword || "Generated securely"
         toast.success("Teacher Created Successfully", {
-          description: `Teacher ${data.firstName} ${data.lastName} has been created. Temporary password: ${issuedPassword}`,
+          description:
+            `Teacher ${data.firstName} ${data.lastName} has been created. Temporary password: ${issuedPassword}` +
+            (result.data?.linkedToExistingHrRecord
+              ? `. Linked to HR record ${result.data.staffNo}.`
+              : result.data?.staffNo
+                ? `. HR record ${result.data.staffNo} opened for onboarding.`
+                : ""),
           action: {
             label: "Copy Password",
             onClick: () => navigator.clipboard.writeText(issuedPassword),
@@ -415,7 +436,10 @@ export function TeacherCreateForm({ schoolId, schoolName }: TeacherCreateFormPro
                           <FormControl>
                             <Input placeholder="Enter staff ID" {...field} />
                           </FormControl>
-                          <FormDescription>This unique ID will be used for login credentials</FormDescription>
+                          <FormDescription>
+                            Used to sign in. If HR has already hired this person, enter the staff
+                            number HR gave them and the login is attached to that HR record.
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}

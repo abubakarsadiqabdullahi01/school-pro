@@ -8,7 +8,8 @@ import { z } from "zod"
 import { prisma } from "@/lib/db"
 import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
 import { paymentMethodVariants } from "@/lib/finance/payment-method"
-import { postStudentPayment } from "@/lib/finance/payment-ledger.server"
+import { postStudentPaymentInTransaction } from "@/lib/finance/payment-ledger.server"
+import { queuePaymentReceiptInTransaction, queueRefundNoticeInTransaction } from "@/lib/notifications/payment-receipt.server"
 import { canDeleteFinanceOfficer, canUseOfficerEmail } from "@/lib/finance/finance-staff-rules"
 import {
   feeScheduleScopeWhere,
@@ -27,6 +28,7 @@ import { getActiveSchool } from "@/lib/school-context.server"
 import { recordAudit } from "@/lib/audit"
 import { generateTemporaryPassword } from "@/lib/temporary-password"
 import { revokeAllSessionsForUser } from "@/lib/sessions.server"
+import { provisionedStaffNo, provisionStaffForLogin } from "@/lib/hr/staff-provisioning"
 
 const moneySchema = z.coerce.number().positive().max(9999999999)
 
@@ -2095,42 +2097,116 @@ export async function getFinanceAdjustments(filters?: {
   }
 }
 
-export async function recordStudentPayment(input: unknown): Promise<ActionResult<{ id: string; receiptNo: string }>> {
+/** Methods that leave a trail outside the school: their reference is what proves the money. */
+const METHODS_NEEDING_REFERENCE = new Set(["BANK_TRANSFER", "POS", "ONLINE", "CHEQUE"])
+
+export async function recordStudentPayment(input: unknown): Promise<ActionResult<{
+  id: string
+  receiptNo: string
+  receipts: Array<{ id: string; receiptNo: string; termName: string | null; amount: string }>
+}>> {
   try {
     const actor = await requirePaymentRecorder()
     const schoolId = await actorSchool(actor)
     const data = paymentSchema.parse(input)
+    const referenceNo = data.referenceNo?.trim() || null
+
+    // A bank alert, POS slip or cheque can be presented twice. The reference is the only
+    // thing that tells the two apart, so it is required and may be receipted once.
+    if (METHODS_NEEDING_REFERENCE.has(data.paymentMethod) && !referenceNo) {
+      throw new Error("Enter the bank, POS or cheque reference for this payment")
+    }
+
+    // One receipt belongs to one term, so term reports stay true. Charges from several
+    // terms become one receipt per term, all in the same transaction.
+    const charges = await prisma.studentCharge.findMany({
+      where: { id: { in: data.allocations.map((allocation) => allocation.chargeId) }, studentId: data.studentId, schoolId },
+      select: { id: true, termId: true, term: { select: { name: true, startDate: true } } },
+    })
+    if (charges.length !== new Set(data.allocations.map((allocation) => allocation.chargeId)).size) {
+      throw new Error("One or more selected charges were not found")
+    }
+    const chargeById = new Map(charges.map((charge) => [charge.id, charge]))
+    const groups = new Map<string, { termName: string | null; start: number; allocations: typeof data.allocations }>()
+    for (const allocation of data.allocations) {
+      const charge = chargeById.get(allocation.chargeId)!
+      const termId = charge.termId ?? data.termId
+      const group = groups.get(termId) ?? { termName: charge.term?.name ?? null, start: charge.term?.startDate.getTime() ?? 0, allocations: [] }
+      group.allocations.push(allocation)
+      groups.set(termId, group)
+    }
+    const ordered = [...groups.entries()].sort((a, b) => a[1].start - b[1].start)
+
+    const receipts = await prisma.$transaction(async (tx) => {
+      // Inside the transaction, not before it. Checked before the transaction, the only
+      // thing stopping two cashiers who enter the same bank alert at the same moment was
+      // that both also bump the school's receipt counter - a side effect, not a rule, and
+      // the loser was shown "write conflict or deadlock". Here the check is part of the
+      // guarantee itself: under Serializable this read locks what it scanned, so the second
+      // writer is rolled back (and told why, below) rather than inserting beside the first.
+      // A unique constraint cannot do this job: a payment split across terms is several
+      // receipts that rightly share one reference.
+      if (referenceNo) {
+        const already = await tx.payment.findFirst({
+          where: { schoolId, paymentMethod: data.paymentMethod, referenceNo, status: "COMPLETED" },
+          select: { receiptNo: true },
+        })
+        if (already) throw new Error(`Reference ${referenceNo} was already receipted on ${already.receiptNo}`)
+      }
+
+      const posted: Array<{ id: string; receiptNo: string; termName: string | null; amount: string }> = []
+      for (const [termId, group] of ordered) {
+        const payment = await postStudentPaymentInTransaction(tx, {
+          schoolId,
+          studentId: data.studentId,
+          termId,
+          paymentDate: data.paymentDate,
+          paymentMethod: data.paymentMethod,
+          referenceNo,
+          receivedBy: actor.userId,
+          notes: ordered.length > 1 ? `${data.notes ? `${data.notes} — ` : ""}Part of one payment split by term` : data.notes,
+          allocations: group.allocations,
+        })
+        await queuePaymentReceiptInTransaction(tx, {
+          schoolId, studentId: data.studentId, paymentId: payment.id, reference: referenceNo ?? payment.receiptNo,
+        })
+        posted.push({
+          id: payment.id,
+          receiptNo: payment.receiptNo,
+          termName: group.termName,
+          amount: group.allocations.reduce((total, allocation) => total.plus(allocation.amount), money(0)).toFixed(2),
+        })
+      }
+      return posted
+    }, { isolationLevel: "Serializable" })
 
     const allocationTotal = data.allocations.reduce((total, allocation) => total.plus(allocation.amount), money(0))
-    const payment = await postStudentPayment({
-      schoolId,
-      studentId: data.studentId,
-      termId: data.termId,
-      paymentDate: data.paymentDate,
-      paymentMethod: data.paymentMethod,
-      referenceNo: data.referenceNo,
-      receivedBy: actor.userId,
-      notes: data.notes,
-      allocations: data.allocations,
-    })
-
     await recordAudit({
       actor,
       action: "finance.payment.record",
       entityType: "Payment",
-      entityId: payment.id,
-      summary: `Recorded payment ${payment.receiptNo} for ${allocationTotal.toFixed(2)}`,
+      entityId: receipts[0]!.id,
+      summary: `Recorded payment ${receipts.map((receipt) => receipt.receiptNo).join(", ")} for ${allocationTotal.toFixed(2)}`,
       after: {
         studentId: data.studentId,
-        termId: data.termId,
         amount: allocationTotal.toFixed(2),
-        receiptNo: payment.receiptNo,
+        receipts: receipts.map((receipt) => ({ receiptNo: receipt.receiptNo, termName: receipt.termName, amount: receipt.amount })),
       },
     })
 
     revalidateFinance("/student-payments", `/students/${data.studentId}/statement`)
-    return { success: true, data: payment }
+    return { success: true, data: { id: receipts[0]!.id, receiptNo: receipts[0]!.receiptNo, receipts } }
   } catch (error) {
+    // The losing side of two simultaneous postings. Nothing was written; saying so, and
+    // why, beats Prisma's "write conflict or a deadlock".
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      return {
+        success: false,
+        error:
+          "Another payment was being recorded at the same moment and this one was not saved. " +
+          "Refresh the student's statement and check before recording it again.",
+      }
+    }
     return toError(error, "Failed to record payment")
   }
 }
@@ -2156,17 +2232,27 @@ export async function refundStudentPayment(input: unknown): Promise<ActionResult
         notes: true,
         studentId: true,
         allocations: { select: { chargeId: true, amount: true } },
+        gatewayTransaction: { select: { id: true } },
       },
     })
     if (!payment) throw new Error("Payment not found")
     if (payment.status !== "COMPLETED") {
       throw new Error(`Only a completed payment can be refunded; this receipt is ${payment.status.toLowerCase()}`)
     }
+    // Reversing an online receipt here would restore the balance without returning the
+    // parent's money. Online payments are refunded through the gateway, which reverses the
+    // receipt only once the provider confirms the refund.
+    if (payment.gatewayTransaction) {
+      throw new Error("This receipt was paid online. Refund it from Online Payments so the money is actually returned to the payer.")
+    }
 
     const { reverseStudentPaymentInTransaction } = await import("@/lib/finance/payment-ledger.server")
-    await prisma.$transaction((tx) => reverseStudentPaymentInTransaction(tx, {
-      schoolId, paymentId: payment.id, reason: data.reason, referenceNo: data.referenceNo, createdBy: actor.userId,
-    }))
+    await prisma.$transaction(async (tx) => {
+      const outcome = await reverseStudentPaymentInTransaction(tx, {
+        schoolId, paymentId: payment.id, reason: data.reason, referenceNo: data.referenceNo, createdBy: actor.userId,
+      })
+      if (outcome === "reversed") await queueRefundNoticeInTransaction(tx, { schoolId, paymentId: payment.id, reason: data.reason })
+    })
 
     await recordAudit({
       actor,
@@ -2876,7 +2962,13 @@ export async function getFinanceOfficers(): Promise<ActionResult<FinanceOfficerR
 
 /** One officer, with every email already taken so a rename can be checked as it is typed. */
 export async function getFinanceOfficer(userId: string): Promise<
-  ActionResult<FinanceOfficerRow & { firstName: string; lastName: string; takenEmails: Array<{ userId: string; email: string }> }>
+  ActionResult<FinanceOfficerRow & {
+    firstName: string
+    lastName: string
+    takenEmails: Array<{ userId: string; email: string }>
+    /** Expenditure and payroll records naming them - see canDeleteFinanceOfficer. */
+    spendingHandled: number
+  }>
 > {
   try {
     const actor = await requireFinanceManager()
@@ -2888,12 +2980,19 @@ export async function getFinanceOfficer(userId: string): Promise<
     const row = officers.data.find((officer) => officer.userId === userId)
     if (!row) throw new Error("Finance staff not found")
 
-    const [user, credentials] = await Promise.all([
+    const [user, credentials, expenses, payrollRuns, salaryPayments] = await Promise.all([
       prisma.user.findFirst({
         where: { id: userId, ...financeOfficerScope(schoolId) },
         select: { firstName: true, lastName: true },
       }),
       prisma.credential.findMany({ where: { type: "EMAIL" }, select: { userId: true, value: true } }),
+      prisma.expense.count({
+        where: { schoolId, OR: [{ recordedBy: userId }, { approvedBy: userId }, { paidBy: userId }] },
+      }),
+      prisma.payrollRun.count({
+        where: { schoolId, OR: [{ generatedBy: userId }, { approvedBy: userId }, { paidBy: userId }] },
+      }),
+      prisma.salaryPayment.count({ where: { schoolId, paidBy: userId } }),
     ])
     if (!user) throw new Error("Finance staff not found")
 
@@ -2904,6 +3003,7 @@ export async function getFinanceOfficer(userId: string): Promise<
         firstName: user.firstName,
         lastName: user.lastName,
         takenEmails: credentials.map((credential) => ({ userId: credential.userId, email: credential.value })),
+        spendingHandled: expenses + payrollRuns + salaryPayments,
       },
     }
   } catch (error) {
@@ -2998,6 +3098,14 @@ export async function resetFinanceOfficerPassword(input: unknown): Promise<
     })
     await revokeAllSessionsForUser(userId)
 
+    await recordAudit({
+      actor,
+      action: "finance_officer.reset_password",
+      entityType: "User",
+      entityId: userId,
+      summary: "Issued a new sign-in password for a finance officer",
+    })
+
     revalidateFinance("/staff")
     return { success: true, data: { userId, defaultPassword } }
   } catch (error) {
@@ -3006,7 +3114,11 @@ export async function resetFinanceOfficerPassword(input: unknown): Promise<
 }
 
 /** Removes an account that has never been used. Anything else is refused with the reason. */
-export async function deleteFinanceOfficer(input: unknown): Promise<ActionResult<{ userId: string }>> {
+export async function deleteFinanceOfficer(input: unknown): Promise<ActionResult<{
+  userId: string
+  /** True when HR had already worked on their staff file, which is therefore kept, unlinked. */
+  hrRecordKept: boolean
+}>> {
   try {
     const actor = await requireFinanceManager()
     const schoolId = await actorSchool(actor)
@@ -3018,23 +3130,77 @@ export async function deleteFinanceOfficer(input: unknown): Promise<ActionResult
     })
     if (!officer) throw new Error("Finance staff not found")
 
-    const [paymentsRecorded, discounts, exemptions] = await Promise.all([
-      prisma.payment.count({ where: { schoolId, receivedBy: userId } }),
-      prisma.discount.count({ where: { schoolId, approvedBy: userId } }),
-      prisma.feeExemption.count({ where: { schoolId, approvedBy: userId } }),
-    ])
+    const namedBy = { OR: [{ recordedBy: userId }, { approvedBy: userId }, { paidBy: userId }] }
+    const [paymentsRecorded, discounts, exemptions, expenses, payrollRuns, salaryPayments, staff] =
+      await Promise.all([
+        prisma.payment.count({ where: { schoolId, receivedBy: userId } }),
+        prisma.discount.count({ where: { schoolId, approvedBy: userId } }),
+        prisma.feeExemption.count({ where: { schoolId, approvedBy: userId } }),
+        prisma.expense.count({ where: { schoolId, ...namedBy } }),
+        prisma.payrollRun.count({
+          where: { schoolId, OR: [{ generatedBy: userId }, { approvedBy: userId }, { paidBy: userId }] },
+        }),
+        prisma.salaryPayment.count({ where: { schoolId, paidBy: userId } }),
+        prisma.staff.findUnique({
+          where: { userId },
+          select: {
+            id: true,
+            autoProvisioned: true,
+            onboardingStatus: true,
+            _count: {
+              select: {
+                salaries: true,
+                allowances: true,
+                deductions: true,
+                payrollItems: true,
+                documents: true,
+                discipline: true,
+                expenses: true,
+              },
+            },
+          },
+        }),
+      ])
 
     const verdict = canDeleteFinanceOfficer({
       paymentsRecorded,
       adjustmentsApproved: discounts + exemptions,
+      spendingHandled: expenses + payrollRuns + salaryPayments,
     })
     if (!verdict.allowed) throw new Error(verdict.reason)
 
+    // The HR record opened automatically with this login goes with it, when HR has not
+    // touched it: it exists only because the login did, and left behind it would sit in
+    // the staff directory as an employee nobody hired. Once HR has worked on the file it is
+    // kept - Staff.userId is SET NULL - because whether they still work here is HR's
+    // question, not a login's.
+    const untouchedHrRecord =
+      staff !== null &&
+      staff.autoProvisioned &&
+      staff.onboardingStatus === "NOT_STARTED" &&
+      Object.values(staff._count).every((count) => count === 0)
+
     // The user is the account: the admin row and the credentials cascade from it.
-    await prisma.user.delete({ where: { id: userId } })
+    await prisma.$transaction(async (tx) => {
+      if (untouchedHrRecord) await tx.staff.delete({ where: { id: staff.id } })
+      await tx.user.delete({ where: { id: userId } })
+    })
+
+    const hrRecordKept = staff !== null && !untouchedHrRecord
+    await recordAudit({
+      actor,
+      action: "finance_officer.delete",
+      entityType: "User",
+      entityId: userId,
+      summary:
+        "Deleted an unused finance officer login" +
+        (untouchedHrRecord ? " and its untouched HR record" : "") +
+        (hrRecordKept ? "; their HR record was kept" : ""),
+    })
 
     revalidateFinance("/staff")
-    return { success: true, data: { userId } }
+    revalidatePath("/dashboard/admin/hr/staff")
+    return { success: true, data: { userId, hrRecordKept } }
   } catch (error) {
     return toError(error, "Failed to delete finance staff")
   }
@@ -3043,6 +3209,8 @@ export async function deleteFinanceOfficer(input: unknown): Promise<ActionResult
 export async function createFinanceOfficer(input: unknown): Promise<ActionResult<{
   userId: string
   defaultPassword: string
+  /** The HR record they were put on, or null if HR provisioning could not run. */
+  staffNo: string | null
 }>> {
   try {
     const actor = await requireFinanceManager()
@@ -3062,7 +3230,7 @@ export async function createFinanceOfficer(input: unknown): Promise<ActionResult
     const defaultPassword = generateTemporaryPassword()
     const passwordHash = await bcrypt.hash(defaultPassword, 10)
 
-    const user = await prisma.$transaction(async (tx) => {
+    const { user, staffNo } = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
           firstName: data.firstName,
@@ -3092,11 +3260,37 @@ export async function createFinanceOfficer(input: unknown): Promise<ActionResult
         },
       })
 
-      return created
+      // Employment is HR's. A finance officer is staff with a payslip, and this used to
+      // create the login and stop, so HR and payroll never heard of them. Same helper, and
+      // the same never-throws rule, as a new teacher: HR not being set up must not cost the
+      // school its accountant.
+      const provisioned = await provisionStaffForLogin(tx, {
+        schoolId,
+        userId: created.id,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone || null,
+        email: data.email,
+        department: "Finance",
+        staffType: "ACCOUNTANT",
+      })
+
+      return { user: created, staffNo: provisionedStaffNo(provisioned) }
+    })
+
+    await recordAudit({
+      actor,
+      action: "finance_officer.create",
+      entityType: "User",
+      entityId: user.id,
+      summary:
+        `Created finance officer ${data.firstName} ${data.lastName} (${data.email})` +
+        (staffNo ? `, HR record ${staffNo}` : ", HR record not created"),
     })
 
     revalidateFinance("/staff")
-    return { success: true, data: { userId: user.id, defaultPassword } }
+    revalidatePath("/dashboard/admin/hr/onboarding")
+    return { success: true, data: { userId: user.id, defaultPassword, staffNo } }
   } catch (error) {
     return toError(error, "Failed to create finance staff")
   }
@@ -3126,6 +3320,15 @@ export async function setFinanceOfficerActive(input: unknown): Promise<ActionRes
     await prisma.user.update({
       where: { id: data.userId },
       data: { isActive: data.isActive },
+    })
+    if (!data.isActive) await revokeAllSessionsForUser(data.userId)
+
+    await recordAudit({
+      actor,
+      action: data.isActive ? "finance_officer.restore" : "finance_officer.revoke",
+      entityType: "User",
+      entityId: data.userId,
+      summary: data.isActive ? "Restored a finance officer's access" : "Revoked a finance officer's access",
     })
 
     revalidateFinance("/staff")

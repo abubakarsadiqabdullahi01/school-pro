@@ -66,6 +66,8 @@ const created = {
 let schoolId = ""
 let sessionId = ""
 let termId = ""
+/** The term's paid total before this file records anything against it. */
+let baselinePaid = 0
 let adminUserId = ""
 
 /** Points the mocked session at a given user, so role behaviour can be exercised for real. */
@@ -94,6 +96,11 @@ beforeAll(async () => {
   if (!admin) throw new Error(`No active admin for school ${schoolId}`)
   adminUserId = admin.id
   actAs(adminUserId)
+
+  // This file records against a term that already exists, so the term's totals include
+  // whatever the seed and earlier runs put there. Measuring from a baseline asks what this
+  // file spent, which is the actual claim, instead of assuming it is the only spender.
+  baselinePaid = Number(ok(await getTermlyExpenditureReport({ termId }), "baseline report").paid)
 })
 
 afterAll(async () => {
@@ -112,6 +119,9 @@ afterAll(async () => {
   if (created.categoryId) await prisma.expenseCategory.deleteMany({ where: { id: created.categoryId } })
   if (created.accountId) await prisma.paymentAccount.deleteMany({ where: { id: created.accountId } })
   if (created.accountantUserId) {
+    // createFinanceOfficer opens an HR record too, and Staff.userId is SET NULL, so it
+    // would otherwise outlive the login as an orphaned staff member.
+    await prisma.staff.deleteMany({ where: { userId: created.accountantUserId } })
     await prisma.admin.deleteMany({ where: { userId: created.accountantUserId } })
     await prisma.credential.deleteMany({ where: { userId: created.accountantUserId } })
     await prisma.user.deleteMany({ where: { id: created.accountantUserId } })
@@ -349,8 +359,9 @@ describe("segregation of duties", () => {
 describe("the reports agree with the ledger", () => {
   it("counts only paid money as spent", async () => {
     const report = ok(await getTermlyExpenditureReport({ termId }), "getTermlyExpenditureReport")
-    // One expense was paid and then cancelled, and one remains paid.
-    expect(Number(report.paid)).toBe(AMOUNT)
+    // One expense was paid and then cancelled, and one remains paid — so this file's net
+    // contribution to the term is exactly one AMOUNT, whatever else the term already held.
+    expect(Number(report.paid) - baselinePaid).toBe(AMOUNT)
     // Committed is paid plus approved-but-unpaid, so it is never below paid.
     expect(Number(report.committed)).toBeGreaterThanOrEqual(Number(report.paid))
   })

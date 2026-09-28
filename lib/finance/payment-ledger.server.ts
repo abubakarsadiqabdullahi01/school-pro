@@ -1,5 +1,23 @@
 import { Prisma } from "@prisma/client"
 
+/**
+ * The charges this payment was raised against can no longer absorb it.
+ *
+ * Its own type because the two callers must answer it differently. An operator at the
+ * counter can be told to refresh and re-enter — nobody has been charged. A gateway payment
+ * has already taken the payer's money, so retrying cannot help and must not be attempted:
+ * it has to reach a person who can decide between a refund and a credit.
+ */
+export class LedgerAllocationConflictError extends Error {
+  readonly chargeId: string
+
+  constructor(chargeId: string) {
+    super("A selected charge balance changed. Refresh the statement and try again.")
+    this.name = "LedgerAllocationConflictError"
+    this.chargeId = chargeId
+  }
+}
+
 export type LedgerPaymentAllocationInput = {
   chargeId: string
   amount: Prisma.Decimal.Value
@@ -129,7 +147,7 @@ export async function postStudentPaymentInTransaction(
       },
     })
     if (reserved.count !== 1) {
-      throw new Error("A selected charge balance changed. Refresh the statement and try again.")
+      throw new LedgerAllocationConflictError(allocation.chargeId)
     }
 
     const charge = await tx.studentCharge.findUniqueOrThrow({
@@ -156,7 +174,8 @@ export async function postStudentPayment(input: PostStudentPaymentInput): Promis
  * duplicate webhook delivery from restoring charge balances twice. */
 export async function reverseStudentPaymentInTransaction(
   tx: Prisma.TransactionClient,
-  input: { schoolId: string; paymentId: string; reason: string; referenceNo?: string | null; createdBy: string },
+  /** `createdBy` is null only when the provider reversed the money, not a person. */
+  input: { schoolId: string; paymentId: string; reason: string; referenceNo?: string | null; createdBy: string | null },
 ): Promise<"reversed" | "already_reversed"> {
   const payment = await tx.payment.findFirst({
     where: { id: input.paymentId, schoolId: input.schoolId },

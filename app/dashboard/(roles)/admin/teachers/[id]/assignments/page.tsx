@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { requireAdminSchool } from "@/lib/admin-page-context";
+import { TEACHER_ASSIGNMENT_PERMISSIONS } from "@/lib/permissions";
 
 interface TeacherAssignmentsPageProps {
   params: Promise<{
@@ -27,7 +28,7 @@ export default async function TeacherAssignmentsPage({
   params,
 }: TeacherAssignmentsPageProps) {
   const { id } = await params;
-  const { school } = await requireAdminSchool("teachers.manage");
+  const { school } = await requireAdminSchool([...TEACHER_ASSIGNMENT_PERMISSIONS]);
 
   // Fetch teacher details
   const teacherResult = await getTeacher(id);

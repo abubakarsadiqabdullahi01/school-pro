@@ -161,12 +161,13 @@ export async function deleteClass(id: string) {
     // Deleting one also cascades StudentEnrollmentHistory and StudentTransition (both
     // ends), so an unguarded delete took enrolment history, promotion history and every
     // score any student earned in the class. There was no guard at all.
-    const [enrolments, recordedScores] = await Promise.all([
+    const [enrolments, recordedScores, billedCharges] = await Promise.all([
       prisma.studentClassTerm.count({ where: { classTerm: { classId: id } } }),
       prisma.assessment.count({ where: { studentClassTerm: { classTerm: { classId: id } } } }),
+      prisma.studentCharge.count({ where: { feeSchedule: { classTerm: { classId: id } } } }),
     ])
 
-    const verdict = canDeleteClass({ enrolments, recordedScores })
+    const verdict = canDeleteClass({ enrolments, recordedScores, billedCharges })
     if (!verdict.allowed) {
       throw new Error(`Cannot delete this class: ${verdict.reason}`)
     }

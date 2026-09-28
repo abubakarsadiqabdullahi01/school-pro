@@ -143,9 +143,13 @@ beforeAll(async () => {
 
 afterAll(cleanup)
 
-async function createAttempt(suffix: string, status: "INITIALIZED" | "ABANDONED" = "INITIALIZED") {
+async function createAttempt(
+  suffix: string,
+  status: "INITIALIZED" | "ABANDONED" = "INITIALIZED",
+  forChargeId: string = secondChargeId,
+) {
   const configuration = await prisma.schoolPaymentConfiguration.findFirstOrThrow({ where: { schoolId } })
-  const charge = await prisma.studentCharge.findUniqueOrThrow({ where: { id: secondChargeId } })
+  const charge = await prisma.studentCharge.findUniqueOrThrow({ where: { id: forChargeId } })
   return prisma.gatewayTransaction.create({
     data: {
       schoolId,
@@ -164,7 +168,7 @@ async function createAttempt(suffix: string, status: "INITIALIZED" | "ABANDONED"
         processingFeeKobo: 0,
         subaccountCode: "ACCT_checkout_test",
       },
-      allocations: { create: { chargeId: secondChargeId, amount: 10000 } },
+      allocations: { create: { chargeId: forChargeId, amount: 10000 } },
     },
   })
 }
@@ -298,5 +302,88 @@ describe("parent online checkout initialization", () => {
     const refreshed = await refreshOnlinePaymentStatus({ studentId, reference: transaction.reference })
     expect(refreshed).toEqual({ success: true, data: { status: "SUCCEEDED" } })
     expect(await prisma.payment.count({ where: { gatewayTransaction: { id: transaction.id } } })).toBe(1)
+  })
+})
+
+describe("a checkout whose webhook never arrives", () => {
+  it("is found by the recovery cron and posted exactly once, even by two overlapping runs", async (ctx) => {
+    const { recoverStaleGatewayTransactions } = await import("@/lib/payments/transaction-verification.server")
+    const recoverable = ["INITIALIZED", "INITIALIZATION_UNKNOWN", "PENDING", "PROCESSING"] as const
+    const pastGrace = new Date(Date.now() - 2 * 60_000)
+
+    // The recovery scans every school. On a shared database holding somebody else's stale
+    // checkout it would verify their row against this test's mock, so decline rather than
+    // touch it.
+    const others = await prisma.gatewayTransaction.count({
+      where: {
+        schoolId: { not: schoolId },
+        source: "CHECKOUT",
+        configurationId: { not: null },
+        status: { in: [...recoverable] },
+        updatedAt: { lte: pastGrace },
+      },
+    })
+    if (others > 0) ctx.skip()
+
+    // A charge of its own: the Books charge was already settled by the test above.
+    const books = await prisma.studentCharge.findUniqueOrThrow({ where: { id: secondChargeId } })
+    const schedule = await prisma.feeSchedule.create({
+      data: {
+        schoolId, sessionId: books.sessionId, termId: books.termId, categoryId: (await prisma.feeSchedule.findUniqueOrThrow({
+          where: { id: books.feeScheduleId! }, select: { categoryId: true },
+        })).categoryId,
+        name: `${stamp} Lost webhook`, amount: 10000,
+      },
+    })
+    const charge = await prisma.studentCharge.create({
+      data: {
+        schoolId, studentId, sessionId: books.sessionId, termId: books.termId, feeScheduleId: schedule.id,
+        originalAmount: 10000, finalAmountDue: 10000, balance: 10000,
+      },
+    })
+    const transaction = await createAttempt("lost-webhook", "INITIALIZED", charge.id)
+    // Paid at Paystack ten minutes ago; no webhook, and the parent never came back.
+    await prisma.$executeRaw`UPDATE GatewayTransaction SET updatedAt = ${new Date(Date.now() - 10 * 60_000)} WHERE id = ${transaction.id}`
+
+    paymentMocks.verifyPayment.mockImplementation(async (reference: string) => {
+      if (reference !== transaction.reference) throw new Error("Not this test's checkout")
+      return {
+        providerTransactionId: "8000000000000123",
+        reference,
+        environment: "test",
+        status: "success",
+        currency: "NGN",
+        amountKobo: 1_000_000,
+        requestedAmountKobo: 1_000_000,
+        feesKobo: 18_000,
+        channel: "card",
+        subaccountCode: "ACCT_checkout_test",
+        paidAt: new Date(),
+      }
+    })
+
+    try {
+      const [first, second] = await Promise.all([
+        recoverStaleGatewayTransactions(25),
+        recoverStaleGatewayTransactions(25),
+      ])
+      // One run claims it; the other finds it claimed and leaves it alone.
+      expect(first.posted + second.posted).toBe(1)
+      expect(await prisma.payment.count({ where: { gatewayTransaction: { id: transaction.id } } })).toBe(1)
+
+      const after = await prisma.gatewayTransaction.findUniqueOrThrow({
+        where: { id: transaction.id },
+        select: { status: true, verificationAttempts: true, verificationClaimedAt: true, nextVerificationAt: true },
+      })
+      expect(after).toEqual({
+        status: "SUCCEEDED",
+        verificationAttempts: 1,
+        verificationClaimedAt: null,
+        nextVerificationAt: null,
+      })
+      expect((await prisma.studentCharge.findUniqueOrThrow({ where: { id: charge.id } })).balance.toFixed(2)).toBe("0.00")
+    } finally {
+      paymentMocks.verifyPayment.mockReset()
+    }
   })
 })

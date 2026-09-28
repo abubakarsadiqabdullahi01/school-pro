@@ -317,6 +317,12 @@ export async function deleteTerm(id: string) {
           select: {
             assessments: true,
             classTerms: true,
+            // Term cascades to every one of these. Counting them is the only thing
+            // standing between a mis-click and the money records for that term.
+            payments: true,
+            studentCharges: true,
+            feeSchedules: true,
+            expenses: true,
           },
         },
       },
@@ -326,8 +332,9 @@ export async function deleteTerm(id: string) {
       return { success: false, error: "Term not found" };
     }
 
-    // Fees are keyed on ClassTerm now, so they are counted through it rather than
-    // directly off the term.
+    // FeeStructure is a dead table: no application code writes one, so this count was
+    // always zero and the "fee structures" half of the refusal below never fired. The live
+    // fee model is FeeSchedule, counted above, off the term directly.
     const feeStructureCount = await prisma.feeStructure.count({
       where: { classTerm: { termId: id } },
     });
@@ -350,6 +357,24 @@ export async function deleteTerm(id: string) {
       return {
         success: false,
         error: "Cannot delete a term that has already ended — it is part of the school's record.",
+      };
+    }
+
+    // Money first, and named individually, because "cannot delete term with existing data"
+    // tells whoever hit it nothing about what they nearly destroyed.
+    const financial = {
+      payments: termWithData._count.payments,
+      "fee charges": termWithData._count.studentCharges,
+      "fee schedules": termWithData._count.feeSchedules,
+      expenses: termWithData._count.expenses,
+    };
+    const held = Object.entries(financial).filter(([, count]) => count > 0);
+    if (held.length > 0) {
+      return {
+        success: false,
+        error:
+          `Cannot delete this term: it holds ${held.map(([name, count]) => `${count} ${name}`).join(", ")}. `
+          + "Deleting it would remove them from the school's financial records.",
       };
     }
 

@@ -42,5 +42,33 @@ export function validateEnvForProduction() {
     if (!path.isAbsolute(uploadDir)) {
       throw new Error('UPLOAD_DIR must be an absolute path');
     }
+
+    // Every background job this deployment has — the payment event processor, the
+    // settlement reconciler and the notification drain — is an HTTP endpoint guarded by
+    // this one secret. Without it they all answer 401 to cPanel's cron and nothing runs:
+    // a parent's payment is never recovered when a webhook is missed, and no message ever
+    // leaves the outbox. Nothing about the application looks broken while that is true,
+    // which is exactly why it has to fail here instead.
+    const cronSecret = process.env.PAYMENT_CRON_SECRET;
+    if (!cronSecret || cronSecret.trim().length < 24) {
+      throw new Error(
+        'PAYMENT_CRON_SECRET is required in production and must be at least 24 characters — '
+        + 'without it the payment and notification cron endpoints reject every call',
+      );
+    }
+
+    // Checked for shape, not for presence. A school collecting only cash needs no gateway
+    // key at all, so demanding one would refuse to start a deployment that is perfectly
+    // correct. A malformed one is different: it is silent until the first school tries to
+    // save its Paystack credentials, and then it fails in a place nobody connects to this.
+    const gatewayKey = process.env.PAYMENT_GATEWAY_ENCRYPTION_KEY;
+    if (gatewayKey && gatewayKey.trim().length > 0) {
+      const decoded = Buffer.from(gatewayKey, 'base64');
+      if (decoded.length !== 32) {
+        throw new Error(
+          'PAYMENT_GATEWAY_ENCRYPTION_KEY must be exactly 32 random bytes encoded as base64',
+        );
+      }
+    }
   }
 }

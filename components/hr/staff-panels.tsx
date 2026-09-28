@@ -502,7 +502,14 @@ export function DisciplinePanel({
         toast.error("Could not change the status", { description: result.error })
         return
       }
-      toast.success("Employment status changed")
+      toast.success("Employment status changed", {
+        description:
+          result.data.login === "DEACTIVATED"
+            ? "Their login has been switched off and they have been signed out."
+            : result.data.login === "REACTIVATED"
+              ? "Their login has been switched back on."
+              : undefined,
+      })
       setStatusOpen(false)
       router.refresh()
     })
@@ -528,7 +535,11 @@ export function DisciplinePanel({
                 <form action={changeStatus}>
                   <DialogHeader>
                     <DialogTitle>Employment status</DialogTitle>
-                    <DialogDescription>Currently {employmentStatus.toLowerCase()}.</DialogDescription>
+                    <DialogDescription>
+                      Currently {employmentStatus.toLowerCase()}. Suspending, resigning or
+                      terminating a teacher or accountant also switches off their login and signs
+                      them out; setting them active again switches it back on.
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">

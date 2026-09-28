@@ -106,7 +106,7 @@ beforeAll(async () => {
   })
   created.schoolId = school.id
 
-  const [teacher, session, subject, klass, gradingSystem] = await Promise.all([
+  const [teacher, session, subject, klass, gradingSystem, _scheme] = await Promise.all([
     prisma.teacher.create({
       data: {
         userId: teacherUser.id,
@@ -141,6 +141,13 @@ beforeAll(async () => {
         isDefault: true,
         passMark: 40,
       },
+      select: { id: true },
+    }),
+    // Publishing needs a scheme as well as a scale: it is what says a mark out of 10 is a
+    // CA and one out of 70 is the exam. The defaults match the marks entered below, so the
+    // totals the assertions expect are the ones the school's own scheme produces.
+    prisma.assessmentScheme.create({
+      data: { schoolId: school.id, name: `${STAMP} Scheme` },
       select: { id: true },
     }),
   ])

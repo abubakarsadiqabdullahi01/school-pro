@@ -25,6 +25,14 @@ function plural(count: number, one: string, many: string): string {
 export function canDeleteFinanceOfficer(facts: {
   paymentsRecorded: number
   adjustmentsApproved: number
+  /**
+   * Expenditure vouchers they recorded, approved or paid, and payroll runs or salary
+   * payments they generated, approved or paid. An accountant holds `expenditure.manage` and
+   * `payroll.pay`, so this is ordinary work for them, and every one of those rows names them:
+   * some refuse the delete outright at the database, the rest silently lose who released
+   * the money.
+   */
+  spendingHandled?: number
 }): StaffVerdict {
   if (facts.paymentsRecorded > 0) {
     return {
@@ -45,6 +53,17 @@ export function canDeleteFinanceOfficer(facts: {
         "discount or exemption",
         "discounts or exemptions",
       )}. Those approvals name them. Revoke access instead.`,
+    }
+  }
+
+  if ((facts.spendingHandled ?? 0) > 0) {
+    return {
+      allowed: false,
+      reason: `This officer handled ${plural(
+        facts.spendingHandled ?? 0,
+        "expenditure or payroll record",
+        "expenditure or payroll records",
+      )}. Those records name who recorded and released the money. Revoke access instead.`,
     }
   }
 

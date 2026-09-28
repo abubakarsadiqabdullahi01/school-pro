@@ -19,14 +19,9 @@ import {
 import { platformChargeKobo } from "@/lib/payments/platform-charge"
 import { liveCheckoutProblems } from "@/lib/payments/pilot-rules"
 import { checkoutEnvironment } from "@/lib/payments/checkout-environment"
-import { postVerifiedCheckoutSuccess } from "@/lib/payments/gateway-event-processor.server"
 import { PaystackApiError } from "@/lib/payments/paystack.server"
 import { adapterForPaymentConfiguration } from "@/lib/payments/payment-settings.server"
-import {
-  gatewayVerificationIdentityProblems,
-  gatewayVerificationProblems,
-  type LocalGatewayVerification,
-} from "@/lib/payments/verification-rules"
+import { verifyGatewayTransaction } from "@/lib/payments/transaction-verification.server"
 
 type ActionResult<T> = { success: true; data: T } | { success: false; error: string }
 
@@ -462,85 +457,9 @@ export async function refreshOnlinePaymentStatus(input: unknown): Promise<Action
     if (["SUCCEEDED", "FAILED", "REFUNDED", "DISPUTED", "REQUIRES_REVIEW"].includes(transaction.status)) {
       return { success: true, data: { status: transaction.status } }
     }
-    if (!transaction.configurationId) throw new Error("The payment connection is no longer available")
-
-    const verified = await (await adapterForPaymentConfiguration(transaction.configurationId)).verifyPayment(transaction.reference)
-    const snapshot = transaction.configurationSnapshot as {
-      accountMode?: unknown
-      subaccountCode?: unknown
-      processingFeeKobo?: unknown
-      feePolicy?: unknown
-    } | null
-    const expectedRequestedKobo = transaction.amountRequested
-      ? Math.round(transaction.amountRequested.toNumber() * 100)
-      : Math.round(transaction.amountExpected.toNumber() * 100)
-    const expectedSubaccount = typeof snapshot?.subaccountCode === "string" ? snapshot.subaccountCode : null
-    const expectedSchoolFeesKobo = Math.round(transaction.amountExpected.toNumber() * 100)
-    const allocationTotalKobo = transaction.allocations.reduce(
-      (total, allocation) => total + Math.round(allocation.amount.toNumber() * 100), 0,
-    )
-    const accountMode = snapshot?.accountMode === "SCHOOL_OWNED" ? "SCHOOL_OWNED" : "PLATFORM_MANAGED"
-    const feePolicy = snapshot?.feePolicy === "PARENT_PAYS_GROSS_UP"
-      ? "PARENT_PAYS_GROSS_UP" : snapshot?.feePolicy === "PLATFORM_PAYS" ? "PLATFORM_PAYS" : "SCHOOL_PAYS"
-    const localVerification: LocalGatewayVerification = {
-      reference: transaction.reference,
-      environment: transaction.environment,
-      requestedAmountKobo: expectedRequestedKobo,
-      expectedSchoolFeesKobo,
-      allocationTotalKobo,
-      accountMode,
-      expectedSubaccountCode: expectedSubaccount,
-      feePolicy,
-      disclosedProcessingFeeKobo: typeof snapshot?.processingFeeKobo === "number" ? snapshot.processingFeeKobo : 0,
-    }
-    // Failed and abandoned attempts commonly report zero amounts. First prove that the
-    // response belongs to this immutable checkout, then classify the provider status.
-    // Full money and settlement checks apply only when Paystack says it was successful.
-    const problems = verified.status === "success"
-      ? gatewayVerificationProblems(localVerification, verified)
-      : gatewayVerificationIdentityProblems(localVerification, verified)
-
-    if (problems.length > 0) {
-      await prisma.gatewayTransaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: "REQUIRES_REVIEW",
-          providerTransactionId: verified.providerTransactionId,
-          amountCharged: koboToDecimalNaira(verified.amountKobo),
-          providerFee: koboToDecimalNaira(verified.feesKobo),
-          verifiedAt: new Date(),
-          failureMessage: `Paystack verification did not match the immutable local checkout: ${problems.join("; ")}`,
-        },
-      })
-      return { success: true, data: { status: "REQUIRES_REVIEW" } }
-    }
-    if (verified.status === "success") {
-      // Paystack's verify endpoint, called server-side with the secret key, is as
-      // authoritative as a signed webhook. Post now rather than wait for a webhook that may
-      // never arrive; the shared poster is idempotent, so a late webhook finds it done.
-      await postVerifiedCheckoutSuccess(transaction.id, verified, null)
-      const posted = await prisma.gatewayTransaction.findUniqueOrThrow({ where: { id: transaction.id }, select: { status: true } })
-      revalidatePath(`/dashboard/parent/children/${data.studentId}/fees`)
-      revalidatePath(`/dashboard/parent/children/${data.studentId}/fees/online/${data.reference}`)
-      return { success: true, data: { status: posted.status } }
-    }
-    let status: GatewayTransactionStatus = "PENDING"
-    if (["failed", "reversed"].includes(verified.status)) status = "FAILED"
-    else if (verified.status === "abandoned") status = "ABANDONED"
-
-    await prisma.gatewayTransaction.update({
-      where: { id: transaction.id },
-      data: {
-        status,
-        providerTransactionId: verified.providerTransactionId,
-        amountCharged: koboToDecimalNaira(verified.amountKobo),
-        providerFee: koboToDecimalNaira(verified.feesKobo),
-        channel: verified.channel,
-        verifiedAt: new Date(),
-        ...(verified.paidAt ? { paidAt: verified.paidAt } : {}),
-      },
-    })
+    const status = await verifyGatewayTransaction(transaction.id)
     revalidatePath(`/dashboard/parent/children/${data.studentId}/fees/online/${data.reference}`)
+    if (status === "SUCCEEDED") revalidatePath(`/dashboard/parent/children/${data.studentId}/fees`)
     return { success: true, data: { status } }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Could not refresh payment status" }

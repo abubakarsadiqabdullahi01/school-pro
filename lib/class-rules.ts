@@ -27,7 +27,23 @@ function plural(count: number, one: string, many: string): string {
 export function canDeleteClass(facts: {
   enrolments: number
   recordedScores: number
+  /** Fees already billed against this class's terms. */
+  billedCharges: number
 }): ClassVerdict {
+  // Checked before enrolments, because a class whose students have since been moved away
+  // can still carry the fees they were billed. The database refuses that delete anyway —
+  // StudentCharge holds its fee schedule with onDelete: Restrict — but it refuses it as a
+  // raw foreign-key error the screen reports as "Failed to delete class", which tells the
+  // person nothing. Saying what is in the way is the whole difference.
+  if (facts.billedCharges > 0) {
+    return {
+      allowed: false,
+      reason:
+        `${plural(facts.billedCharges, "fee charge", "fee charges")} have been billed against `
+        + "this class's terms. They are part of the school's financial record and would have "
+        + "to be cancelled first.",
+    }
+  }
   if (facts.enrolments === 0) {
     return ALLOWED
   }

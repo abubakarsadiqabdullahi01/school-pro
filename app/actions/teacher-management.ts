@@ -1,6 +1,14 @@
 "use server";
 
-import { assertSchoolAccess, authActive, requirePermission, requireTeacher } from "@/lib/authz";
+import {
+  assertSchoolAccess,
+  authActive,
+  requireAnyPermission,
+  requirePermission,
+  requireTeacher,
+  type Actor,
+} from "@/lib/authz";
+import { TEACHER_ASSIGNMENT_PERMISSIONS } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
@@ -9,11 +17,26 @@ import { generateTemporaryPassword } from "@/lib/temporary-password";
 import { revokeAllSessionsForUser } from "@/lib/sessions.server";
 import { assertScoresWithinScheme } from "@/lib/assessment-scheme";
 import { loadAssessmentScheme } from "@/lib/assessment-scheme.server";
-import { provisionStaffForTeacher } from "@/lib/hr/staff-provisioning";
+import { provisionedStaffNo, provisionStaffForTeacher } from "@/lib/hr/staff-provisioning";
 
+/**
+ * Hiring, editing, deactivating and resetting a teacher: employment, so HR's key.
+ *
+ * Reading the directory and one teacher's profile is wider - see `requireTeacherViewer` -
+ * because the Exams Officer has to find a teacher before assigning them a subject.
+ */
 async function requireTeacherManager(schoolId?: string | null) {
   const actor = await requirePermission("teachers.manage");
+  return scopeTeacherActor(actor, schoolId);
+}
 
+/** The directory and profile reads, open to whoever may assign teachers. */
+async function requireTeacherViewer() {
+  const actor = await requireAnyPermission(TEACHER_ASSIGNMENT_PERMISSIONS);
+  return scopeTeacherActor(actor);
+}
+
+function scopeTeacherActor(actor: Actor, schoolId?: string | null) {
   if (schoolId) {
     assertSchoolAccess(actor, schoolId);
     return { actor, schoolId };
@@ -29,7 +52,7 @@ async function requireTeacherManager(schoolId?: string | null) {
 // Search for teachers
 export async function searchTeachers(query = "") {
   try {
-    const { schoolId } = await requireTeacherManager();
+    const { schoolId } = await requireTeacherViewer();
 
     // Search for teachers based on the query
     const teachers = await prisma.teacher.findMany({
@@ -183,6 +206,18 @@ export async function createTeacher(data: {
         });
 
         if (existingCred) {
+          // The staff ID doubles as a sign-in name, and sign-in names are unique across every
+          // school on the platform - while HR numbers staff per school, as STF-0001 by
+          // default. Two schools on the default prefix collide on their first teacher.
+          if (cred.type === "PSN") {
+            return {
+              success: false,
+              error:
+                `Staff ID "${cred.value}" is already someone's sign-in name on DigiSchool, possibly ` +
+                "at another school. Use a staff ID unique to this school - HR can set a " +
+                "school-specific staff number prefix, such as your school code, under HR settings.",
+            };
+          }
           return {
             success: false,
             error: `A user with this ${cred.type.toLowerCase()} already exists. Please use a different ${cred.type.toLowerCase()}.`,
@@ -300,8 +335,13 @@ export async function createTeacher(data: {
         address: teacherUser.address,
         dateOfBirth: teacherUser.dateOfBirth,
         temporaryPassword,
-        /** Null when HR provisioning could not run — the onboarding queue will catch it. */
-        staffNo: provisioned.created ? provisioned.staffNo : null,
+        /**
+         * The HR record they are on - a new one, or the one HR had already hired them under
+         * when the staff ID typed here matched it. Null only when provisioning could not
+         * run; the onboarding queue will catch that.
+         */
+        staffNo: provisionedStaffNo(provisioned),
+        linkedToExistingHrRecord: !provisioned.created && provisioned.reason === "LINKED_EXISTING",
       };
     });
 
@@ -325,7 +365,7 @@ export async function createTeacher(data: {
 // Get all teachers
 export async function getTeachers() {
   try {
-    const { schoolId } = await requireTeacherManager();
+    const { schoolId } = await requireTeacherViewer();
 
     // Get all teachers for the school
     const teachers = await prisma.teacher.findMany({
@@ -492,7 +532,7 @@ export async function getTeachers() {
 
 export async function getTeacher(id: string) {
   try {
-    const { actor } = await requireTeacherManager();
+    const { actor } = await requireTeacherViewer();
 
     // Get the teacher details
     const teacher = await prisma.teacher.findUnique({
@@ -846,11 +886,19 @@ export async function deleteTeacher(teacherId: string) {
 
       revalidatePath("/dashboard/admin/teachers");
 
+      // Archiving closes the login only. Whether they still work here - and so whether
+      // payroll keeps paying them - is HR's record, and saying so here is the only way the
+      // person archiving them finds out.
+      const stillEmployed = staffRecord?.employmentStatus === "ACTIVE";
       return {
         success: true,
-        message: hasAssessments
-          ? "Teacher archived (has entered assessment records)"
-          : "Teacher archived (has an HR staff record)",
+        message:
+          (hasAssessments
+            ? "Teacher archived (has entered assessment records)"
+            : "Teacher archived (has an HR staff record)") +
+          (stillEmployed
+            ? ". Their HR record is still active - record their exit under HR so payroll stops paying them."
+            : ""),
         isArchived: true,
       };
     }

@@ -134,6 +134,8 @@ interface Teacher {
 
 interface TeacherDetailsProps {
   teacher: Teacher;
+  /** Edit and password reset are HR's; the Exams Officer comes here for assignments. */
+  canManageTeachers?: boolean;
 }
 
 /** One assignment row, whether it came from a class or a subject. */
@@ -376,7 +378,7 @@ function AssignmentPanel({
   );
 }
 
-export function TeacherDetails({ teacher }: TeacherDetailsProps) {
+export function TeacherDetails({ teacher, canManageTeachers = true }: TeacherDetailsProps) {
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -544,19 +546,21 @@ export function TeacherDetails({ teacher }: TeacherDetailsProps) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/dashboard/admin/teachers/${teacher.id}/edit`}>
-              <Edit className="mr-2 h-4 w-4" />
-              Edit Teacher
-            </Link>
-          </Button>
-          <ResetPasswordDialog
-            personName={teacher.firstName}
-            onReset={() => resetTeacherPassword(teacher.id)}
-            passwordKind="generated"
-          />
-        </div>
+        {canManageTeachers && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/dashboard/admin/teachers/${teacher.id}/edit`}>
+                <Edit className="mr-2 h-4 w-4" />
+                Edit Teacher
+              </Link>
+            </Button>
+            <ResetPasswordDialog
+              personName={teacher.firstName}
+              onReset={() => resetTeacherPassword(teacher.id)}
+              passwordKind="generated"
+            />
+          </div>
+        )}
       </div>
 
       {/* Quick stats. Deliberately small: four numbers do not need a quarter of the screen,

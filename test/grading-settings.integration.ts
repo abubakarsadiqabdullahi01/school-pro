@@ -38,6 +38,8 @@ let otherSchoolId = ""
 let adminUserId = ""
 
 let homeSystemId = ""
+/** The school's own default before this file ran, so it can be given back. */
+let priorDefaultSystemId: string | null = null
 let foreignDefaultSystemId = ""
 let bandSystemId = ""
 
@@ -61,6 +63,16 @@ beforeAll(async () => {
     user: { id: admin.id, role: "ADMIN", sessionRecordId: null },
   } as unknown as Awaited<ReturnType<typeof auth>>)
 
+  // Whatever this school was using before. One test below makes a fixture scale the
+  // default, and afterAll then deletes it — without putting this back, the suite would
+  // leave the school with no default at all, which is the silent fallback to the built-in
+  // scale that the header above describes.
+  const priorDefault = await prisma.gradingSystem.findFirst({
+    where: { schoolId, isDefault: true },
+    select: { id: true },
+  })
+  priorDefaultSystemId = priorDefault?.id ?? null
+
   // The caller's own system — a legitimate id, which is what makes the boundary test real.
   const homeSystem = await prisma.gradingSystem.create({
     data: { schoolId, name: `${STAMP} Home Scale`, isDefault: false, passMark: 40 },
@@ -68,6 +80,21 @@ beforeAll(async () => {
   })
   homeSystemId = homeSystem.id
   created.systemIds.push(homeSystem.id)
+
+  // A scale cannot be made the default until its bands cover every score from 0 to 100 —
+  // rightly, since a mark falling in no band would have nothing to grade against. The
+  // fixture has to build a whole scale, or the test below asks the application to do
+  // something it is correct to refuse.
+  for (const band of [
+    { grade: "F", minScore: 0, maxScore: 69, remark: "Below standard" },
+    { grade: "A", minScore: 70, maxScore: 100, remark: "Excellent" },
+  ]) {
+    const created_ = await prisma.gradeLevel.create({
+      data: { gradingSystemId: homeSystem.id, ...band },
+      select: { id: true },
+    })
+    created.levelIds.push(created_.id)
+  }
 
   // The other school's default. Created rather than hoped for: if the second school had no
   // grading system, the assertion would pass without anything being at risk.
@@ -107,6 +134,15 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.gradeLevel.deleteMany({ where: { gradingSystemId: { in: created.systemIds } } })
   await prisma.gradingSystem.deleteMany({ where: { id: { in: created.systemIds } } })
+
+  // Hand the school back the default it came with. Deleting the fixture scale that a test
+  // promoted would otherwise leave no default behind it.
+  if (priorDefaultSystemId) {
+    await prisma.gradingSystem.update({
+      where: { id: priorDefaultSystemId },
+      data: { isDefault: true },
+    })
+  }
   await prisma.$disconnect()
 })
 

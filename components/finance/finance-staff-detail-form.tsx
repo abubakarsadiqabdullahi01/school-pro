@@ -45,6 +45,8 @@ export type FinanceOfficerDetail = {
   totalCollected: string
   lastPaymentDate: string | null
   adjustmentsApproved: number
+  /** Expenditure and payroll records naming them. */
+  spendingHandled: number
   takenEmails: Array<{ userId: string; email: string }>
 }
 
@@ -76,6 +78,7 @@ export function FinanceStaffDetailForm({
   const removal = canDeleteFinanceOfficer({
     paymentsRecorded: officer.paymentsRecorded,
     adjustmentsApproved: officer.adjustmentsApproved,
+    spendingHandled: officer.spendingHandled,
   })
 
   const save = (formData: FormData) => {
@@ -139,7 +142,11 @@ export function FinanceStaffDetailForm({
         return
       }
 
-      toast.success(`${officer.name} removed`)
+      toast.success(`${officer.name} removed`, {
+        description: result.data.hrRecordKept
+          ? "Their HR staff record was kept. Record their exit under HR if they have left."
+          : undefined,
+      })
       router.push(listPath)
       router.refresh()
     })

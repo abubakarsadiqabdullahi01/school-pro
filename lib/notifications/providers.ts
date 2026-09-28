@@ -25,7 +25,8 @@ export interface SmsProvider {
 
 export interface EmailProvider {
   readonly name: string
-  send(to: string, subject: string, body: string): Promise<SendOutcome>
+  /** `html` is the finished, school-branded document; `body` stays the plain-text alternative. */
+  send(to: string, subject: string, body: string, html?: string): Promise<SendOutcome>
   getStatus?(providerMessageId: string): Promise<{ ok: true; status: string } | { ok: false; error: string; retryable: boolean }>
 }
 
@@ -161,8 +162,8 @@ export class SmartSmsSolutionsEmailProvider implements EmailProvider {
     private readonly endpoint = "https://app.smartsmssolutions.com/io/api/client/v1/email/send/",
   ) {}
 
-  async send(to: string, subject: string, body: string): Promise<SendOutcome> {
-    const html = `<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${escapeHtml(body)}</div>`
+  async send(to: string, subject: string, body: string, branded?: string): Promise<SendOutcome> {
+    const html = branded ?? `<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${escapeHtml(body)}</div>`
     const result = await postForm(this.endpoint, {
       token: this.apiToken, to_email: to, message_type: "transactional", subject, html,
     }, "urlencoded")
@@ -273,11 +274,11 @@ export class ResendEmailProvider implements EmailProvider {
     private readonly baseUrl = "https://api.resend.com",
   ) {}
 
-  async send(to: string, subject: string, body: string): Promise<SendOutcome> {
+  async send(to: string, subject: string, body: string, html?: string): Promise<SendOutcome> {
     const result = await postJson(
       `${this.baseUrl}/emails`,
       { Authorization: `Bearer ${this.apiKey}` },
-      { from: this.from, to: [to], subject, text: body },
+      { from: this.from, to: [to], subject, text: body, ...(html ? { html } : {}) },
     )
 
     if ("networkError" in result) {

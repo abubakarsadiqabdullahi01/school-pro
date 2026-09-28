@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { pickSalaryCategory, SALARY_CATEGORY_NAME } from "@/lib/expenditure/standard-categories"
 import {
   canGeneratePayroll,
   payrollPeriodLabel,
@@ -153,9 +154,10 @@ export function PayrollGenerateForm({
             <div className="space-y-2">
               <Label htmlFor="sessionId">Session</Label>
               <Select value={sessionId} onValueChange={setSessionId}>
-                <SelectTrigger id="sessionId"><SelectValue placeholder="Not linked" /></SelectTrigger>
+                <SelectTrigger id="sessionId"><SelectValue placeholder="Automatic" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>Not linked</SelectItem>
+                  {/* Blank now means the session whose term covers the payroll month. */}
+                  <SelectItem value={NONE}>Automatic (from the payroll month)</SelectItem>
                   {sessions.map((session) => (
                     <SelectItem key={session.id} value={session.id}>{session.name}</SelectItem>
                   ))}
@@ -243,7 +245,8 @@ export function PayrollWorkflowActions({
   const [overdraft, setOverdraft] = useState<string | null>(null)
 
   const activeAccounts = accounts.filter((account) => account.isActive)
-  const salaryCategory = categories.find((category) => /salar/i.test(category.name) && category.isActive)
+  // The same choice the server makes when none is sent, so the form and the booking agree.
+  const salaryCategory = pickSalaryCategory(categories)
   const [accountId, setAccountId] = useState(defaultAccountId ?? activeAccounts[0]?.id ?? "")
   const [categoryId, setCategoryId] = useState(salaryCategory?.id ?? "")
   const [method, setMethod] = useState(defaultMethod)
@@ -439,7 +442,8 @@ export function PayrollWorkflowActions({
               </Select>
               {!salaryCategory && (
                 <p className="text-xs text-muted-foreground">
-                  No category named “Salaries” yet — pick one, or create it under Expenditure.
+                  No salary heading yet. Leave this empty and the payment is booked under
+                  “{SALARY_CATEGORY_NAME}”, which is created for you.
                 </p>
               )}
             </div>
@@ -481,7 +485,7 @@ export function PayrollWorkflowActions({
             {overdraft ? (
               <Button variant="destructive" onClick={() => pay(true)} disabled={isPending}>Pay anyway</Button>
             ) : (
-              <Button onClick={() => pay(false)} disabled={isPending || !accountId || !categoryId}>
+              <Button onClick={() => pay(false)} disabled={isPending || !accountId}>
                 Confirm payment
               </Button>
             )}

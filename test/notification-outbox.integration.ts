@@ -46,6 +46,12 @@ function message(overrides: Record<string, unknown> = {}) {
   }
 }
 
+// A test run must never reach a real SMS or email provider, whatever .env.local holds:
+// these tests drain the shared queue, and real credentials would text real numbers.
+for (const key of ["SMARTSMS_API_TOKEN", "SMARTSMS_SENDER_ID", "TERMII_API_KEY", "TERMII_SENDER_ID", "RESEND_API_KEY", "RESEND_FROM"]) {
+  delete process.env[key]
+}
+
 beforeAll(async () => {
   const school = await prisma.school.findFirstOrThrow({ select: { id: true } })
   schoolId = school.id

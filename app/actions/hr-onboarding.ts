@@ -11,7 +11,12 @@ import {
   staffOnboardingProgress,
   type OnboardingProgress,
 } from "@/lib/hr/staff-onboarding"
-import { provisionStaffForTeacher, unlinkedTeachers } from "@/lib/hr/staff-provisioning"
+import {
+  provisionStaffForLogin,
+  provisionStaffForTeacher,
+  unlinkedFinanceOfficers,
+  unlinkedTeachers,
+} from "@/lib/hr/staff-provisioning"
 import { getActiveSchool } from "@/lib/school-context.server"
 
 /**
@@ -112,6 +117,14 @@ export type OnboardingQueue = {
     createdAt: string
     isActive: boolean
   }>
+  /** Finance officers with no HR record - accountants created before they were provisioned. */
+  unlinkedFinance: Array<{
+    userId: string
+    name: string
+    email: string | null
+    createdAt: string
+    isActive: boolean
+  }>
   /** Staff records that exist but are not finished. */
   incomplete: Array<{
     staffId: string
@@ -131,8 +144,9 @@ export async function getOnboardingQueue(): Promise<ActionResult<OnboardingQueue
     const actor = await requireHr()
     const schoolId = await actorSchool(actor)
 
-    const [teachers, staff] = await Promise.all([
+    const [teachers, financeOfficers, staff] = await Promise.all([
       unlinkedTeachers(prisma, schoolId),
+      unlinkedFinanceOfficers(prisma, schoolId),
       prisma.staff.findMany({
         where: {
           schoolId,
@@ -180,6 +194,13 @@ export async function getOnboardingQueue(): Promise<ActionResult<OnboardingQueue
           department: teacher.department,
           createdAt: teacher.createdAt.toISOString(),
           isActive: teacher.user.isActive,
+        })),
+        unlinkedFinance: financeOfficers.map((officer) => ({
+          userId: officer.id,
+          name: `${officer.firstName} ${officer.lastName}`,
+          email: officer.credentials[0]?.value ?? null,
+          createdAt: officer.createdAt.toISOString(),
+          isActive: officer.isActive,
         })),
         incomplete,
       },
@@ -263,13 +284,72 @@ export async function linkTeacherToHr(input: unknown): Promise<ActionResult<{ st
   }
 }
 
+const linkFinanceSchema = z.object({ userId: z.string().min(1) })
+
+/** One finance officer's HR record, created from their login. */
+async function provisionFinanceOfficer(
+  schoolId: string,
+  officer: Awaited<ReturnType<typeof unlinkedFinanceOfficers>>[number],
+) {
+  return provisionStaffForLogin(prisma, {
+    schoolId,
+    userId: officer.id,
+    firstName: officer.firstName,
+    lastName: officer.lastName,
+    phone: officer.phone,
+    email: officer.credentials[0]?.value ?? null,
+    gender: officer.gender,
+    dateOfBirth: officer.dateOfBirth,
+    address: officer.address,
+    department: "Finance",
+    staffType: "ACCOUNTANT",
+    // Their real start date, for the same proration reason as a teacher backfill.
+    dateEmployed: officer.createdAt,
+  })
+}
+
+export async function linkFinanceOfficerToHr(input: unknown): Promise<ActionResult<{ staffNo: string }>> {
+  try {
+    const actor = await requireHr()
+    const schoolId = await actorSchool(actor)
+    const { userId } = linkFinanceSchema.parse(input)
+
+    // Looked up through the unlinked list itself, so the school scope, the role and "has no
+    // HR record yet" are all one query rather than three checks that could disagree.
+    const officer = (await unlinkedFinanceOfficers(prisma, schoolId)).find((row) => row.id === userId)
+    if (!officer) throw new Error("That finance officer is not in this school, or is already in HR")
+
+    const outcome = await provisionFinanceOfficer(schoolId, officer)
+    if (!outcome.created && outcome.reason === "FAILED") {
+      throw new Error(`Could not create the staff record: ${outcome.error}`)
+    }
+
+    await recordAudit({
+      actor,
+      action: "staff.link_finance_officer",
+      entityType: "Staff",
+      entityId: outcome.staffId,
+      summary: `Linked ${officer.firstName} ${officer.lastName} to HR as ${outcome.staffNo}`,
+    })
+
+    revalidateHr()
+    return { success: true, data: { staffNo: outcome.staffNo } }
+  } catch (error) {
+    return toError(error, "Failed to link that finance officer to HR")
+  }
+}
+
+/** Every unlinked teacher and finance officer, in one go. */
 export async function linkAllUnlinkedTeachers(): Promise<
   ActionResult<{ linked: number; failed: number }>
 > {
   try {
     const actor = await requireHr()
     const schoolId = await actorSchool(actor)
-    const teachers = await unlinkedTeachers(prisma, schoolId)
+    const [teachers, financeOfficers] = await Promise.all([
+      unlinkedTeachers(prisma, schoolId),
+      unlinkedFinanceOfficers(prisma, schoolId),
+    ])
 
     let linked = 0
     let failed = 0
@@ -293,12 +373,17 @@ export async function linkAllUnlinkedTeachers(): Promise<
       if (outcome.created) linked += 1
       else if (outcome.reason === "FAILED") failed += 1
     }
+    for (const officer of financeOfficers) {
+      const outcome = await provisionFinanceOfficer(schoolId, officer)
+      if (outcome.created) linked += 1
+      else if (outcome.reason === "FAILED") failed += 1
+    }
 
     await recordAudit({
       actor,
       action: "staff.link_teachers_bulk",
       entityType: "Staff",
-      summary: `Created ${linked} HR record(s) from unlinked teachers${failed ? `, ${failed} failed` : ""}`,
+      summary: `Created ${linked} HR record(s) from unlinked staff logins${failed ? `, ${failed} failed` : ""}`,
     })
 
     revalidateHr()

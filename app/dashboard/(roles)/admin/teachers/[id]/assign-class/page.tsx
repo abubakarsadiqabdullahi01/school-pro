@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { AssignClassesForm } from "@/components/teacher-management/assign-classes-form";
 import { requireAdminSchool } from "@/lib/admin-page-context";
+import { TEACHER_ASSIGNMENT_PERMISSIONS } from "@/lib/permissions";
 import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminAssignClassesPage({
@@ -10,7 +11,7 @@ export default async function AdminAssignClassesPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { schoolId } = await requireAdminSchool("teachers.manage");
+  const { schoolId } = await requireAdminSchool([...TEACHER_ASSIGNMENT_PERMISSIONS]);
 
   // Ensure params is properly awaited
   const id = (await params)?.id;

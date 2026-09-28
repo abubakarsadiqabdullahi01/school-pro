@@ -1,8 +1,9 @@
-import { Prisma, type NotificationChannel } from "@prisma/client"
+import { Prisma, type NotificationChannel, type PrismaClient } from "@prisma/client"
 
 import { prisma } from "@/lib/db"
 import { toE164 } from "@/lib/notifications/phone"
 import { measureSms } from "@/lib/notifications/sms-segments"
+import { renderEmailHtml, type EmailBranding } from "@/lib/notifications/email-layout"
 import { resolveProviders } from "@/lib/notifications/providers"
 
 /**
@@ -36,6 +37,8 @@ export type QueueRequest = {
   /** Omit to allow the message to repeat — a manual one-off, say. */
   dedupeKey?: string | null
   triggeredBy?: string | null
+  /** Hold the message until then (a scheduled announcement); omit to send at once. */
+  availableAt?: Date | null
 }
 
 export type QueueOutcome =
@@ -45,13 +48,16 @@ export type QueueOutcome =
 /** Deliberately loose: the job is to catch a missing @, not to adjudicate RFC 5322. */
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
+/** The global client, or a transaction when the insert must commit with something else. */
+type OutboxDb = PrismaClient | Prisma.TransactionClient
+
 /**
  * Puts one message in the queue.
  *
  * Never throws for an ordinary refusal. Callers are usually queueing in bulk — one family
  * with a mistyped number must not abort the other three hundred and ninety-nine.
  */
-export async function queueMessage(request: QueueRequest): Promise<QueueOutcome> {
+export async function queueMessage(request: QueueRequest, db: OutboxDb = prisma): Promise<QueueOutcome> {
   const body = request.body.trim()
   if (body.length === 0) {
     return { queued: false, reason: "EMPTY_BODY", detail: "The message was empty" }
@@ -83,7 +89,7 @@ export async function queueMessage(request: QueueRequest): Promise<QueueOutcome>
   }
 
   try {
-    const row = await prisma.notificationOutbox.create({
+    const row = await db.notificationOutbox.create({
       data: {
         schoolId: request.schoolId,
         channel: request.channel,
@@ -98,6 +104,7 @@ export async function queueMessage(request: QueueRequest): Promise<QueueOutcome>
         // even after somebody edits the template.
         units: request.channel === "SMS" ? measureSms(body).segments : 1,
         triggeredBy: request.triggeredBy ?? null,
+        ...(request.availableAt ? { availableAt: request.availableAt } : {}),
       },
       select: { id: true },
     })
@@ -119,11 +126,11 @@ export async function queueMessage(request: QueueRequest): Promise<QueueOutcome>
 export type QueueSummary = { queued: number; duplicates: number; rejected: string[] }
 
 /** Queues many, reporting what happened rather than stopping at the first problem. */
-export async function queueMany(requests: QueueRequest[]): Promise<QueueSummary> {
+export async function queueMany(requests: QueueRequest[], db: OutboxDb = prisma): Promise<QueueSummary> {
   const summary: QueueSummary = { queued: 0, duplicates: 0, rejected: [] }
 
   for (const request of requests) {
-    const outcome = await queueMessage(request)
+    const outcome = await queueMessage(request, db)
     if (outcome.queued) summary.queued += 1
     else if (outcome.reason === "DUPLICATE") summary.duplicates += 1
     else summary.rejected.push(outcome.detail)
@@ -153,14 +160,20 @@ export function backoffMinutes(attempts: number): number {
 export async function drainOutbox(
   limit = 50,
   now: Date = new Date(),
-): Promise<{ sent: number; failed: number; skipped: number }> {
+): Promise<{ sent: number; failed: number; skipped: number; notConfigured: Array<"SMS" | "EMAIL"> }> {
   const providers = resolveProviders()
+  // In production a channel with no real provider is not "sent" to a log file: its messages
+  // stay queued, visibly, until credentials are set. Pretending otherwise tells a school its
+  // families were informed when nobody was.
+  const notConfigured = (["SMS", "EMAIL"] as const).filter((channel) =>
+    (channel === "SMS" ? providers.sms.name : providers.email.name) === "log" && !logDeliveryAllowed())
   const due = await prisma.notificationOutbox.findMany({
-    where: { status: "QUEUED", availableAt: { lte: now } },
+    where: { status: "QUEUED", availableAt: { lte: now }, ...(notConfigured.length ? { channel: { notIn: [...notConfigured] } } : {}) },
     orderBy: { availableAt: "asc" },
     take: limit,
     select: {
       id: true,
+      schoolId: true,
       channel: true,
       recipient: true,
       subject: true,
@@ -193,6 +206,7 @@ export async function drainOutbox(
             message.recipient,
             message.subject ?? "",
             message.body,
+            renderEmailHtml(await brandingFor(message.schoolId), message.subject ?? "", message.body),
           )
 
     if (outcome.ok) {
@@ -227,7 +241,28 @@ export async function drainOutbox(
     failed += 1
   }
 
-  return { sent, failed, skipped }
+  return { sent, failed, skipped, notConfigured }
+}
+
+/** Log "delivery" is for development, or when explicitly allowed (a demo server). */
+export function logDeliveryAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV !== "production" || env.NOTIFICATIONS_ALLOW_LOG_DELIVERY === "true"
+}
+
+const brandingCache = new Map<string, { at: number; value: EmailBranding }>()
+
+async function brandingFor(schoolId: string): Promise<EmailBranding> {
+  const cached = brandingCache.get(schoolId)
+  if (cached && Date.now() - cached.at < 5 * 60_000) return cached.value
+  const school = await prisma.school.findUnique({
+    where: { id: schoolId },
+    select: { name: true, logoUrl: true, address: true, phone: true, email: true },
+  })
+  const value: EmailBranding = school
+    ? { schoolName: school.name, logoUrl: school.logoUrl, address: school.address, phone: school.phone, email: school.email }
+    : { schoolName: "DigiSchool-Pro" }
+  brandingCache.set(schoolId, { at: Date.now(), value })
+  return value
 }
 
 /**

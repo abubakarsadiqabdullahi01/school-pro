@@ -143,6 +143,9 @@ afterAll(async () => {
   if (created.categoryId) await prisma.expenseCategory.deleteMany({ where: { id: created.categoryId } })
   if (created.accountId) await prisma.paymentAccount.deleteMany({ where: { id: created.accountId } })
   if (created.accountantUserId) {
+    // createFinanceOfficer opens an HR record too, and Staff.userId is SET NULL, so it
+    // would otherwise outlive the login as an orphaned staff member.
+    await prisma.staff.deleteMany({ where: { userId: created.accountantUserId } })
     await prisma.admin.deleteMany({ where: { userId: created.accountantUserId } })
     await prisma.credential.deleteMany({ where: { userId: created.accountantUserId } })
     await prisma.user.deleteMany({ where: { id: created.accountantUserId } })
@@ -213,6 +216,13 @@ describe("staff records", () => {
   })
 
   it("refuses to link one login to two staff records", async () => {
+    // The unlink at the end of this test only runs when the test reaches it. A run that
+    // failed earlier — or was interrupted — leaves the admin login attached to a staff
+    // record from that run, and every later run then fails here at setup rather than on
+    // the behaviour being tested. Detaching first makes the test say the same thing on a
+    // dirty database as on a clean one.
+    await prisma.staff.updateMany({ where: { userId: adminUserId }, data: { userId: null } })
+
     const second = await addStaff("Bola")
     ok(await updateStaff({ ...staffPayload("Amina"), staffId: mainStaffId, userId: adminUserId }), "link admin login")
 

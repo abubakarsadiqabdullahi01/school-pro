@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client"
+import type { Prisma, StaffType } from "@prisma/client"
 
 /**
  * Creating the HR side of a person who was added on the academic side.
@@ -80,7 +80,20 @@ export type TeacherProvisionInput = {
 export type ProvisionOutcome =
   | { created: true; staffId: string; staffNo: string }
   | { created: false; reason: "ALREADY_LINKED"; staffId: string; staffNo: string }
+  /** HR had already hired them under that staff number; the new login was attached to it. */
+  | { created: false; reason: "LINKED_EXISTING"; staffId: string; staffNo: string }
   | { created: false; reason: "FAILED"; error: string }
+
+/** The HR record a provisioning run ended up pointing at, whichever way it got there. */
+export function provisionedStaffNo(outcome: ProvisionOutcome): string | null {
+  return outcome.created || outcome.reason !== "FAILED" ? outcome.staffNo : null
+}
+
+export type LoginProvisionInput = TeacherProvisionInput & {
+  staffType: StaffType
+  /** What a payslip prints. Defaults from the staff type. */
+  jobTitle?: string | null
+}
 
 /**
  * Creates the HR record for a teacher, if there is not one already.
@@ -92,6 +105,33 @@ export type ProvisionOutcome =
 export async function provisionStaffForTeacher(
   client: StaffWriteClient,
   input: TeacherProvisionInput,
+): Promise<ProvisionOutcome> {
+  return provisionStaffForLogin(client, {
+    ...input,
+    staffType: "TEACHER",
+    // Not "Teacher": the job title is what payroll and a payslip print, and the department
+    // they were added under is the most specific thing known so far.
+    jobTitle: input.department ? `${input.department} Teacher` : "Teacher",
+  })
+}
+
+/**
+ * Creates, or finds, the HR record for any staff login - a teacher, or a finance officer.
+ *
+ * Employment is HR's. Whichever screen creates a staff login, the person must land in HR's
+ * onboarding queue, or they are a member of staff payroll has never heard of. Finance
+ * officers were exactly that: `createFinanceOfficer` wrote a login and stopped.
+ *
+ * When HR hired the person first, under the staff number now typed on the login form, the
+ * login is attached to that record instead of opening a second one. Before this, the typed
+ * number was simply "taken", a fresh one was generated, and the same human existed twice in
+ * HR - once with the bank details and salary HR entered, once as an empty shell.
+ *
+ * Never throws - see rule 1 at the top of this file.
+ */
+export async function provisionStaffForLogin(
+  client: StaffWriteClient,
+  input: LoginProvisionInput,
 ): Promise<ProvisionOutcome> {
   try {
     // `Staff.userId` is @unique, so this both answers "is there one already" and prevents
@@ -106,6 +146,29 @@ export async function provisionStaffForTeacher(
         reason: "ALREADY_LINKED",
         staffId: existing.id,
         staffNo: existing.staffNo,
+      }
+    }
+
+    // HR's own record for this person, waiting for its login. Only one with no login yet,
+    // and only when the name agrees too: a mistyped staff number must not hand somebody
+    // else's salary and bank details to a new account.
+    const preferred = input.preferredStaffNo?.trim()
+    if (preferred) {
+      const hired = await client.staff.findFirst({
+        where: { schoolId: input.schoolId, staffNo: preferred, userId: null },
+        select: { id: true, staffNo: true, firstName: true, lastName: true },
+      })
+      if (hired && sameName(hired, input)) {
+        await client.staff.update({
+          where: { id: hired.id },
+          data: { userId: input.userId },
+        })
+        return {
+          created: false,
+          reason: "LINKED_EXISTING",
+          staffId: hired.id,
+          staffNo: hired.staffNo,
+        }
       }
     }
 
@@ -130,10 +193,8 @@ export async function provisionStaffForTeacher(
         email: input.email ?? null,
         address: input.address ?? null,
         department: input.department ?? null,
-        // Not "Teacher": the job title is what payroll and a payslip print, and the
-        // department they were added under is the most specific thing known so far.
-        jobTitle: input.department ? `${input.department} Teacher` : "Teacher",
-        staffType: "TEACHER",
+        jobTitle: input.jobTitle ?? defaultJobTitle(input.staffType),
+        staffType: input.staffType,
         employmentType: "FULL_TIME",
         employmentStatus: "ACTIVE",
         dateEmployed: input.dateEmployed ?? new Date(),
@@ -146,14 +207,36 @@ export async function provisionStaffForTeacher(
 
     return { created: true, staffId: staff.id, staffNo: staff.staffNo }
   } catch (error) {
-    // Swallowed deliberately. See rule 1: the teacher is the thing that must survive.
-    console.error("Failed to provision an HR record for teacher user", input.userId, error)
+    // Swallowed deliberately. See rule 1: the login is the thing that must survive.
+    console.error("Failed to provision an HR record for user", input.userId, error)
     return {
       created: false,
       reason: "FAILED",
       error: error instanceof Error ? error.message : "Unknown error",
     }
   }
+}
+
+function normalName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ")
+}
+
+/** First and last name agree, ignoring case and spacing. */
+function sameName(
+  a: { firstName: string; lastName: string },
+  b: { firstName: string; lastName: string },
+): boolean {
+  return normalName(a.firstName) === normalName(b.firstName) && normalName(a.lastName) === normalName(b.lastName)
+}
+
+const JOB_TITLES: Partial<Record<StaffType, string>> = {
+  TEACHER: "Teacher",
+  ACCOUNTANT: "Accountant",
+  ADMIN_STAFF: "Administrative Officer",
+}
+
+function defaultJobTitle(staffType: StaffType): string | null {
+  return JOB_TITLES[staffType] ?? null
 }
 
 /**
@@ -220,4 +303,34 @@ export async function unlinkedTeachers(client: StaffWriteClient, schoolId: strin
   ])
 
   return teachers.filter((teacher) => !staffUserIds.has(teacher.userId))
+}
+
+/**
+ * Finance officers in a school with no HR record at all.
+ *
+ * The same safety net as `unlinkedTeachers`, for the accountants created before
+ * `createFinanceOfficer` provisioned them. An accountant is staff with a payslip, and was
+ * invisible to HR until now.
+ */
+export async function unlinkedFinanceOfficers(client: StaffWriteClient, schoolId: string) {
+  return client.user.findMany({
+    where: {
+      role: "ACCOUNTANT",
+      admin: { schoolId },
+      staffRecord: { is: null },
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true,
+      gender: true,
+      dateOfBirth: true,
+      address: true,
+      isActive: true,
+      createdAt: true,
+      credentials: { where: { type: "EMAIL" }, select: { value: true }, take: 1 },
+    },
+    orderBy: { createdAt: "desc" },
+  })
 }

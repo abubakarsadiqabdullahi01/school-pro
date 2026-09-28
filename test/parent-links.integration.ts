@@ -14,7 +14,19 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {},
   // `lib/authz` reaches session expiry, which caches the school's idle limits.
   unstable_cache: <T>(loader: T) => loader,
 }))
-vi.mock("@/lib/school-context.server", () => ({ getActiveSchool: async () => null }))
+/**
+ * The school a super admin has selected in the switcher.
+ *
+ * Read at call time rather than fixed, because managing parents resolves a SUPER_ADMIN's
+ * school from this and refuses when nothing is chosen — which is the point: a super admin
+ * has to say which school before linking anybody, so a link can no longer be made outside
+ * one. The cross-school case below still refuses, now for a reason that names the school.
+ */
+vi.mock("@/lib/school-context.server", () => ({
+  getActiveSchool: async () => (activeSchoolId
+    ? { id: activeSchoolId, name: "Active", code: "ZZ", logoUrl: null }
+    : null),
+}))
 vi.mock("@/auth", () => ({ auth: vi.fn() }))
 
 const { auth } = await import("@/auth")
@@ -29,6 +41,7 @@ const created = {
   parentIds: [] as string[],
 }
 
+let activeSchoolId = ""
 let schoolId = ""
 let otherSchoolId = ""
 let superAdminUserId = ""
@@ -44,6 +57,7 @@ beforeAll(async () => {
   })
   if (!admin?.admin?.schoolId) throw new Error("No admin with a school")
   schoolId = admin.admin.schoolId
+  activeSchoolId = schoolId
 
   const other = await prisma.school.findFirst({
     where: { id: { not: schoolId } },
@@ -60,6 +74,12 @@ beforeAll(async () => {
   })
   superAdminUserId = superUser.id
   created.userIds.push(superUser.id)
+
+  // The role on the user row is not enough: requireActor resolves a SUPER_ADMIN through its
+  // SuperAdmin profile and refuses one that has none. Without this the fixture produced an
+  // actor the application rejects, so every call below failed on authorization and told us
+  // nothing about the linking rules the file is here to check.
+  await prisma.superAdmin.create({ data: { userId: superUser.id } })
 
   vi.mocked(auth).mockResolvedValue({
     user: { id: superUser.id, role: "SUPER_ADMIN", sessionRecordId: null },

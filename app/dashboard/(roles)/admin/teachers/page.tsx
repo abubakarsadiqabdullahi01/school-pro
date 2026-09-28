@@ -2,10 +2,14 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { TeachersTable } from "@/components/teacher-management/teachers-table"
 import { getTeachers } from "@/app/actions/teacher-management"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { getEffectivePermissionsForCurrentUser } from "@/lib/authz"
+import { TEACHER_ASSIGNMENT_PERMISSIONS } from "@/lib/permissions"
 import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminTeachersPage() {
-  const { school } = await requireAdminSchool("teachers.manage")
+  // The Exams Officer reaches this list to assign subjects; only HR hires or removes.
+  const { school } = await requireAdminSchool([...TEACHER_ASSIGNMENT_PERMISSIONS])
+  const canManageTeachers = (await getEffectivePermissionsForCurrentUser()).includes("teachers.manage")
 
   const teachersResult = await getTeachers()
   const teachers = teachersResult.success && teachersResult.data ? teachersResult.data : []
@@ -23,7 +27,7 @@ export default async function AdminTeachersPage() {
           </p>
         </div>
 
-        <TeachersTable teachers={teachers} />
+        <TeachersTable teachers={teachers} canManageTeachers={canManageTeachers} />
       </div>
     </PageTransition>
   )

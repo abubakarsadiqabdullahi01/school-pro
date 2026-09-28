@@ -2358,7 +2358,7 @@ export async function getBudgetSummary(filters?: { sessionId?: string | null }):
     paid: string
     outstanding: string
   }
-  expenditure: { paid: string; approvedUnpaid: string; pending: string; committed: string }
+  expenditure: { paid: string; approvedUnpaid: string; payrollApprovedUnpaid: string; pending: string; committed: string }
   actualBalance: string
   expectedBalance: string
   committedBalance: string
@@ -2378,18 +2378,28 @@ export async function getBudgetSummary(filters?: { sessionId?: string | null }):
     if (!fund.success) throw new Error(fund.error)
 
     const where: Prisma.ExpenseWhereInput = session ? { schoolId, sessionId: session.id } : { schoolId }
-    const [paid, approvedUnpaid, pending] = await Promise.all([
+    const runWhere: Prisma.PayrollRunWhereInput = session ? { schoolId, sessionId: session.id } : { schoolId }
+    const [paid, approvedUnpaid, pending, payrollApproved, payrollPending] = await Promise.all([
       prisma.expense.aggregate({ where: { ...where, status: { in: SPENT } }, _sum: { amount: true } }),
       prisma.expense.aggregate({ where: { ...where, status: "APPROVED" }, _sum: { amount: true } }),
       prisma.expense.aggregate({
         where: { ...where, status: { in: ["DRAFT", "PENDING_APPROVAL"] } },
         _sum: { amount: true },
       }),
+      // Payroll writes no expense until it is paid, so an approved run - salaries the school
+      // has agreed to pay this month - was invisible here until the money left. It is as
+      // committed as an approved voucher, and counted the same way.
+      prisma.payrollRun.aggregate({ where: { ...runWhere, status: "APPROVED" }, _sum: { totalNet: true } }),
+      prisma.payrollRun.aggregate({
+        where: { ...runWhere, status: { in: ["DRAFT", "PENDING_APPROVAL"] } },
+        _sum: { totalNet: true },
+      }),
     ])
 
     const income = fund.data.sessionTotals
     const spent = money(paid._sum.amount ?? 0)
-    const committedUnpaid = money(approvedUnpaid._sum.amount ?? 0)
+    const payrollCommitted = money(payrollApproved._sum.totalNet ?? 0)
+    const committedUnpaid = money(approvedUnpaid._sum.amount ?? 0).plus(payrollCommitted)
     const committed = spent.plus(committedUnpaid)
 
     return {
@@ -2408,7 +2418,9 @@ export async function getBudgetSummary(filters?: { sessionId?: string | null }):
         expenditure: {
           paid: moneyString(spent),
           approvedUnpaid: moneyString(committedUnpaid),
-          pending: moneyString(pending._sum.amount ?? 0),
+          /** The part of approvedUnpaid that is approved payroll not yet paid. */
+          payrollApprovedUnpaid: moneyString(payrollCommitted),
+          pending: moneyString(money(pending._sum.amount ?? 0).plus(payrollPending._sum.totalNet ?? 0)),
           committed: moneyString(committed),
         },
         actualBalance: moneyString(money(income.paid).minus(spent)),

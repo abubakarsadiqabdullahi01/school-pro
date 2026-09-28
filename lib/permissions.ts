@@ -36,9 +36,9 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   "school.manage": "Manage school settings",
   "users.manage": "Manage users and permissions",
   "students.manage": "Manage students",
-  "teachers.manage": "Manage teachers",
+  "teachers.manage": "Hire and manage teachers",
   "parents.manage": "Manage parents",
-  "academics.manage": "Manage academic setup",
+  "academics.manage": "Academic setup and teacher assignment",
   "compiler.enter_scores": "Enter compiler scores",
   "compiler.review_results": "Review results",
   "compiler.publish_results": "Publish or withdraw results",
@@ -56,21 +56,28 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   "reports.export": "Export reports",
 }
 
+/**
+ * The permission grid, grouped by the module each key opens rather than by who happened to
+ * need it first.
+ *
+ * Before, "Administration" held teachers next to school settings and "Money" held finance,
+ * expenditure and payroll in one block of nine, so granting HR meant picking two keys out
+ * of a list about fees. Each group now matches a sidebar section, which is how a school
+ * thinks about the job being handed out. Presentation only: no key changed name.
+ */
 export const PERMISSION_GROUPS: Array<{ name: string; permissions: PermissionKey[] }> = [
   {
-    name: "Administration",
-    permissions: [
-      "school.manage",
-      "users.manage",
-      "students.manage",
-      "teachers.manage",
-      "parents.manage",
-      "academics.manage",
-    ],
+    name: "School administration",
+    permissions: ["school.manage", "users.manage"],
   },
   {
-    name: "Compiler",
+    name: "Students and parents",
+    permissions: ["students.manage", "parents.manage"],
+  },
+  {
+    name: "Academics and results",
     permissions: [
+      "academics.manage",
       "compiler.enter_scores",
       "compiler.review_results",
       "compiler.publish_results",
@@ -79,23 +86,41 @@ export const PERMISSION_GROUPS: Array<{ name: string; permissions: PermissionKey
     ],
   },
   {
-    name: "Money",
+    name: "Human resources",
+    permissions: ["teachers.manage", "payroll.manage", "payroll.pay"],
+  },
+  {
+    name: "Finance",
     permissions: [
       "finance.setup",
       "finance.manage_gateway",
       "finance.approve_refunds",
       "finance.collect_payments",
       "finance.view_reports",
-      "expenditure.manage",
-      "expenditure.approve",
-      "payroll.manage",
-      "payroll.pay",
     ],
+  },
+  {
+    name: "Expenditure",
+    permissions: ["expenditure.manage", "expenditure.approve"],
   },
   {
     name: "Reports",
     permissions: ["reports.export"],
   },
+]
+
+/**
+ * Who may put a teacher on a class or a subject, and see the teacher directory to do it.
+ *
+ * `academics.manage` is here because timetabling teachers onto subjects is the Exams
+ * Officer's job, and that profile never held `teachers.manage`. `teachers.manage` stays in
+ * the list so a school with no exams officer can still have HR or the manager do it.
+ * Hiring, editing and removing a teacher need `teachers.manage` alone: employment belongs
+ * to HR.
+ */
+export const TEACHER_ASSIGNMENT_PERMISSIONS: readonly PermissionKey[] = [
+  "teachers.manage",
+  "academics.manage",
 ]
 
 const ALL_PERMISSIONS = new Set<PermissionKey>(PERMISSIONS)
@@ -132,11 +157,17 @@ export const SYSTEM_PERMISSION_PROFILES: Record<
    *
    * Those two were missing, which left an accountant looking at expenditure and payroll
    * menus in their own sidebar and being refused by every one of them.
+   *
+   * `finance.setup` is deliberately absent. It carries fee schedules, discounts and
+   * exemptions - waiving what a family owes - and the management of finance logins. A
+   * bursar who takes cash and can also exempt the charge it paid is the one combination
+   * segregation of duties exists to prevent. The accountant dashboard, sidebar and Finance
+   * Staff screen were all written on that assumption ("configuring fee schedules is the
+   * admin's job"); this profile granting it quietly made every one of them untrue.
    */
   FINANCE: {
     name: "Finance Officer",
     permissions: [
-      "finance.setup",
       "finance.collect_payments",
       "finance.view_reports",
       "expenditure.manage",
@@ -144,9 +175,16 @@ export const SYSTEM_PERMISSION_PROFILES: Record<
       "reports.export",
     ],
   },
+  /**
+   * Employment runs through HR: hiring a teacher creates their login and their staff
+   * record in one step, so the officer who owns staff records also holds
+   * `teachers.manage`. Assigning a hired teacher to classes and subjects is the Exams
+   * Officer's job through `academics.manage`; `teachers.manage` still allows it (see
+   * TEACHER_ASSIGNMENT_PERMISSIONS) so a school with no exams officer is not stuck.
+   */
   HR: {
     name: "HR and Payroll Officer",
-    permissions: ["payroll.manage", "payroll.pay", "reports.export"],
+    permissions: ["teachers.manage", "payroll.manage", "payroll.pay", "reports.export"],
   },
 }
 

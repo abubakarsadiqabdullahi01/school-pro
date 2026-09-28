@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
 import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 import { canDeleteSubject, canUseSubjectCode, canUseSubjectName } from "@/lib/subject-rules"
+import { canAssignInTerm } from "@/lib/term-rules"
 
 // Create a new subject
 export async function createSubject({
@@ -232,11 +233,19 @@ export async function assignTeachersToSubject({
     // disagreed. Every other lookup in the app asks only for the term.
     const currentTerm = await prisma.term.findFirst({
       where: { isCurrent: true, session: { schoolId: subjectData.schoolId } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, endDate: true, isCurrent: true },
     })
 
     if (!currentTerm) {
       throw new Error("This school has no current term, so there is nothing to assign teachers for.")
+    }
+
+    // The rule the teacher-side screens already enforce. A term still flagged current after
+    // its end date is a closed term, and this screen deletes assignments as well as adding
+    // them - so without it, unticking a teacher rewrote who taught a finished term.
+    const termVerdict = canAssignInTerm(currentTerm, actor.role)
+    if (!termVerdict.allowed) {
+      throw new Error(`${currentTerm.name}: ${termVerdict.reason}`)
     }
 
     // Scoped to the current term, which is the list the screen is actually showing.

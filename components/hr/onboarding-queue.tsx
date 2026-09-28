@@ -10,6 +10,7 @@ import {
   getOnboardingQueue,
   getStaffOnboarding,
   linkAllUnlinkedTeachers,
+  linkFinanceOfficerToHr,
   linkTeacherToHr,
   verifyStaffDocument,
   type OnboardingQueue as QueueData,
@@ -28,8 +29,9 @@ import { Progress } from "@/components/ui/progress"
  * Two lists, because there are two distinct problems and conflating them would hide the
  * worse one:
  *
- *  - **Not in HR at all.** A teacher with no `Staff` record — created before provisioning
- *    existed, or during a failure. They cannot be paid and nothing else would say so.
+ *  - **Not in HR at all.** A teacher or finance officer with no `Staff` record — created
+ *    before provisioning existed, or during a failure. They cannot be paid and nothing else
+ *    would say so.
  *  - **In HR but incomplete.** A record with a name and little else. Payroll would happily
  *    treat it as finished, which is exactly why `onboardingStatus` exists.
  */
@@ -68,9 +70,21 @@ export function OnboardingQueue() {
   }
 
   function link(teacherId: string, name: string) {
-    setBusy(teacherId)
+    linkWith(teacherId, name, () => linkTeacherToHr({ teacherId }))
+  }
+
+  function linkFinance(userId: string, name: string) {
+    linkWith(userId, name, () => linkFinanceOfficerToHr({ userId }))
+  }
+
+  function linkWith(
+    key: string,
+    name: string,
+    run: () => ReturnType<typeof linkTeacherToHr>,
+  ) {
+    setBusy(key)
     startTransition(async () => {
-      const result = await linkTeacherToHr({ teacherId })
+      const result = await run()
       setBusy(null)
       if (!result.success) {
         toast.error("Could not link", { description: result.error })
@@ -157,6 +171,16 @@ export function OnboardingQueue() {
     )
   }, [data, needle])
 
+  const matchingFinance = useMemo(() => {
+    const list = data?.unlinkedFinance ?? []
+    if (!needle) return list
+    return list.filter(
+      (officer) =>
+        officer.name.toLowerCase().includes(needle) ||
+        (officer.email ?? "").toLowerCase().includes(needle),
+    )
+  }, [data, needle])
+
   const matchingIncomplete = useMemo(() => {
     const list = data?.incomplete ?? []
     if (!needle) return list
@@ -177,12 +201,15 @@ export function OnboardingQueue() {
   }
 
   const unlinked = data?.unlinked ?? []
+  const unlinkedFinance = data?.unlinkedFinance ?? []
+  const unlinkedTotal = unlinked.length + unlinkedFinance.length
+  const matchingUnlinkedTotal = matchingUnlinked.length + matchingFinance.length
   const incomplete = data?.incomplete ?? []
   const showing = search.trim().length > 0
 
   return (
     <div className="space-y-6">
-      {(unlinked.length > 0 || incomplete.length > 0) && (
+      {(unlinkedTotal > 0 || incomplete.length > 0) && (
         <div className="relative w-full sm:max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -203,37 +230,37 @@ export function OnboardingQueue() {
               <CardTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
                 Not in HR at all (
-                {showing && matchingUnlinked.length !== unlinked.length
-                  ? `${matchingUnlinked.length} of ${unlinked.length}`
-                  : unlinked.length}
+                {showing && matchingUnlinkedTotal !== unlinkedTotal
+                  ? `${matchingUnlinkedTotal} of ${unlinkedTotal}`
+                  : unlinkedTotal}
                 )
               </CardTitle>
               <CardDescription>
-                Teachers with no staff record. They have no staff number and cannot be put on
-                payroll until one exists.
+                Teachers and finance officers with no staff record. They have no staff number
+                and cannot be put on payroll until one exists.
               </CardDescription>
             </div>
-            {unlinked.length > 0 && (
+            {unlinkedTotal > 0 && (
               <Button onClick={linkAll} disabled={pending}>
                 {busy === "all" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <UserPlus className="mr-2 h-4 w-4" />
                 )}
-                Add all {unlinked.length} to HR
+                Add all {unlinkedTotal} to HR
               </Button>
             )}
           </div>
         </CardHeader>
         <CardContent>
-          {unlinked.length === 0 ? (
+          {unlinkedTotal === 0 ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              Every teacher has a staff record.
+              Every teacher and finance officer has a staff record.
             </p>
           ) : (
             <ul className="divide-y rounded-md border">
-              {matchingUnlinked.length === 0 && (
+              {matchingUnlinkedTotal === 0 && (
                 <li className="p-3 text-sm text-muted-foreground">
                   Nobody here matches &ldquo;{search.trim()}&rdquo;.
                 </li>
@@ -260,6 +287,36 @@ export function OnboardingQueue() {
                     onClick={() => link(teacher.teacherId, teacher.name)}
                   >
                     {busy === teacher.teacherId ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Link2 className="mr-2 h-4 w-4" />
+                    )}
+                    Add to HR
+                  </Button>
+                </li>
+              ))}
+              {matchingFinance.map((officer) => (
+                <li
+                  key={officer.userId}
+                  className="flex flex-wrap items-center justify-between gap-3 p-3"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{officer.name}</span>
+                      <Badge variant="secondary">Finance officer</Badge>
+                      {!officer.isActive && <Badge variant="outline">Inactive login</Badge>}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {officer.email ?? "No sign-in address"}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => linkFinance(officer.userId, officer.name)}
+                  >
+                    {busy === officer.userId ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Link2 className="mr-2 h-4 w-4" />

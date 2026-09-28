@@ -6,9 +6,12 @@ import { getTeacher } from "@/app/actions/teacher-management"
 import { Button } from "@/components/ui/button"
 import { MoveLeft as MoveLeftIcon } from "lucide-react"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { getEffectivePermissionsForCurrentUser } from "@/lib/authz"
+import { TEACHER_ASSIGNMENT_PERMISSIONS } from "@/lib/permissions"
 
 export default async function AdminTeacherDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdminSchool("teachers.manage")
+  await requireAdminSchool([...TEACHER_ASSIGNMENT_PERMISSIONS])
+  const canManageTeachers = (await getEffectivePermissionsForCurrentUser()).includes("teachers.manage")
   const { id } = await params
 
   const teacherResult = await getTeacher(id)
@@ -32,7 +35,7 @@ export default async function AdminTeacherDetailsPage({ params }: { params: Prom
           </Button>
         </div>
 
-        <TeacherDetails teacher={teacherData} />
+        <TeacherDetails teacher={teacherData} canManageTeachers={canManageTeachers} />
       </div>
     </PageTransition>
   )

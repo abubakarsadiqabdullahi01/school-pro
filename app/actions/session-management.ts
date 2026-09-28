@@ -209,7 +209,16 @@ export async function deleteSession(id: string) {
       },
       include: {
         _count: {
-          select: { terms: true },
+          // A session cascades to these directly, with no term in between: a fee raised
+          // for the whole session, or a promotion decision, belongs to the session alone.
+          // Counting only terms let an emptied session take them all with it.
+          select: {
+            terms: true,
+            studentCharges: true,
+            feeSchedules: true,
+            expenses: true,
+            annualDecisions: true,
+          },
         },
       },
     })
@@ -224,6 +233,21 @@ export async function deleteSession(id: string) {
 
     if (sessionWithTerms._count.terms > 0) {
       return { success: false, error: "Cannot delete session with existing terms" }
+    }
+
+    const held = Object.entries({
+      "fee charges": sessionWithTerms._count.studentCharges,
+      "fee schedules": sessionWithTerms._count.feeSchedules,
+      expenses: sessionWithTerms._count.expenses,
+      "promotion decisions": sessionWithTerms._count.annualDecisions,
+    }).filter(([, count]) => count > 0)
+    if (held.length > 0) {
+      return {
+        success: false,
+        error:
+          `Cannot delete this session: it holds ${held.map(([name, count]) => `${count} ${name}`).join(", ")}. `
+          + "Deleting it would remove them from the school's records.",
+      }
     }
 
     await prisma.session.delete({

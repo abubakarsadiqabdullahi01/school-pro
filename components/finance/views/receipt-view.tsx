@@ -180,7 +180,9 @@ export async function ReceiptView({
           <p className="text-muted-foreground">{data.receiptNo}</p>
         </div>
         <div className="flex gap-2">
-          {canRefund && data.status === "COMPLETED" && <RefundPaymentButton paymentId={data.id} />}
+          {/* An online receipt is refunded through the gateway from Online Payments, where the
+              money actually goes back to the payer; this button only reverses cash-desk receipts. */}
+          {canRefund && data.status === "COMPLETED" && !data.online && <RefundPaymentButton paymentId={data.id} />}
           <PrintButton label={status.stamp ? "Print copy" : "Print Receipt"} />
           <BrandedDocumentDownload
             document={document}

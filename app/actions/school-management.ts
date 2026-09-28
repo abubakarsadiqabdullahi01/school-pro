@@ -4,6 +4,7 @@ import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { SYSTEM_PERMISSION_PROFILES } from "@/lib/permissions"
+import { ensureStandardExpenseCategories } from "@/lib/expenditure/standard-categories"
 
 // Create a new school
 export async function createSchool(data: {
@@ -95,6 +96,9 @@ export async function createSchool(data: {
         data: { schoolId: created.id, name: "Three CAs and an exam", ca1Max: 10, ca2Max: 10, ca3Max: 10, examMax: 70 },
       })
       await tx.transitionPolicy.create({ data: { schoolId: created.id } })
+      // The standard expenditure chart, so payroll has a salary heading on day one and
+      // every school's budget summary reads under the same names.
+      await ensureStandardExpenseCategories(tx, created.id)
       await Promise.all(
         Object.entries(SYSTEM_PERMISSION_PROFILES).map(([code, profile]) =>
           tx.permissionProfile.create({

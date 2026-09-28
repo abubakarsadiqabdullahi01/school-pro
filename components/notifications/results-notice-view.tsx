@@ -180,6 +180,16 @@ export function ResultsNoticeView({ classTerms }: { classTerms: ClassTermOption[
               </p>
             )}
 
+            {!preview.published && (
+              <p className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  These results are not published yet. Publish them first; families told now would
+                  find nothing in the portal.
+                </span>
+              </p>
+            )}
+
             {preview.brokenPortalLink && (
               <p className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -227,7 +237,7 @@ export function ResultsNoticeView({ classTerms }: { classTerms: ClassTermOption[
             )}
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={send} disabled={pending || channels.length === 0}>
+              <Button onClick={send} disabled={pending || channels.length === 0 || !preview.published}>
                 {busy === "send" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

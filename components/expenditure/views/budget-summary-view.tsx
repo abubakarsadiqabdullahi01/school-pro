@@ -179,13 +179,17 @@ export async function BudgetSummaryView({
           <CardHeader>
             <CardTitle>Expenditure</CardTitle>
             <CardDescription>
-              Only paid expenditure leaves the balance; the rest is committed.
+              Only paid expenditure leaves the balance; the rest is committed. Approved payroll
+              counts as committed from the moment it is approved.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <dl className="space-y-2 text-sm">
               <Line label="Paid" value={data.expenditure.paid} strong />
               <Line label="Approved, not yet paid" value={data.expenditure.approvedUnpaid} />
+              {Number(data.expenditure.payrollApprovedUnpaid) > 0 && (
+                <Line label="  of which approved payroll" value={data.expenditure.payrollApprovedUnpaid} />
+              )}
               <Line label="Awaiting approval" value={data.expenditure.pending} />
               <Line label="Committed (paid + approved)" value={data.expenditure.committed} strong />
             </dl>

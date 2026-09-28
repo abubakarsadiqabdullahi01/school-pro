@@ -17,10 +17,16 @@ export async function StaffDetailView({
   basePath,
   staffId,
   canManage,
+  canCreateTeacherLogin = false,
 }: {
   basePath: string
   staffId: string
   canManage: boolean
+  /**
+   * Whether to offer the teacher login for a teacher HR hired first. `teachers.manage`,
+   * which the HR officer holds: hiring is employment, so the login starts here.
+   */
+  canCreateTeacherLogin?: boolean
 }) {
   const [result, setup] = await Promise.all([getStaffMember(staffId), getHrSetupData()])
   if (!result.success) notFound()
@@ -30,6 +36,13 @@ export async function StaffDetailView({
 
   const staff = result.data
   const exited = staff.employmentStatus === "RESIGNED" || staff.employmentStatus === "TERMINATED"
+  // A teacher HR has hired but who cannot sign in, and so cannot be given a class or a
+  // subject: the Exams Officer only ever sees teachers with a login.
+  const needsTeacherLogin =
+    canCreateTeacherLogin &&
+    staff.staffType === "TEACHER" &&
+    !staff.userId &&
+    staff.employmentStatus === "ACTIVE"
 
   const payslipColumns: DataTableColumn[] = [
     { label: "Period" },
@@ -76,12 +89,27 @@ export async function StaffDetailView({
             {staff.department ? ` · ${staff.department}` : ""}
           </p>
         </div>
-        {canManage && (
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`${basePath}/staff/${staff.id}/edit`}>Edit record</Link>
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {needsTeacherLogin && (
+            <Button size="sm" asChild>
+              <Link href={`/dashboard/admin/teachers/new?fromStaff=${staff.id}`}>Create teacher login</Link>
+            </Button>
+          )}
+          {canManage && (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`${basePath}/staff/${staff.id}/edit`}>Edit record</Link>
+            </Button>
+          )}
+        </div>
       </div>
+
+      {needsTeacherLogin && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+          {staff.name} is employed as a teacher but has no login, so they cannot be assigned a
+          class or subject and cannot enter scores. Create their teacher login; it is attached to
+          this record as {staff.staffNo}.
+        </div>
+      )}
 
       {exited && (
         <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">

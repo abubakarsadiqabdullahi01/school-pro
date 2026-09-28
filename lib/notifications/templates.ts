@@ -108,6 +108,23 @@ export const TEMPLATE_VARIABLES = {
     "paymentDate",
     "reference",
   ],
+  "payment.refunded": [
+    "studentName",
+    "admissionNo",
+    "amount",
+    "receiptNo",
+    "reason",
+    "balance",
+    "schoolName",
+    "portalLink",
+  ],
+  announcement: [
+    "title",
+    "message",
+    "recipientName",
+    "schoolName",
+    "portalLink",
+  ],
 } as const
 
 export type TemplateKey = keyof typeof TEMPLATE_VARIABLES
@@ -138,31 +155,46 @@ export const DEFAULT_TEMPLATES: Record<
 > = {
   "results.published": {
     sms: "{{schoolName}}: {{termName}} results for {{studentName}} are ready. Sign in to view: {{portalLink}}",
-    emailSubject: "{{termName}} results are ready for {{studentName}}",
+    emailSubject: "{{schoolName}}: {{termName}} results are ready for {{studentName}}",
     email:
       "Dear Parent/Guardian,\n\n" +
-      "{{termName}} results for {{studentName}} ({{className}}) have been released.\n\n" +
-      "Sign in to the portal to view and download the report card:\n{{portalLink}}\n\n" +
-      "Results are not included in this email for privacy.\n\n" +
+      "{{schoolName}} has released the {{termName}} results for {{studentName}}.\n\n" +
+      "RESULT RELEASE\n" +
+      "Student:  {{studentName}}\n" +
+      "Class:    {{className}}\n" +
+      "Term:     {{termName}}, {{sessionName}}\n\n" +
+      "Sign in to the parent portal to view and download the report card:\n{{portalLink}}\n\n" +
+      "For your child's privacy, scores are never included in emails or text messages.\n\n" +
       "{{schoolName}}",
   },
   "results.annual": {
     sms: "{{schoolName}}: {{sessionName}} annual result for {{studentName}} is ready. Sign in to view: {{portalLink}}",
-    emailSubject: "{{sessionName}} annual result for {{studentName}}",
+    emailSubject: "{{schoolName}}: {{sessionName}} annual result for {{studentName}}",
     email:
       "Dear Parent/Guardian,\n\n" +
-      "The {{sessionName}} annual result for {{studentName}} ({{className}}) has been released.\n\n" +
-      "Sign in to the portal to view the report card and the end-of-session decision:\n{{portalLink}}\n\n" +
+      "{{schoolName}} has released the {{sessionName}} annual (end-of-session) result for {{studentName}}.\n\n" +
+      "ANNUAL RESULT RELEASE\n" +
+      "Student:  {{studentName}}\n" +
+      "Class:    {{className}}\n" +
+      "Session:  {{sessionName}}\n\n" +
+      "Sign in to the parent portal to view the annual report card and the end-of-session decision:\n{{portalLink}}\n\n" +
+      "For your child's privacy, results are never included in emails or text messages.\n\n" +
       "{{schoolName}}",
   },
   "fees.reminder": {
-    sms: "{{schoolName}}: {{termName}} fees for {{studentName}} show a balance of {{balance}}. Details: {{portalLink}}",
-    emailSubject: "{{termName}} fees for {{studentName}}",
+    sms: "{{schoolName}}: reminder, {{studentName}} has an outstanding fee balance of {{balance}}. Pay or view: {{portalLink}}",
+    emailSubject: "{{schoolName}}: fee reminder for {{studentName}}",
     email:
       "Dear Parent/Guardian,\n\n" +
-      "{{termName}} fees for {{studentName}} ({{className}}) show an outstanding balance of {{balance}}.\n\n" +
-      "You can see the full statement here:\n{{portalLink}}\n\n" +
-      "If you have already paid, please ignore this message.\n\n" +
+      "This is a friendly reminder from {{schoolName}} about school fees for {{studentName}}.\n\n" +
+      "FEE REMINDER\n" +
+      "Student:                {{studentName}}\n" +
+      "Class:                  {{className}}\n" +
+      "Term:                   {{termName}}\n" +
+      "This term outstanding:  {{amount}}\n" +
+      "Total outstanding:      {{balance}}\n\n" +
+      "Sign in to view the full statement or pay online:\n{{portalLink}}\n\n" +
+      "If you have paid recently, please ignore this reminder. Payments can take a short while to appear.\n\n" +
       "{{schoolName}}",
   },
   "payment.received": {
@@ -183,6 +215,29 @@ export const DEFAULT_TEMPLATES: Record<
       "Outstanding balance for {{studentName}}: {{balance}}\n\n" +
       "Sign in to view or download the official receipt:\n{{portalLink}}\n\n" +
       "Please keep this email for your records.\n\n" +
+      "{{schoolName}}",
+  },
+  "payment.refunded": {
+    sms: "{{schoolName}}: {{amount}} on receipt {{receiptNo}} for {{studentName}} has been refunded. Balance {{balance}}.",
+    emailSubject: "{{schoolName}}: refund for {{studentName}} (receipt {{receiptNo}})",
+    email:
+      "Dear Parent/Guardian,\n\n" +
+      "{{schoolName}} has refunded a payment for {{studentName}}.\n\n" +
+      "REFUND\n" +
+      "Student:          {{studentName}} ({{admissionNo}})\n" +
+      "Receipt:          {{receiptNo}}\n" +
+      "Amount refunded:  {{amount}}\n" +
+      "Reason:           {{reason}}\n\n" +
+      "Outstanding balance for {{studentName}} is now {{balance}}.\n\n" +
+      "Sign in to view the statement:\n{{portalLink}}\n\n" +
+      "{{schoolName}}",
+  },
+  announcement: {
+    sms: "{{schoolName}}: {{title}}. {{message}}",
+    emailSubject: "{{schoolName}}: {{title}}",
+    email:
+      "Dear {{recipientName}},\n\n" +
+      "{{message}}\n\n" +
       "{{schoolName}}",
   },
 }

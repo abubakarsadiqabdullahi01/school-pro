@@ -112,9 +112,15 @@ interface Teacher {
 
 interface TeachersTableProps {
   teachers: Teacher[];
+  /**
+   * Hiring, editing and removing are HR's (`teachers.manage`). The Exams Officer sees this
+   * list only to reach a teacher's assignments, so those controls are not offered to them -
+   * the actions would refuse anyway.
+   */
+  canManageTeachers?: boolean;
 }
 
-export function TeachersTable({ teachers }: TeachersTableProps) {
+export function TeachersTable({ teachers, canManageTeachers = true }: TeachersTableProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [genderFilter, setGenderFilter] = useState("all");
@@ -313,12 +319,14 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
               Manage school teachers and their current term assignments
             </CardDescription>
           </div>
-          <Button asChild>
-            <Link href="/dashboard/admin/teachers/new">
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add Teacher
-            </Link>
-          </Button>
+          {canManageTeachers && (
+            <Button asChild>
+              <Link href="/dashboard/admin/teachers/new">
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add Teacher
+              </Link>
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           <div className="flex flex-col md:flex-row gap-4 mb-6">
@@ -495,6 +503,7 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                                 View Profile
                               </Link>
                             </DropdownMenuItem>
+                            {canManageTeachers && (
                             <DropdownMenuItem asChild>
                               <Link
                                 href={`/dashboard/admin/teachers/${teacher.id}/edit`}
@@ -502,6 +511,7 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                                 Edit Teacher
                               </Link>
                             </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem asChild>
                               <Link
                                 href={`/dashboard/admin/teachers/${teacher.id}/assignments`}
@@ -509,6 +519,8 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                                 Manage Assignments
                               </Link>
                             </DropdownMenuItem>
+                            {canManageTeachers && (
+                            <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
@@ -521,6 +533,8 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                             >
                               Delete Teacher
                             </DropdownMenuItem>
+                            </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -549,12 +563,14 @@ export function TeachersTable({ teachers }: TeachersTableProps) {
                       ) : (
                         <div className="flex flex-col items-center gap-2">
                           <p>No teachers found in this school.</p>
-                          <Button asChild>
-                            <Link href="/dashboard/admin/teachers/new">
-                              <UserPlus className="mr-2 h-4 w-4" />
-                              Add your first teacher
-                            </Link>
-                          </Button>
+                          {canManageTeachers && (
+                            <Button asChild>
+                              <Link href="/dashboard/admin/teachers/new">
+                                <UserPlus className="mr-2 h-4 w-4" />
+                                Add your first teacher
+                              </Link>
+                            </Button>
+                          )}
                         </div>
                       )}
                     </TableCell>

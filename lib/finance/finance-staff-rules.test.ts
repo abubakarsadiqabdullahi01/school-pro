@@ -25,6 +25,12 @@ describe("canDeleteFinanceOfficer", () => {
     expect(verdict.allowed === false && verdict.reason).toContain("1 discount or exemption")
   })
 
+  it("refuses where they recorded or released spending or payroll", () => {
+    const verdict = canDeleteFinanceOfficer({ paymentsRecorded: 0, adjustmentsApproved: 0, spendingHandled: 4 })
+    expect(verdict.allowed).toBe(false)
+    expect(verdict.allowed === false && verdict.reason).toContain("4 expenditure or payroll records")
+  })
+
   it("names the receipts first when both apply", () => {
     const verdict = canDeleteFinanceOfficer({ paymentsRecorded: 2, adjustmentsApproved: 3 })
     expect(verdict.allowed === false && verdict.reason).toContain("2 receipts")

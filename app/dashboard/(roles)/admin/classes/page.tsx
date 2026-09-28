@@ -31,7 +31,7 @@ export default async function AdminClassesPage() {
     select: { id: true },
   })
 
-  const [enrolments, currentRolls, subjectLinks] = await Promise.all([
+  const [enrolments, currentRolls, subjectLinks, billedCharges] = await Promise.all([
     classTermIds.length > 0
       ? prisma.studentClassTerm.groupBy({
           by: ["classTermId"],
@@ -55,6 +55,13 @@ export default async function AdminClassesPage() {
       where: { class: { schoolId } },
       select: { classId: true, subjectId: true },
     }),
+    classTermIds.length > 0
+      ? prisma.studentCharge.groupBy({
+          by: ["classTermId"],
+          where: { classTermId: { in: classTermIds } },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
   ])
 
   const sumByClass = (rows: { classTermId: string; _count: { _all: number } }[]) => {
@@ -68,6 +75,12 @@ export default async function AdminClassesPage() {
   }
 
   const enrolmentsByClass = sumByClass(enrolments)
+  const chargesByClass = new Map<string, number>()
+  for (const row of billedCharges) {
+    const classId = classIdByClassTerm.get(row.classTermId ?? "") ?? null
+    if (!classId) continue
+    chargesByClass.set(classId, (chargesByClass.get(classId) ?? 0) + row._count._all)
+  }
   const rollByClass = sumByClass(currentRolls)
 
   // Distinct subjects, not one per term. The old count summed every ClassSubject row across
@@ -89,6 +102,11 @@ export default async function AdminClassesPage() {
     termsCount: cls.classTerms.length,
     enrolments: enrolmentsByClass.get(cls.id) ?? 0,
     currentRoll: rollByClass.get(cls.id) ?? 0,
+    // Fees already billed against this class. Fetched rather than assumed, because a charge
+    // outlives the enrolment that produced it — StudentCharge keeps its classTerm with
+    // onDelete: SetNull — so a class emptied of students can still hold money records, and
+    // the delete button must refuse for the same reason the server will.
+    billedCharges: chargesByClass.get(cls.id) ?? 0,
   }))
 
   return (

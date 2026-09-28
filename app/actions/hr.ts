@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { recordAudit } from "@/lib/audit"
-import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
+import { AuthorizationError, requireAnyPermission, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { computePay, daysEmployedInMonth } from "@/lib/payroll"
 import {
@@ -16,6 +16,8 @@ import {
 import { canGeneratePayroll } from "@/lib/hr/payroll-period-rules"
 import { nextStaffNo as nextStaffNoFor } from "@/lib/hr/staff-provisioning"
 import { getActiveSchool } from "@/lib/school-context.server"
+import { revokeAllSessionsForUser } from "@/lib/sessions.server"
+import { salaryCategoryFor } from "@/lib/expenditure/standard-categories"
 
 /**
  * HR and payroll.
@@ -40,6 +42,8 @@ const moneySchema = z.coerce.number().nonnegative().max(9999999999)
 const positiveMoney = z.coerce.number().positive().max(9999999999)
 
 const staffSchema = z.object({
+  /** Acknowledges a suspected duplicate person, the way a duplicate voucher is acknowledged. */
+  confirmDuplicate: z.coerce.boolean().default(false),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
   gender: z.enum(["MALE", "FEMALE"]).optional().nullable(),
@@ -189,14 +193,19 @@ async function actorSchool(actor: Actor): Promise<string> {
 /**
  * Read staff records, payroll and every HR report.
  *
- * NOTE: this is the same permission as `requireHrManager`, so there is currently no such
- * thing as read-only HR access — granting somebody sight of payroll also lets them change
- * what people are paid. Separating the two needs a `payroll.view` key in
- * `lib/permissions.ts`, which is a change to the permission grid and to every existing
- * profile, so it is a decision rather than a tidy-up.
+ * `payroll.pay` counts here as well as `payroll.manage`, because the accountant profile
+ * carries the first without the second: they are meant to generate a run and release the
+ * money, and they cannot do either without seeing what they are paying. Requiring the
+ * manage key to read made the accountant's own job impossible — the overview refused them
+ * while the actions it leads to were theirs by design.
+ *
+ * Reading is still not free: someone with neither key sees nothing. What does not exist yet
+ * is read-only HR access for an auditor who should see payroll and change nothing, which
+ * needs a `payroll.view` key in `lib/permissions.ts` — a change to the permission grid and
+ * to every stored profile, so a decision rather than a tidy-up.
  */
 async function requireHrViewer(): Promise<Actor> {
-  return requirePermission("payroll.manage")
+  return requireAnyPermission(["payroll.manage", "payroll.pay"])
 }
 
 /**
@@ -652,6 +661,43 @@ export async function createStaff(input: unknown): Promise<ActionResult<{ id: st
       if (taken) throw new Error(`That login is already linked to staff ${taken.staffNo}`)
     }
 
+    // The same person entered twice. Payroll pays one payslip per active staff record, so
+    // a duplicate draws two salaries every month until somebody notices, and the unique
+    // login does not catch it because a person typed in a second time usually has no login
+    // at all. Name and date of birth together is the same human by any ordinary reading.
+    //
+    // A shared bank account is deliberately NOT refused here. Two staff can genuinely be
+    // paid into one family account, and refusing data entry over it blocks honest work
+    // while a fictitious name paid into a real account would still get through. That
+    // belongs in the integrity checks, which look across every record rather than at the
+    // one being typed — which is where a payroll audit looks for it too.
+    if (!data.confirmDuplicate) {
+      // Date of birth makes the match certain, but it is optional on this form, and gating
+      // the whole check on it left the commonest duplicate — someone typed in twice from
+      // memory, with no date — completely unguarded. An exact name match among active staff
+      // is worth a question either way: two people of the same name in one school is
+      // possible, a second payslip every month for one person is not worth the silence.
+      const twin = await prisma.staff.findFirst({
+        where: {
+          schoolId,
+          employmentStatus: "ACTIVE",
+          firstName: data.firstName,
+          lastName: data.lastName,
+          ...(data.dateOfBirth ? { dateOfBirth: data.dateOfBirth } : {}),
+        },
+        select: { staffNo: true, dateOfBirth: true },
+      })
+      if (twin) {
+        throw new Error(
+          data.dateOfBirth
+            ? `${twin.staffNo} is already ${data.firstName} ${data.lastName} with that date of `
+              + "birth. Confirm if this is genuinely a different person."
+            : `${twin.staffNo} is already an active ${data.firstName} ${data.lastName}. Confirm `
+              + "if this is genuinely a different person.",
+        )
+      }
+    }
+
     const staff = await prisma.staff.create({
       data: {
         schoolId,
@@ -772,12 +818,29 @@ export async function updateStaff(input: unknown): Promise<ActionResult<{ id: st
 }
 
 /**
+ * Logins HR switches off and on with employment.
+ *
+ * A teacher or accountant who has resigned, been terminated or been suspended kept a working
+ * sign-in: HR's status stopped their pay and nothing else, so a dismissed teacher could still
+ * open the compiler and change marks. Only these two roles follow HR automatically. A school
+ * admin's login is the platform's to revoke, and switching it off from an HR screen could
+ * lock a school out of itself.
+ */
+const LOGINS_THAT_FOLLOW_EMPLOYMENT = new Set(["TEACHER", "ACCOUNTANT"])
+
+/**
  * Changes someone's employment status.
  *
  * Exiting sets `dateExited`, which is what stops payroll including them, so a resignation
- * cannot leave someone quietly on the payroll next month.
+ * cannot leave someone quietly on the payroll next month. Leaving, or being suspended, also
+ * switches off their login and signs them out everywhere; returning to ACTIVE switches it
+ * back on. See LOGINS_THAT_FOLLOW_EMPLOYMENT for whose.
  */
-export async function setStaffEmploymentStatus(input: unknown): Promise<ActionResult<{ employmentStatus: string }>> {
+export async function setStaffEmploymentStatus(input: unknown): Promise<ActionResult<{
+  employmentStatus: string
+  /** What happened to their sign-in, or null when they have none that follows HR. */
+  login: "DEACTIVATED" | "REACTIVATED" | null
+}>> {
   try {
     const actor = await requireHrManager()
     const schoolId = await actorSchool(actor)
@@ -792,19 +855,52 @@ export async function setStaffEmploymentStatus(input: unknown): Promise<ActionRe
 
     const member = await prisma.staff.findFirst({
       where: { id: data.staffId, schoolId },
-      select: { id: true, staffNo: true, employmentStatus: true },
+      select: {
+        id: true,
+        staffNo: true,
+        employmentStatus: true,
+        userId: true,
+        user: { select: { role: true, isActive: true } },
+      },
     })
     if (!member) throw new Error("Staff member not found")
 
     const exiting = data.employmentStatus === "RESIGNED" || data.employmentStatus === "TERMINATED"
+    const active = data.employmentStatus === "ACTIVE"
 
-    await prisma.staff.update({
-      where: { id: member.id },
-      data: {
-        employmentStatus: data.employmentStatus,
-        dateExited: exiting ? (data.effectiveOn ?? new Date()) : null,
-      },
+    if (!active && member.userId === actor.userId) {
+      throw new Error("You cannot suspend or end your own employment. Ask another HR officer or the school admin.")
+    }
+
+    const followsHr = Boolean(member.userId && member.user && LOGINS_THAT_FOLLOW_EMPLOYMENT.has(member.user.role))
+    const login: "DEACTIVATED" | "REACTIVATED" | null = !followsHr
+      ? null
+      : active
+        ? (member.employmentStatus !== "ACTIVE" && !member.user?.isActive ? "REACTIVATED" : null)
+        : (member.user?.isActive ? "DEACTIVATED" : null)
+
+    await prisma.$transaction(async (tx) => {
+      await tx.staff.update({
+        where: { id: member.id },
+        data: {
+          employmentStatus: data.employmentStatus,
+          dateExited: exiting ? (data.effectiveOn ?? new Date()) : null,
+        },
+      })
+      if (login && member.userId) {
+        await tx.user.update({
+          where: { id: member.userId },
+          data: { isActive: login === "REACTIVATED" },
+        })
+      }
     })
+
+    // After the commit, and outside it: revocation is best-effort by design (see
+    // sessions.server), and `requireActor` already refuses an inactive user on their next
+    // request, so a failure here narrows nothing.
+    if (login === "DEACTIVATED" && member.userId) {
+      await revokeAllSessionsForUser(member.userId)
+    }
 
     await recordAudit({
       actor,
@@ -814,13 +910,20 @@ export async function setStaffEmploymentStatus(input: unknown): Promise<ActionRe
       summary:
         `${member.staffNo} moved from ${member.employmentStatus.toLowerCase()} to ` +
         `${data.employmentStatus.toLowerCase()}` +
+        (login === "DEACTIVATED" ? "; login switched off" : "") +
+        (login === "REACTIVATED" ? "; login switched back on" : "") +
         (data.reason ? `: ${data.reason}` : ""),
-      before: { employmentStatus: member.employmentStatus },
-      after: { employmentStatus: data.employmentStatus },
+      before: { employmentStatus: member.employmentStatus, loginActive: member.user?.isActive ?? null },
+      after: {
+        employmentStatus: data.employmentStatus,
+        loginActive: login ? login === "REACTIVATED" : (member.user?.isActive ?? null),
+      },
     })
 
     revalidateHr("/staff", `/staff/${member.id}`)
-    return { success: true, data: { employmentStatus: data.employmentStatus } }
+    revalidatePath("/dashboard/admin/teachers")
+    revalidatePath("/dashboard/admin/finance/staff")
+    return { success: true, data: { employmentStatus: data.employmentStatus, login } }
   } catch (error) {
     return toError(error, "Failed to change the employment status")
   }
@@ -1999,6 +2102,19 @@ export async function generatePayroll(input: unknown): Promise<ActionResult<{
     }
 
     const { start, end, daysInMonth } = monthBounds(data.year, data.month)
+
+    // "Not linked" meant exactly that: the run belonged to no session, and anything reading
+    // payroll by session skipped it while its money still showed in expenditure. Left blank,
+    // it now takes the session whose term covers the payroll month - the same rule payPayroll
+    // books the expense by - and only stays unlinked when no term covers it at all.
+    const sessionId =
+      data.sessionId ||
+      (await prisma.term.findFirst({
+        where: { session: { schoolId }, startDate: { lte: end }, endDate: { gte: end } },
+        select: { sessionId: true },
+      }))?.sessionId ||
+      (await prisma.session.findFirst({ where: { schoolId, isCurrent: true }, select: { id: true } }))?.id ||
+      null
     const candidates = await payrollCandidates(schoolId, data.year, data.month)
     if (candidates.length === 0) throw new Error("No active staff to pay for that month")
 
@@ -2086,7 +2202,7 @@ export async function generatePayroll(input: unknown): Promise<ActionResult<{
       const created = await tx.payrollRun.create({
         data: {
           schoolId,
-          sessionId: data.sessionId || null,
+          sessionId,
           year: data.year,
           month: data.month,
           status,
@@ -2187,6 +2303,8 @@ async function scopedRun(runId: string, schoolId: string) {
       totalNet: true,
       sessionId: true,
       generatedBy: true,
+      approvedBy: true,
+      approvedAt: true,
       payments: { select: { id: true, amount: true, expenseId: true } },
     },
   })
@@ -2403,21 +2521,21 @@ export async function payPayroll(input: unknown): Promise<ActionResult<{
     if (!account.isActive) throw new Error("That payment account is closed")
 
     // Salaries are expenditure like anything else, so they need a category to sit under.
-    const category = data.categoryId
+    // One chosen on screen wins; otherwise the school's salary heading, created from the
+    // standard chart if it has none, rather than refusing to pay staff over a label.
+    const chosen = data.categoryId
       ? await prisma.expenseCategory.findFirst({
           where: { id: data.categoryId, schoolId },
-          select: { id: true, name: true },
+          select: { id: true, name: true, isActive: true },
         })
-      : await prisma.expenseCategory.findFirst({
-          where: { schoolId, isActive: true, name: { contains: "Salar" } },
-          select: { id: true, name: true },
-        })
-    if (!category) {
-      throw new Error(
-        "No expenditure category for salaries. Create one — Salaries — under Expenditure first, " +
-          "so payroll shows up in the budget summary.",
-      )
+      : null
+    if (data.categoryId && !chosen) throw new Error("That expenditure category is not in this school")
+    // The same refusal ordinary expenditure gives: a retired heading is off the form for new
+    // spending, and a payroll must not be the one way round that.
+    if (chosen && !chosen.isActive) {
+      throw new Error(`${chosen.name} has been retired. Choose an active expenditure category.`)
     }
+    const category = chosen ?? (await salaryCategoryFor(prisma, schoolId))
 
     // Expense requires a term. The one containing the payroll month, else the current one.
     const { end } = monthBounds(run.year, run.month)
@@ -2485,8 +2603,11 @@ export async function payPayroll(input: unknown): Promise<ActionResult<{
           notes: `Generated from payroll run ${run.id}`,
           status: "PAID",
           recordedBy: actor.userId,
-          approvedBy: actor.userId,
-          approvedAt: paidAt,
+          // Whoever approved the payroll run approved this spending. Writing the payer in
+          // here made every salary voucher read as self-approved in the expenditure
+          // register, which is the one thing segregation of duties is meant to rule out.
+          approvedBy: run.approvedBy ?? actor.userId,
+          approvedAt: run.approvedAt ?? paidAt,
           paidBy: actor.userId,
           paidAt,
         },
@@ -2940,10 +3061,13 @@ export async function getHrOverview(): Promise<ActionResult<{
       prisma.staff.count({ where: { schoolId, employmentStatus: "ACTIVE", staffType: "TEACHER" } }),
       prisma.staff.count({ where: { schoolId, employmentStatus: "ACTIVE", staffType: { not: "TEACHER" } } }),
       // Payroll leaves the school as expenditure, so both sides are read the same way: only
-      // money actually paid counts.
+      // money actually paid counts, and it counts in the session its expense was booked to.
+      // Read through the run's own `sessionId`, a run generated as "Not linked" counted as
+      // nothing here while its money showed in expenditure, and a reversed run kept counting
+      // because its SalaryPayment stays as evidence. The expense is REVERSED with the run.
       currentSession
         ? prisma.salaryPayment.aggregate({
-            where: { schoolId, run: { sessionId: currentSession.id } },
+            where: { schoolId, expense: { sessionId: currentSession.id, status: "PAID" } },
             _sum: { amount: true },
           })
         : null,

@@ -123,6 +123,9 @@ afterAll(async () => {
   }
 
   if (accountantUserId) {
+    // createFinanceOfficer opens an HR record too, and Staff.userId is SET NULL, so it
+    // would otherwise outlive the login as an orphaned staff member.
+    await prisma.staff.deleteMany({ where: { userId: accountantUserId } })
     await prisma.admin.deleteMany({ where: { userId: accountantUserId } })
     await prisma.credential.deleteMany({ where: { userId: accountantUserId } })
     await prisma.user.deleteMany({ where: { id: accountantUserId } })

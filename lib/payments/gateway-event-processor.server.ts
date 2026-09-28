@@ -1,7 +1,11 @@
-import { Prisma, type GatewayEventStatus } from "@prisma/client"
+import { Prisma, type GatewayEventStatus, type GatewayTransactionStatus } from "@prisma/client"
 
 import { prisma } from "@/lib/db"
-import { postStudentPaymentInTransaction, reverseStudentPaymentInTransaction } from "@/lib/finance/payment-ledger.server"
+import {
+  LedgerAllocationConflictError,
+  postStudentPaymentInTransaction,
+  reverseStudentPaymentInTransaction,
+} from "@/lib/finance/payment-ledger.server"
 import { decimalNairaToKobo, koboToDecimalNaira } from "./checkout-rules"
 import {
   assertGatewayTransactionTransition,
@@ -10,8 +14,12 @@ import {
 import { processDedicatedTransferEvent } from "./dedicated-transfer.server"
 import { processIdentificationEvent } from "./dedicated-accounts.server"
 import { adapterForPaymentConfiguration } from "./payment-settings.server"
-import { queuePaymentReceiptInTransaction } from "@/lib/notifications/payment-receipt.server"
+import {
+  queuePaymentReceiptInTransaction,
+  queueRefundNoticeInTransaction,
+} from "@/lib/notifications/payment-receipt.server"
 import type { VerifiedGatewayPayment } from "./contracts"
+import { disputeOutcome, isDisputeResolution, type DisputeOutcome } from "./dispute-rules"
 import {
   gatewayVerificationIdentityProblems,
   gatewayVerificationProblems,
@@ -19,6 +27,15 @@ import {
 } from "./verification-rules"
 
 type ProcessResult = "processed" | "ignored" | "already_processed" | "busy" | "failed"
+
+/**
+ * How many times an event is retried before it is parked.
+ *
+ * With the backoff below this spans roughly a day and a half, which covers any outage worth
+ * riding out. Past that the failure is not transient, and an event that keeps retrying for
+ * ever is an event nobody is looking at — it needs to become visibly stuck instead.
+ */
+const MAX_EVENT_ATTEMPTS = 12
 
 function retryAt(attempts: number): Date {
   const seconds = Math.min(6 * 60 * 60, 60 * 2 ** Math.min(Math.max(attempts - 1, 0), 8))
@@ -88,6 +105,11 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
           reason: current.reason, referenceNo: current.providerRefundId ?? event.reference,
           createdBy: current.requestedBy,
         })
+        // A family whose fees reopen finds out from the school, not from a balance that
+        // moved on its own. Counter refunds already notify; this is the same notice.
+        await queueRefundNoticeInTransaction(tx, {
+          schoolId: current.schoolId, paymentId: current.paymentId, reason: current.reason,
+        })
         await tx.gatewayTransaction.update({ where: { id: current.gatewayTransactionId }, data: { status: "REFUNDED" } })
       }
     }
@@ -130,11 +152,84 @@ async function processDisputeEvent(event: NonNullable<Awaited<ReturnType<typeof 
         resolution: textValue(data.resolution), lastEventType: event.eventType, lastEventAt: new Date(),
         resolvedAt: event.eventType.endsWith(".resolve") ? new Date() : undefined },
     }),
-    ...(event.gatewayTransactionId && !event.eventType.endsWith(".resolve")
+    ...(event.gatewayTransactionId && !isDisputeResolution(event.eventType)
       ? [prisma.gatewayTransaction.update({ where: { id: event.gatewayTransactionId }, data: { status: "DISPUTED" } })] : []),
     prisma.gatewayEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), nextAttemptAt: null, lastError: null } }),
   ])
+
+  // A dispute that closes has to land somewhere. Left at DISPUTED, a payment the payer won
+  // still reads as settled fees the school no longer holds the money for, and the debt
+  // vanishes from the debtors report with nothing to show it was ever owed.
+  if (event.gatewayTransactionId && isDisputeResolution(event.eventType)) {
+    await settleResolvedDispute(event.gatewayTransactionId, disputeOutcome({
+      status,
+      resolution: textValue(data.resolution),
+    }))
+  }
   return "processed" as const
+}
+
+/**
+ * Put a transaction back where a closed dispute leaves it.
+ *
+ * Only a payer-refunded outcome touches the ledger, and it reuses the ordinary reversal so
+ * the charge reopens, the balance returns and the receipt is marked exactly as a refund at
+ * the counter would be. There is no second way to un-settle a fee.
+ */
+async function settleResolvedDispute(
+  gatewayTransactionId: string,
+  outcome: DisputeOutcome,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM GatewayTransaction WHERE id = ${gatewayTransactionId} FOR UPDATE`)
+    const locked = await tx.gatewayTransaction.findUniqueOrThrow({
+      where: { id: gatewayTransactionId },
+      select: { id: true, status: true, schoolId: true, paymentId: true },
+    })
+
+    if (outcome === "SCHOOL_KEEPS") {
+      if (!canTransitionGatewayTransaction(locked.status, "SUCCEEDED")) return
+      await tx.gatewayTransaction.update({
+        where: { id: locked.id },
+        data: { status: "SUCCEEDED", failureCode: null, failureMessage: null },
+      })
+      return
+    }
+
+    if (outcome === "PAYER_REFUNDED") {
+      if (locked.paymentId) {
+        const reason = "Chargeback upheld by Paystack; the payer has been refunded"
+        await reverseStudentPaymentInTransaction(tx, {
+          schoolId: locked.schoolId,
+          paymentId: locked.paymentId,
+          reason,
+          referenceNo: null,
+          createdBy: null,
+        })
+        await queueRefundNoticeInTransaction(tx, {
+          schoolId: locked.schoolId, paymentId: locked.paymentId, reason,
+        })
+      }
+      if (!canTransitionGatewayTransaction(locked.status, "REFUNDED")) return
+      await tx.gatewayTransaction.update({
+        where: { id: locked.id },
+        data: { status: "REFUNDED", failureMessage: "Dispute resolved in the payer's favour; fees reopened" },
+      })
+      return
+    }
+
+    // Resolved in a way this code does not recognise. Money may or may not have moved, so
+    // nothing is assumed and the transaction is put in front of a person.
+    if (!canTransitionGatewayTransaction(locked.status, "REQUIRES_REVIEW")) return
+    await tx.gatewayTransaction.update({
+      where: { id: locked.id },
+      data: {
+        status: "REQUIRES_REVIEW",
+        failureMessage: "Paystack closed this dispute with a resolution this system does not "
+          + "recognise. Check the dispute on Paystack and decide whether the fees stay settled.",
+      },
+    })
+  }, { isolationLevel: "Serializable" })
 }
 
 export async function processGatewayEvent(eventId: string): Promise<ProcessResult> {
@@ -283,13 +378,19 @@ export async function processGatewayEvent(eventId: string): Promise<ProcessResul
     return "processed"
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gateway event processing error"
+    // `event.attempts` was incremented when this run claimed the event, so it counts this
+    // attempt. Parking sets no next attempt and uses a status the claim query does not
+    // match, so the event stops rather than coming straight back round.
+    const exhausted = event.attempts >= MAX_EVENT_ATTEMPTS
     await prisma.gatewayEvent.update({
       where: { id: event.id },
       data: {
-        status: "FAILED",
+        status: exhausted ? "DEAD" : "FAILED",
         claimedAt: null,
-        nextAttemptAt: retryAt(event.attempts),
-        lastError: message.slice(0, 10_000),
+        nextAttemptAt: exhausted ? null : retryAt(event.attempts),
+        lastError: exhausted
+          ? `Parked after ${event.attempts} attempts. Last error: ${message}`.slice(0, 10_000)
+          : message.slice(0, 10_000),
       },
     }).catch(() => undefined)
     return "failed"
@@ -323,7 +424,78 @@ export async function processPendingGatewayEvents(limit = 20): Promise<Record<Pr
  * parent's status refresh, so a lost webhook cannot leave paid money unreceipted. The row
  * lock and linked payment make it idempotent: whichever runs second finds it done.
  */
+/**
+ * Park a verified success that cannot be posted, instead of retrying it.
+ *
+ * The money is real and Paystack has confirmed it; what failed is the local decision about
+ * where it belongs, and no number of retries changes that. Closing the event and handing a
+ * person the transaction with the reason written on it is the only honest outcome — a
+ * payment that retries every minute for ever is a payment nobody is looking at.
+ */
+async function quarantineVerifiedSuccess(
+  tx: Prisma.TransactionClient,
+  transactionId: string,
+  currentStatus: GatewayTransactionStatus,
+  verified: VerifiedGatewayPayment,
+  eventId: string | null,
+  reason: string,
+): Promise<void> {
+  assertGatewayTransactionTransition(currentStatus, "REQUIRES_REVIEW")
+  await tx.gatewayTransaction.update({
+    where: { id: transactionId },
+    data: {
+      status: "REQUIRES_REVIEW",
+      providerTransactionId: verified.providerTransactionId,
+      amountCharged: koboToDecimalNaira(verified.amountKobo),
+      providerFee: koboToDecimalNaira(verified.feesKobo),
+      channel: verified.channel,
+      verifiedAt: new Date(),
+      paidAt: verified.paidAt ?? new Date(),
+      failureMessage: reason,
+    },
+  })
+  if (eventId) await tx.gatewayEvent.update({
+    where: { id: eventId },
+    data: {
+      status: "PROCESSED",
+      processedAt: new Date(),
+      nextAttemptAt: null,
+      lastError: `Quarantined: ${reason}`,
+    },
+  })
+}
+
 export async function postVerifiedCheckoutSuccess(
+  transactionId: string,
+  verified: VerifiedGatewayPayment,
+  eventId: string | null,
+): Promise<void> {
+  try {
+    await postVerifiedCheckoutSuccessInTransaction(transactionId, verified, eventId)
+  } catch (error) {
+    if (!(error instanceof LedgerAllocationConflictError)) throw error
+
+    // The fees this payment was raised against have been settled by something else since
+    // checkout opened — in practice, the office taking cash at the counter while the parent
+    // was on Paystack. The posting transaction has rolled back, so nothing is half-written;
+    // what remains is a confirmed payment with nowhere to go.
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM GatewayTransaction WHERE id = ${transactionId} FOR UPDATE`)
+      const locked = await tx.gatewayTransaction.findUniqueOrThrow({
+        where: { id: transactionId },
+        select: { id: true, status: true, paymentId: true },
+      })
+      // A racing worker may have posted it in the meantime; that is a success, not a review.
+      if (locked.paymentId) return
+      await quarantineVerifiedSuccess(tx, locked.id, locked.status, verified, eventId,
+        "Paystack confirmed this payment, but the fees it was raised against have since been "
+        + "settled by another payment — most often one taken at the school counter. Nothing has "
+        + "been posted to the ledger. Refund the payer or hold the amount as credit.")
+    }, { isolationLevel: "Serializable" })
+  }
+}
+
+async function postVerifiedCheckoutSuccessInTransaction(
   transactionId: string,
   verified: VerifiedGatewayPayment,
   eventId: string | null,
@@ -342,29 +514,8 @@ export async function postVerifiedCheckoutSuccess(
       return
     }
     if (!canTransitionGatewayTransaction(locked.status, "SUCCEEDED")) {
-      assertGatewayTransactionTransition(locked.status, "REQUIRES_REVIEW")
-      await tx.gatewayTransaction.update({
-        where: { id: locked.id },
-        data: {
-          status: "REQUIRES_REVIEW",
-          providerTransactionId: verified.providerTransactionId,
-          amountCharged: koboToDecimalNaira(verified.amountKobo),
-          providerFee: koboToDecimalNaira(verified.feesKobo),
-          channel: verified.channel,
-          verifiedAt: new Date(),
-          paidAt: verified.paidAt ?? new Date(),
-          failureMessage: `Verified Paystack success conflicts with terminal local status ${locked.status}`,
-        },
-      })
-      if (eventId) await tx.gatewayEvent.update({
-        where: { id: eventId },
-        data: {
-          status: "PROCESSED",
-          processedAt: new Date(),
-          nextAttemptAt: null,
-          lastError: `Quarantined: verified success conflicts with ${locked.status}`,
-        },
-      })
+      await quarantineVerifiedSuccess(tx, locked.id, locked.status, verified, eventId,
+        `Verified Paystack success conflicts with terminal local status ${locked.status}`)
       return
     }
     assertGatewayTransactionTransition(locked.status, "SUCCEEDED")

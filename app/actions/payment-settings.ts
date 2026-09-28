@@ -15,6 +15,7 @@ import {
 import { loadPlatformPaystackConfig } from "@/lib/payments/paystack-config.server"
 import { PaystackAdapter, PaystackApiError } from "@/lib/payments/paystack.server"
 import { gatewayActivationProblems } from "@/lib/payments/payment-settings-rules"
+
 import { dedicatedSplitShare } from "@/lib/payments/dedicated-account-rules"
 import { platformChargeProblems, type PlatformChargeType } from "@/lib/payments/platform-charge"
 import {
@@ -400,7 +401,21 @@ export async function setPaymentGatewayEnabled(input: unknown): Promise<ActionRe
         const test = await paystackConfigurationForSchool(schoolId, "TEST")
         testConfigurationReady = Boolean(test?.verifiedAt && test.status === "READY")
       }
+      // A school may hold a configuration for every gateway it has set up, but only one may
+      // be collecting. Two enabled at once and nothing decides which gateway a checkout
+      // opens against — and a transaction has to stay with the provider that created it,
+      // since that is the only one that can verify, refund or defend it afterwards.
+      const alreadyCollecting = await prisma.schoolPaymentConfiguration.findFirst({
+        where: {
+          schoolId,
+          environment: environmentValue(data.environment),
+          isEnabled: true,
+          NOT: { id: configuration.id },
+        },
+        select: { provider: true },
+      })
       const problems = gatewayActivationProblems({
+        otherEnabledProvider: alreadyCollecting?.provider ?? null,
         environment: data.environment,
         accountMode: configuration.accountMode,
         status: configuration.status,

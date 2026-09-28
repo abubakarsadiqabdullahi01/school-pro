@@ -155,9 +155,21 @@ describe("the defaults a school starts with", () => {
       balance: "NGN 45,000.00",
       receiptNo: "RCP-2026-0417",
       decision: "Promoted",
+      admissionNo: "BFC/2025/0021",
+      reason: "Paid twice",
+      payerName: "Maryam Ibrahim",
+      paidFor: "Tuition (Third Term)",
+      paymentMethod: "Card (online)",
+      paymentDate: "27 Sep 2026",
+      reference: "DSP-mujlijat-79d2",
+      title: "Mid-term break",
+      message: "School closes Friday.",
+      recipientName: "Maryam Ibrahim",
     }
 
-    for (const key of keys) {
+    // An announcement is the school's own words; its length (and cost) is the school's
+    // choice and is shown before sending. Every message the system words must fit one.
+    for (const key of keys.filter((key) => key !== "announcement")) {
       const result = render(DEFAULT_TEMPLATES[key].sms, generous, variablesFor(key))
       expect(result.ok).toBe(true)
       if (result.ok) {

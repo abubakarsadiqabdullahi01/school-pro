@@ -3,24 +3,38 @@ import { describe, expect, it } from "vitest"
 import { canChangeClassLevel, canDeleteClass, canUseClassName } from "@/lib/class-rules"
 
 describe("canDeleteClass", () => {
+  it("refuses a class that still holds billed fees, even with nobody enrolled", () => {
+    // A charge outlives the enrolment that produced it, so an emptied class can still carry
+    // money records. The database refuses this delete anyway, but as a raw foreign-key
+    // error; the point of the rule is that somebody is told why.
+    const verdict = canDeleteClass({ enrolments: 0, recordedScores: 0, billedCharges: 12 })
+    expect(verdict.allowed).toBe(false)
+    expect(verdict.allowed === false && verdict.reason).toContain("12 fee charges")
+  })
+
+  it("reads naturally for a single charge", () => {
+    const verdict = canDeleteClass({ enrolments: 0, recordedScores: 0, billedCharges: 1 })
+    expect(verdict.allowed === false && verdict.reason).toContain("1 fee charge")
+  })
+
   it("allows deleting a class nobody has been enrolled in", () => {
-    expect(canDeleteClass({ enrolments: 0, recordedScores: 0 }).allowed).toBe(true)
+    expect(canDeleteClass({ enrolments: 0, recordedScores: 0, billedCharges: 0 }).allowed).toBe(true)
   })
 
   it("refuses while students are enrolled, and says how many", () => {
-    const verdict = canDeleteClass({ enrolments: 33, recordedScores: 0 })
+    const verdict = canDeleteClass({ enrolments: 33, recordedScores: 0, billedCharges: 0 })
     expect(verdict.allowed).toBe(false)
     expect(verdict.allowed === false && verdict.reason).toContain("33 enrolment records")
     expect(verdict.allowed === false && verdict.reason).not.toContain("result")
   })
 
   it("names the results too when there are any", () => {
-    const verdict = canDeleteClass({ enrolments: 33, recordedScores: 480 })
+    const verdict = canDeleteClass({ enrolments: 33, recordedScores: 480, billedCharges: 0 })
     expect(verdict.allowed === false && verdict.reason).toContain("480 recorded results")
   })
 
   it("reads naturally for a single enrolment", () => {
-    const verdict = canDeleteClass({ enrolments: 1, recordedScores: 1 })
+    const verdict = canDeleteClass({ enrolments: 1, recordedScores: 1, billedCharges: 0 })
     expect(verdict.allowed === false && verdict.reason).toContain("1 enrolment record")
     expect(verdict.allowed === false && verdict.reason).toContain("1 recorded result")
   })

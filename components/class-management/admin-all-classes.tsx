@@ -44,6 +44,8 @@ interface Class {
   termsCount: number
   /** Every enrolment this class has ever carried, across all its terms — drives the delete rule. */
   enrolments: number
+  /** Fees billed against this class's terms; a charge outlives the enrolment. */
+  billedCharges: number
   /** Students on this class's roll for the current term — what the Students column shows. */
   currentRoll: number
 }
@@ -69,7 +71,11 @@ const PAGE_SIZES = [10, 25, 50, 100]
  * shorter, because the server can also count the results.
  */
 function removalVerdict(cls: Class) {
-  return canDeleteClass({ enrolments: cls.enrolments, recordedScores: 0 })
+  return canDeleteClass({
+    enrolments: cls.enrolments,
+    recordedScores: 0,
+    billedCharges: cls.billedCharges,
+  })
 }
 
 export function AllClassesTable({ classes }: AllClassesTableProps) {

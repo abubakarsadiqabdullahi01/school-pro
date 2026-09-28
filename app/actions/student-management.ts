@@ -524,6 +524,14 @@ export async function deleteStudent(studentId: string) {
         // on the student, so their debt disappeared from the debtors report and the
         // accumulated fund with nothing left to show it had ever been owed.
         charges: true,
+        // Everything below holds the student with onDelete: Restrict, so the database will
+        // refuse a hard delete outright — as a raw foreign-key error the screen reports as
+        // "Failed to delete student". A learner can hold a dedicated virtual account with no
+        // charges at all, so counting fees does not cover this. Archiving is the right
+        // answer for any of them: an online-payment footprint is financial history.
+        gatewayTransactions: true,
+        dedicatedAccounts: true,
+        unappliedPayments: true,
       },
     });
 
@@ -543,8 +551,12 @@ export async function deleteStudent(studentId: string) {
     const hasAssessments = student.assessments.length > 0;
     const hasPayments = student.payments.length > 0;
     const hasCharges = student.charges.length > 0;
+    const hasGatewayFootprint =
+      student.gatewayTransactions.length > 0 ||
+      student.dedicatedAccounts.length > 0 ||
+      student.unappliedPayments.length > 0;
 
-    if (hasAssessments || hasPayments || hasCharges) {
+    if (hasAssessments || hasPayments || hasCharges || hasGatewayFootprint) {
       // Archive rather than delete. `isActive` alone carries the status: the previous
       // version wrote `ARCHIVED_` into `state`, which holds the student's home state, so
       // archiving corrupted an address field and archiving twice produced

@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation"
 
+import { getNotificationControls } from "@/app/actions/communications"
 import { getNotificationSettings } from "@/app/actions/notifications"
 import { PageTransition } from "@/components/dashboard/page-transition"
+import { CommunicationsNav } from "@/components/notifications/communications-nav"
+import { NotificationControls } from "@/components/notifications/message-history"
 import { NotificationTemplateEditor } from "@/components/notifications/template-editor"
 import { Badge } from "@/components/ui/badge"
 import { InfoGuide } from "@/components/ui/info-guide"
@@ -13,7 +16,7 @@ export default async function NotificationSettingsPage() {
   const actor = await requirePermission("school.manage").catch(() => null)
   if (!actor) redirect("/dashboard")
 
-  const result = await getNotificationSettings()
+  const [result, controls] = await Promise.all([getNotificationSettings(), getNotificationControls()])
 
   if (!result.success) {
     return (
@@ -56,6 +59,12 @@ export default async function NotificationSettingsPage() {
             </Badge>
           )}
         </div>
+
+        <CommunicationsNav active="/dashboard/admin/school-settings/notifications" />
+
+        {controls.success && (
+          <NotificationControls categories={controls.data.categories} smsMonthlyLimit={controls.data.smsMonthlyLimit} smsUnitsThisMonth={controls.data.smsUnitsThisMonth} />
+        )}
 
         <NotificationTemplateEditor templates={result.data.templates} />
       </div>

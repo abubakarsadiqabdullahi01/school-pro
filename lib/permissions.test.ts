@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest"
 import {
   hasPermission,
   normalizePermissions,
+  PERMISSION_GROUPS,
+  PERMISSIONS,
   resolveEffectivePermissions,
   SYSTEM_PERMISSION_PROFILES,
+  TEACHER_ASSIGNMENT_PERMISSIONS,
 } from "@/lib/permissions"
 
 describe("permission profile resolution", () => {
@@ -58,5 +61,47 @@ describe("permission profile resolution", () => {
 
     expect(permissions.has("payroll.pay")).toBe(true)
     expect(permissions.has("payroll.manage")).toBe(false)
+  })
+})
+
+describe("who assigns teachers, and who hires them", () => {
+  const examsOfficer = resolveEffectivePermissions("TEACHER", [
+    { code: "EXAMS", permissions: SYSTEM_PERMISSION_PROFILES.EXAMS.permissions },
+  ])
+  const hrOfficer = resolveEffectivePermissions("ACCOUNTANT", [
+    { code: "HR", permissions: SYSTEM_PERMISSION_PROFILES.HR.permissions },
+  ])
+
+  it("lets the Exams Officer assign teachers to classes and subjects", () => {
+    // Every teacher-assignment action accepts any of these; the profile held none of them
+    // before academics.manage was added to the list.
+    expect(TEACHER_ASSIGNMENT_PERMISSIONS.some((permission) => examsOfficer.has(permission))).toBe(true)
+  })
+
+  it("does not let the Exams Officer hire, edit or remove a teacher", () => {
+    expect(examsOfficer.has("teachers.manage")).toBe(false)
+  })
+
+  it("routes hiring through HR", () => {
+    expect(hrOfficer.has("teachers.manage")).toBe(true)
+    expect(hrOfficer.has("payroll.manage")).toBe(true)
+  })
+})
+
+describe("a bursar cannot waive what they collect", () => {
+  it("keeps fee setup, discounts and exemptions away from the Finance Officer", () => {
+    // finance.setup carries discounts, exemptions and finance logins. The accountant screens
+    // were all built on the accountant not having it.
+    expect(SYSTEM_PERMISSION_PROFILES.FINANCE.permissions).not.toContain("finance.setup")
+    expect(resolveEffectivePermissions("ACCOUNTANT").has("finance.setup")).toBe(false)
+    expect(resolveEffectivePermissions("ACCOUNTANT").has("finance.collect_payments")).toBe(true)
+  })
+})
+
+describe("the permission grid", () => {
+  it("shows every permission in exactly one group", () => {
+    const grouped = PERMISSION_GROUPS.flatMap((group) => group.permissions)
+    expect([...grouped].sort()).toEqual([...PERMISSIONS].sort())
+    expect(new Set(grouped).size).toBe(grouped.length)
   })
 })

@@ -194,6 +194,74 @@ export const MODULE_GUIDES = {
     sourceOfTruth: "app/actions/finance.ts",
   },
 
+  "communications.announcements": {
+    title: "Announcements",
+    location: ["Communications", "Announcements"],
+    purpose: "Tell all parents, the parents of chosen classes, or all staff something by SMS and email, now or at a set time.",
+    example: {
+      doing: "Announce the mid-term break to all parents by SMS and email, scheduled for Thursday at 4 pm.",
+      then: "Preview shows how many people it reaches and how many SMS units it costs. After sending, messages wait until Thursday 4 pm; you can withdraw it before then.",
+    },
+    rules: [
+      "Nothing is sent until you have previewed the reach, the SMS cost and the exact wording.",
+      "A parent with several children receives one copy, not one per child.",
+      "Only people who have not turned notifications off, and have a usable phone or email, are reached.",
+      "Every 160 characters of SMS is another unit. Keep SMS announcements short; email has no such limit.",
+    ],
+    permissions: ["school.manage"],
+    sourceOfTruth: "app/actions/communications.ts",
+  },
+
+  "communications.feeReminders": {
+    title: "Fee Reminders",
+    location: ["Communications", "Fee reminders"],
+    purpose: "Remind the guardians of learners who owe fees, with each child's own balance and a link to pay online.",
+    example: {
+      doing: "Remind families in JSS 1 owing at least ₦5,000.",
+      then: "Preview lists how many learners owe and the total outstanding. Each guardian is told only about their own child's balance.",
+    },
+    rules: [
+      "Each family receives at most one reminder a day, however many times the button is pressed.",
+      "A balance is only ever sent to that learner's own linked guardians.",
+      "The wording can be changed in Notification wording (Fee reminders).",
+    ],
+    permissions: ["school.manage", "finance.setup"],
+    sourceOfTruth: "app/actions/communications.ts",
+  },
+
+  "communications.annualResults": {
+    title: "Annual Results Notice",
+    location: ["Communications", "Annual results"],
+    purpose: "Tell families that the end-of-session result is ready to view in the portal.",
+    example: {
+      doing: "Choose 2025/2026 and JSS 2A, then preview.",
+      then: "If every term of the session is published for JSS 2A, the notice can be sent; otherwise the preview names the terms still to publish.",
+    },
+    rules: [
+      "Allowed only when every term of the session is published or locked for that class.",
+      "Results are never put in a text or email; families sign in to see them.",
+    ],
+    permissions: ["compiler.publish_results"],
+    sourceOfTruth: "app/actions/communications.ts",
+  },
+
+  "communications.history": {
+    title: "Message History",
+    location: ["Communications", "Message history"],
+    purpose: "See every SMS and email the school has sent, whether it was delivered, and why any failed.",
+    example: {
+      doing: "A parent says they never got the receipt text.",
+      then: "Search their phone number: the row shows whether it was sent, delivered or failed and the provider's reason. Retry a failed message after fixing the cause.",
+    },
+    rules: [
+      "Sent means the provider accepted the message; Delivered means the network or mailbox confirmed it arrived.",
+      "A failed message can be retried; a waiting message can be cancelled before it goes.",
+      "SMS units this month are counted against the school's monthly limit, if one is set.",
+    ],
+    permissions: ["school.manage"],
+    sourceOfTruth: "app/actions/communications.ts",
+  },
+
   "finance.dedicatedAccounts": {
     title: "Dedicated Accounts",
     location: ["Finance", "Dedicated Accounts"],
@@ -1160,7 +1228,7 @@ export const MODULE_GUIDES = {
       "Score entry checks this list. A teacher who is not on it cannot enter marks for the subject, however senior they are.",
       "A subject can have several teachers; each enters marks for the classes they hold.",
     ],
-    permissions: ["teachers.manage"],
+    permissions: ["teachers.manage", "academics.manage"],
     sourceOfTruth: "app/actions/teacher-assignment.ts",
   },
 
@@ -1173,11 +1241,12 @@ export const MODULE_GUIDES = {
       then: "Their record and this term’s assignments. Almost always the subject has not been assigned for the current term — assignment does not carry over from last term.",
     },
     rules: [
-      "A teacher is one person across three records — a login, a classroom record and a payroll record — joined together. Creating a teacher here does not by itself put them on the payroll.",
+      "A teacher is one person across three records — a login, a classroom record and an HR staff record — joined together. Adding a teacher opens their HR record automatically; it sits in HR's onboarding queue until HR completes it and sets a salary, and only then are they paid.",
+      "Hiring, editing and removing teachers is HR's (Hire and manage teachers). The Exams Officer sees this list to assign classes and subjects, without the hire, edit or delete controls.",
       "Subject assignment is per term. A teacher who taught a subject last term must be assigned again this term before they can enter its marks.",
       "Score entry checks that assignment, so a missing assignment shows up as a teacher unable to enter marks.",
     ],
-    permissions: ["teachers.manage"],
+    permissions: ["teachers.manage", "academics.manage"],
     sourceOfTruth: "app/actions/teacher-management.ts · app/actions/teacher-assignment.ts",
   },
 
@@ -1198,7 +1267,7 @@ export const MODULE_GUIDES = {
       "Score entry checks this assignment, so the usual symptom of a missing assignment is a teacher who cannot find their subject in the compiler.",
       "Being form teacher of a class and teaching a subject to it are separate assignments; a teacher can have either without the other.",
     ],
-    permissions: ["teachers.manage"],
+    permissions: ["teachers.manage", "academics.manage"],
     sourceOfTruth: "app/actions/teacher-assignment.ts",
   },
 
@@ -1554,11 +1623,11 @@ export const MODULE_GUIDES = {
     purpose: "Creates a teaching staff member and the login they will use.",
     example: {
       doing: "Create a teacher who will take JSS 1A Mathematics.",
-      then: "A login and a classroom record, linked. They still cannot enter Mathematics marks until you assign them the subject for this term, and they are not on the payroll until a staff record is added under HR.",
+      then: "A login, a classroom record and an HR staff record, linked. They still cannot enter Mathematics marks until the subject is assigned for this term, and they are not paid until HR completes their onboarding and sets a salary.",
     },
     onSave: [
       "A login account and a classroom record are created and linked together.",
-      "This does not by itself put them on the payroll — a staff record for payment is separate, and is added under HR & Payroll.",
+      "Their HR staff record is opened in the same step and appears in HR's onboarding queue, marked not started. Payroll pays them once HR completes it and assigns a salary.",
     ],
     rules: [
       "Teaching them a subject is a separate step, and it is per term. Until a subject is assigned for the current term, they cannot enter its marks.",

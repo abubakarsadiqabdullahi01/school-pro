@@ -6,7 +6,8 @@ import { z } from "zod"
 import { recordAudit } from "@/lib/audit"
 import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
-import { queueMany, outboxSummary, type QueueRequest } from "@/lib/notifications/outbox.server"
+import { queueGoverned, resolveTemplate as resolveSharedTemplate } from "@/lib/notifications/campaign.server"
+import { outboxSummary, type QueueRequest } from "@/lib/notifications/outbox.server"
 import { countReachable, recipientsForStudents } from "@/lib/notifications/recipients.server"
 import { resolveProviders } from "@/lib/notifications/providers"
 import { estimateSend } from "@/lib/notifications/sms-segments"
@@ -64,25 +65,8 @@ async function requireSender(): Promise<Actor> {
 }
 
 /** The school's own wording, or the built-in default when it has not set any. */
-async function resolveTemplate(
-  schoolId: string,
-  key: TemplateKey,
-  channel: "SMS" | "EMAIL",
-): Promise<{ body: string; subject: string | null }> {
-  const stored = await prisma.notificationTemplate.findUnique({
-    where: { schoolId_templateKey_channel: { schoolId, templateKey: key, channel } },
-    select: { body: true, subject: true, isActive: true },
-  })
-
-  if (stored?.isActive) {
-    return { body: stored.body, subject: stored.subject }
-  }
-
-  const fallback = DEFAULT_TEMPLATES[key]
-  return {
-    body: channel === "SMS" ? fallback.sms : fallback.email,
-    subject: channel === "SMS" ? null : fallback.emailSubject,
-  }
+function resolveTemplate(schoolId: string, key: TemplateKey, channel: "SMS" | "EMAIL") {
+  return resolveSharedTemplate(prisma, schoolId, key, channel)
 }
 
 /**
@@ -93,7 +77,9 @@ async function resolveTemplate(
  * forwarded text.
  */
 function portalBase(): string {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ?? ""
+  // The public address, falling back to the auth origin every deployment already sets, so a
+  // server without NEXT_PUBLIC_APP_URL does not refuse to send its notices.
+  return (process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.NEXTAUTH_URL?.trim() || "").replace(/\/+$/, "")
 }
 
 function portalLink(): string {
@@ -125,6 +111,8 @@ type NoticeContext = {
   sessionName: string
   termId: string
   studentIds: string[]
+  /** When the class's results were published, or null when they are not published. */
+  publishedAt: Date | null
 }
 
 async function loadContext(classTermId: string, schoolId: string): Promise<NoticeContext> {
@@ -135,6 +123,7 @@ async function loadContext(classTermId: string, schoolId: string): Promise<Notic
       class: { select: { name: true, schoolId: true } },
       term: { select: { name: true, session: { select: { name: true, schoolId: true } } } },
       students: { where: { status: "ACTIVE" }, select: { studentId: true } },
+      resultWorkflow: { select: { status: true, publishedAt: true } },
     },
   })
 
@@ -156,6 +145,9 @@ async function loadContext(classTermId: string, schoolId: string): Promise<Notic
     sessionName: classTerm.term.session.name,
     termId: classTerm.termId,
     studentIds: classTerm.students.map((row) => row.studentId),
+    publishedAt: classTerm.resultWorkflow && ["PUBLISHED", "LOCKED"].includes(classTerm.resultWorkflow.status)
+      ? classTerm.resultWorkflow.publishedAt ?? new Date(0)
+      : null,
   }
 }
 
@@ -172,6 +164,8 @@ export type NoticePreview = {
   unreachable: Array<{ studentName: string; problem: string }>
   /** True when no real provider is configured, so nothing would actually be delivered. */
   usingLogFallback: boolean
+  /** False until the class's results are published; sending is refused until then. */
+  published: boolean
   /**
    * True when the wording contains `{{portalLink}}` and there is no site address to build
    * one from, so the message would tell families to visit a relative path.
@@ -229,6 +223,7 @@ export async function previewResultsNotice(
           .filter((group) => group.problem !== null)
           .map((group) => ({ studentName: group.studentName, problem: group.problem! })),
         usingLogFallback: resolveProviders().usingLogFallback,
+        published: context.publishedAt !== null,
         brokenPortalLink: sampleText.includes("/auth/login") && !portalLinkUsable(),
       },
     }
@@ -253,6 +248,11 @@ export async function sendResultsNotice(
     const data = noticeSchema.parse(input)
 
     const context = await loadContext(data.classTermId, schoolId)
+    // "Results are ready" before they are published sends every family to a portal that
+    // shows them nothing, and cannot be taken back.
+    if (!context.publishedAt) {
+      throw new Error(`Publish the ${context.className} ${context.termName} results before telling families`)
+    }
     const groups = await recipientsForStudents(context.studentIds, schoolId)
 
     const templates = {
@@ -313,14 +313,16 @@ export async function sendResultsNotice(
             templateKey: "results.published",
             // The identity of this message: this class term, this learner, this person,
             // this channel. Pressing send again collides here rather than sending twice.
-            dedupeKey: `results.published:${data.classTermId}:${group.studentId}:${recipient.userId}:${channel}`,
+            // The publication time is part of it, so a republish after corrections can be
+            // announced again while a second click on the same publication cannot.
+            dedupeKey: `results.published:${data.classTermId}:${context.publishedAt!.getTime()}:${group.studentId}:${recipient.userId}:${channel}`,
             triggeredBy: actor.userId,
           })
         }
       }
     }
 
-    const summary = await queueMany(requests)
+    const summary = await queueGoverned(schoolId, requests)
 
     await recordAudit({
       actor,

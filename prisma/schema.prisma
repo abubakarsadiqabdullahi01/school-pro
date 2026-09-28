@@ -511,6 +511,8 @@ model School {
   dedicatedAccounts        DedicatedAccount[]
   unappliedPayments        UnappliedPayment[]
   dedicatedIdentifications DedicatedCustomerIdentification[]
+  announcements            Announcement[]
+  notificationSettings     SchoolNotificationSettings?
 }
 
 model AdmissionSequence {
@@ -1159,6 +1161,13 @@ model GatewayTransaction {
   verifiedAt            DateTime?
   paidAt                DateTime?
   expiresAt             DateTime?
+  /// Durable verification recovery for the case where the provider webhook never reaches
+  /// DigiSchool and the parent never returns to the callback page. The cron worker claims
+  /// rows with these fields so overlapping runs cannot verify or post the same checkout.
+  verificationAttempts  Int                       @default(0)
+  verificationClaimedAt DateTime?
+  nextVerificationAt    DateTime?
+  lastVerificationError String?                   @db.Text
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
 
@@ -1180,6 +1189,7 @@ model GatewayTransaction {
   @@index([configurationId])
   @@index([providerTransactionId])
   @@index([dedicatedAccountId])
+  @@index([status, nextVerificationAt])
 }
 
 /// Intended ledger allocations captured before leaving DigiSchool-Pro for checkout.
@@ -1969,14 +1979,17 @@ model AccountingReversal {
   reason       String         @db.VarChar(500)
   referenceNo  String?
   reversedAt   DateTime       @default(now())
-  createdBy    String
+  // Null when the provider reversed the money rather than a person: an upheld chargeback
+  // has no author at this school, and naming one would put a staff member's id against a
+  // decision they did not make.
+  createdBy    String?
   createdAt    DateTime       @default(now())
 
   school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   payment       Payment?    @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   expense       Expense?    @relation(fields: [expenseId], references: [id], onDelete: Restrict)
   payrollRun    PayrollRun? @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
-  createdByUser User        @relation("AccountingReversalCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdByUser User?       @relation("AccountingReversalCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
 
   @@index([schoolId, reversedAt])
   @@index([targetType, reversedAt])
@@ -2425,6 +2438,8 @@ enum AttemptStatus {
 
 enum PaymentGatewayProvider {
   PAYSTACK
+  MONNIFY
+  FLUTTERWAVE
 }
 
 enum PaymentGatewayEnvironment {
@@ -2483,6 +2498,8 @@ enum GatewayEventStatus {
   PROCESSED
   FAILED
   IGNORED
+  /// Retried to exhaustion and parked. Never reclaimed automatically; a person decides.
+  DEAD
 }
 
 enum GatewayRefundStatus {
@@ -2879,4 +2896,57 @@ enum DedicatedIdentificationStatus {
   PENDING
   SUCCEEDED
   FAILED
+}
+
+/// A school's message to families or staff, sent by SMS and/or email. The send itself goes
+/// through the notification outbox like every other message; this row is the record of
+/// what was said, to whom, and when.
+model Announcement {
+  id          String                 @id @default(uuid())
+  schoolId    String
+  title       String                 @db.VarChar(150)
+  message     String                 @db.Text
+  audience    AnnouncementAudience
+  /// Class ids when audience is CLASS_PARENTS.
+  classIds    Json?
+  /// ["SMS"], ["EMAIL"] or both.
+  channels    Json
+  status      AnnouncementStatus     @default(DRAFT)
+  /// Messages are held in the outbox until this time; null sends at once.
+  scheduledFor DateTime?
+  queuedCount Int                    @default(0)
+  createdBy   String
+  sentAt      DateTime?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId, createdAt])
+}
+
+enum AnnouncementAudience {
+  ALL_PARENTS
+  CLASS_PARENTS
+  STAFF
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  QUEUED
+  CANCELLED
+}
+
+/// A school's own controls over what the platform sends on its behalf.
+model SchoolNotificationSettings {
+  id              String   @id @default(uuid())
+  schoolId        String   @unique
+  /// "templateKey:CHANNEL" pairs the school has switched off, e.g. "fees.reminder:SMS".
+  disabled        Json?
+  /// SMS units (segments) the school allows per calendar month; null means no cap.
+  smsMonthlyLimit Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 }

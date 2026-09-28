@@ -73,3 +73,31 @@ describe("payment gateway activation rules", () => {
     ])
   })
 })
+
+describe("only one gateway collects at a time", () => {
+  const ready = {
+    environment: "TEST" as const,
+    accountMode: "SCHOOL_OWNED" as const,
+    status: "READY" as const,
+    verifiedAt: new Date(),
+    subaccountCode: null,
+    hasCredential: true,
+    allowedChannels: ["card"],
+    testConfigurationReady: true,
+    liveApproved: true,
+  }
+
+  it("enables a gateway when nothing else is collecting", () => {
+    expect(gatewayActivationProblems({ ...ready, otherEnabledProvider: null })).toEqual([])
+    expect(gatewayActivationProblems(ready)).toEqual([])
+  })
+
+  it("refuses a second gateway and names the one already collecting", () => {
+    const problems = gatewayActivationProblems({ ...ready, otherEnabledProvider: "PAYSTACK" })
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain("PAYSTACK")
+    // Refused, not silently switched: turning off the gateway currently taking money on the
+    // way to turning on another would stop payments mid-term with nobody deciding to.
+    expect(problems[0]).toContain("Turn it off")
+  })
+})

@@ -1,9 +1,22 @@
 "use server";
 
-import { assertSchoolAccess, requirePermission, type Actor } from "@/lib/authz";
+import { assertSchoolAccess, requireAnyPermission, type Actor } from "@/lib/authz";
+import { TEACHER_ASSIGNMENT_PERMISSIONS } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { canAssignInTerm } from "@/lib/term-rules";
+
+/**
+ * Who teaches which class and subject is academic setup, not employment.
+ *
+ * These actions used to demand `teachers.manage` alone, which the built-in Exams Officer
+ * profile does not carry - so the person whose job is timetabling teachers onto subjects
+ * was refused by every one of them. `academics.manage` now counts too. Hiring, editing and
+ * removing a teacher stay on `teachers.manage` in teacher-management.ts, which is HR's.
+ */
+async function requireTeacherAssigner(): Promise<Actor> {
+  return requireAnyPermission(TEACHER_ASSIGNMENT_PERMISSIONS);
+}
 
 function assertTeacherAssignmentSchool(actor: Actor, schoolId: string, message: string) {
   try {
@@ -19,7 +32,7 @@ export async function assignTeacherToClass(data: {
   classTermId: string;
 }) {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -102,7 +115,7 @@ export async function assignTeacherToClass(data: {
 // Unassign a teacher from a class term
 export async function unassignTeacherFromClass(teacherClassTermId: string) {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Get the assignment details to verify permissions
     const assignment = await prisma.teacherClassTerm.findUnique({
@@ -170,7 +183,7 @@ export async function assignClassesToTeacher(data: {
   termId: string;
 }) {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -305,7 +318,7 @@ export async function assignTeacherToSubject(data: {
   termId: string;
 }) {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -407,7 +420,7 @@ export async function assignTeacherToSubject(data: {
 // Unassign a teacher from a subject
 export async function unassignTeacherFromSubject(teacherSubjectId: string) {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Get the assignment details to verify permissions
     const assignment = await prisma.teacherSubject.findUnique({
@@ -472,7 +485,7 @@ export async function assignSubjectsToTeacher(data: {
   termId: string;
 }) {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
@@ -602,7 +615,7 @@ export async function assignSubjectsToTeacher(data: {
 // Get available class terms for assignment (grouped by term)
 export async function getAvailableClassTerms() {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Get all class terms for the school
     const classTerms = await prisma.classTerm.findMany({
@@ -662,7 +675,7 @@ export async function getAvailableClassTerms() {
 // Get available subjects for assignment
 export async function getAvailableSubjects() {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Get all subjects for the school
     const subjects = await prisma.subject.findMany({
@@ -696,7 +709,7 @@ export async function getAvailableSubjects() {
 // Get available terms for a school
 export async function getAvailableTerms() {
   try {
-    const actor = await requirePermission("teachers.manage");
+    const actor = await requireTeacherAssigner();
 
     // Get all terms for the school
     const terms = await prisma.term.findMany({
