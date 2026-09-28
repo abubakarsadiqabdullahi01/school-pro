@@ -230,12 +230,21 @@ class PDFGenerator {
     classInfo,
     subjects,
     action = "save",
+    // Default on, matching the screen's own default — a school that ranks keeps ranking
+    // without changing anything.
+    showPositions = true,
   }: {
     results: StudentResult[]
     schoolInfo: SchoolInfo
     classInfo: ClassInfo
     subjects: Subject[]
     action?: "save" | "preview"
+    /**
+     * Whether the Pos. column is printed. Mirrors the "Show Positions" switch on the
+     * results screen — which previously only hid the column on screen, so the exported and
+     * printed sheet still ranked every child.
+     */
+    showPositions?: boolean
   }): Promise<void> {
     try {
       this.validateInputs(results, schoolInfo, classInfo, subjects)
@@ -244,7 +253,7 @@ class PDFGenerator {
 
       // Table Configuration
       const headers = [
-        "Pos.",
+        ...(showPositions ? ["Pos."] : []),
         "Adm. No.",
         "Student Name",
         "G.",
@@ -255,13 +264,19 @@ class PDFGenerator {
       ]
 
       const body = results.map((result) => [
-        result.position === 0 ? "-" : `${result.position}${this.getOrdinalSuffix(result.position)}`,
+        ...(showPositions
+          ? [result.position === 0 ? "-" : `${result.position}${this.getOrdinalSuffix(result.position)}`]
+          : []),
         result.admissionNo,
         result.studentName.toUpperCase(),
         result.gender === "MALE" ? "M" : result.gender === "FEMALE" ? "F" : "O",
         ...subjects.map((s) => {
           const subject = result.subjects[s.id]
-          return subject?.score !== null ? subject.score.toFixed(0) : "-"
+          // `!= null` rather than `!== null`: a student with no entry at all for a subject
+          // gives `undefined`, which is not `null`, so the old check fell through and read
+          // `.score` off nothing. Termly never hit it because its rows always carry every
+          // subject; a sessional row does not, because a subject can be added mid-year.
+          return subject?.score != null ? subject.score.toFixed(0) : "-"
         }),
         result.totalScore.toFixed(0),
         result.averageScore.toFixed(1),
@@ -274,18 +289,23 @@ class PDFGenerator {
       // Assign relative weights for each column type
       // [Position, Adm No, Student Name, Gender, ...subjects, Total, Average, Grade]
       const nSubjects = subjects.length
-      const weights = [0.5, 1.5, 3.0, 0.5]
+      // Position's 0.5 goes to the student name when the column is dropped, rather than
+      // leaving the table narrower than the page.
+      const weights = showPositions ? [0.5, 1.5, 3.0, 0.5] : [1.5, 3.5, 0.5]
       for (let i = 0; i < nSubjects; i++) weights.push(1)
       weights.push(0.7) // Total
       weights.push(0.8) // Average
       weights.push(0.7) // Grade
       const totalWeight = weights.reduce((a, b) => a + b, 0)
       const columnStyles: Record<number, any> = {}
+      // Which columns are left-aligned depends on whether Pos. is present.
+      const admissionCol = showPositions ? 1 : 0
+      const nameCol = showPositions ? 2 : 1
       let colIdx = 0
       for (const w of weights) {
-        if (colIdx === 1) {
+        if (colIdx === admissionCol) {
           columnStyles[colIdx] = { cellWidth: (w / totalWeight) * availableWidth, halign: "left" }
-        } else if (colIdx === 2) {
+        } else if (colIdx === nameCol) {
           columnStyles[colIdx] = {
             cellWidth: (w / totalWeight) * availableWidth,
             halign: "left",
@@ -359,6 +379,7 @@ export async function exportClassResultsPDF(params: {
   classInfo: ClassInfo
   subjects: Subject[]
   action?: "save" | "preview"
+  showPositions?: boolean
   config?: Partial<PDFConfig>
 }): Promise<void> {
   const generator = new PDFGenerator(params.config)

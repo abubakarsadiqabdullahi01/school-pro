@@ -1,7 +1,6 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import { auth } from "@/auth";
 import { requireTeacher } from "@/lib/authz";
 import { unstable_cache } from "next/cache";
 import { revalidateTag } from "next/cache";
@@ -132,10 +131,27 @@ export async function getTeacherSubjectsForClassTerm(classTermId: string) {
       throw new Error("You are not assigned to this class");
     }
 
-    // Get teacher's assigned subjects that are also offered in this class term
+    // The term this class term belongs to. TeacherSubject is keyed per term, so without
+    // it the query below matches the teacher's assignment in *every* term.
+    const classTermRecord = await prisma.classTerm.findUnique({
+      where: { id: classTermId },
+      select: { termId: true },
+    });
+
+    if (!classTermRecord) {
+      throw new Error("Class term not found");
+    }
+
+    // Get teacher's assigned subjects that are also offered in this class term.
+    //
+    // `termId` matters twice over. Without it the same subject came back once per term the
+    // teacher had ever held it — three identical entries in the dropdown for a three-term
+    // session — and a subject they taught only last term still appeared as theirs to mark
+    // in this one.
     const teacherSubjects = await prisma.teacherSubject.findMany({
       where: {
         teacherId,
+        termId: classTermRecord.termId,
         subject: {
           classSubjects: {
             some: {
@@ -271,10 +287,13 @@ export async function getTeacherAssessmentsWithStatus(
           },
         },
       }),
+      // Scoped to the term being read. Assignments are per term, so leaving it out let a
+      // teacher open the sheet for a subject they only held in an earlier term.
       prisma.teacherSubject.findFirst({
         where: {
           teacherId,
           subjectId,
+          termId,
         },
       }),
     ]);
@@ -284,7 +303,7 @@ export async function getTeacherAssessmentsWithStatus(
     }
 
     if (!teacherSubject) {
-      throw new Error("You are not assigned to this subject");
+      throw new Error("You are not assigned to this subject this term");
     }
 
     // Get class term information
@@ -581,6 +600,23 @@ export async function saveTeacherAssessments(
       throw new Error("Term ID, Subject ID, and Class Term ID are required");
     }
 
+    const classContext = await prisma.classTerm.findFirst({
+      where: {
+        id: classTermId,
+        termId,
+        class: { schoolId },
+        classSubjects: { some: { subjectId } },
+      },
+      select: { id: true, resultWorkflow: { select: { status: true } } },
+    });
+    if (!classContext) throw new Error("The subject is not offered by this class in the selected term");
+    if (
+      classContext.resultWorkflow?.status === "LOCKED" ||
+      classContext.resultWorkflow?.status === "PUBLISHED"
+    ) {
+      throw new Error("Published or locked results must be withdrawn before scores can be edited");
+    }
+
     log.debug("Input Parameters:");
     log.debug("- termId:", termId);
     log.debug("- subjectId:", subjectId);
@@ -596,10 +632,14 @@ export async function saveTeacherAssessments(
           classTermId,
         },
       }),
+      // The same per-term scoping as the read path. This one decides whether scores may be
+      // *written*, so an assignment that lapsed at the end of a term must not still authorise
+      // saving marks in the next one.
       prisma.teacherSubject.findFirst({
         where: {
           teacherId,
           subjectId,
+          termId,
         },
       }),
     ]);
@@ -609,7 +649,7 @@ export async function saveTeacherAssessments(
     }
 
     if (!teacherSubject) {
-      throw new Error("You are not assigned to this subject");
+      throw new Error("You are not assigned to this subject this term");
     }
 
     // Validate that all required entities exist
@@ -681,7 +721,7 @@ export async function saveTeacherAssessments(
     log.debug(`Found ${existingAssessments.length} existing assessments`);
 
     // Process assessments in batches using upsert for better error handling
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = assessments.length;
     const savedAssessments = [];
 
     for (let i = 0; i < assessments.length; i += BATCH_SIZE) {
@@ -710,10 +750,10 @@ export async function saveTeacherAssessments(
               termId,
               studentClassTermId: assessment.studentClassTermId,
               teacherId, // Current teacher takes ownership
-              ca1: assessment.ca1 ?? 0,
-              ca2: assessment.ca2 ?? 0,
-              ca3: assessment.ca3 ?? 0,
-              exam: assessment.exam ?? 0,
+              ca1: assessment.ca1 ?? null,
+              ca2: assessment.ca2 ?? null,
+              ca3: assessment.ca3 ?? null,
+              exam: assessment.exam ?? null,
               isAbsent: assessment.isAbsent || false,
               isExempt: assessment.isExempt || false,
               isPublished: false,

@@ -4,6 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { SubjectResultEntry } from "@/components/score-entry/SubjectResultEntry"
 import type { ClassLevel } from "@prisma/client"
 import { requirePermission } from "@/lib/authz"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface School {
   id: string
@@ -137,7 +138,10 @@ export default async function AdminSubjectResultEntryPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Subject Result Entry</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Subject Result Entry</h2>
+            <InfoGuide guideKey="compiler.subjectResultsEntry" />
+          </div>
           <p className="text-muted-foreground">
             Enter and manage subject results for {admin.school.name} ({admin.school.code})
           </p>

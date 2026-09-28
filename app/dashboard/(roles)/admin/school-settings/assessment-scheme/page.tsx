@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { AssessmentSchemeForm } from "@/components/school-settings-management/assessment-scheme-form"
 import { requireAdminSchool } from "@/lib/admin-page-context"
 import { loadAssessmentScheme } from "@/lib/assessment-scheme.server"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AssessmentSchemePage() {
   const { school, schoolId } = await requireAdminSchool("school.manage")
@@ -16,7 +17,10 @@ export default async function AssessmentSchemePage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Assessment Scheme</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Assessment Scheme</h1>
+              <InfoGuide guideKey="admin.schoolSettings" />
+            </div>
             <p className="text-muted-foreground">
               How marks are split for {school.name} ({school.code})
             </p>

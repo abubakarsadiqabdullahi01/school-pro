@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { FileText, BookOpen } from "lucide-react"
 import Link from "next/link"
 import { requireTeacher } from "@/lib/authz"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function TeacherCompilerPage() {
   const actor = await requireTeacher().catch(() => null)
@@ -66,7 +67,10 @@ export default async function TeacherCompilerPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Assessment Compiler</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Assessment Compiler</h2>
+            <InfoGuide guideKey="teacher.compiler" />
+          </div>
           <p className="text-muted-foreground">
             Manage assessments and generate reports for {teacher.school.name} ({teacher.school.code})
           </p>

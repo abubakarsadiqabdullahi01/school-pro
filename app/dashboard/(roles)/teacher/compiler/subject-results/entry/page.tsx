@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { TeacherCompilerInterface } from "@/components/teacher-compiler/TeacherCompilerInterface"
 import { requireTeacher } from "@/lib/authz"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface School {
   id: string
@@ -68,7 +69,10 @@ export default async function TeacherCompilerPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Assessment Compiler</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Assessment Compiler</h2>
+            <InfoGuide guideKey="compiler.subjectResultsEntry" />
+          </div>
           <p className="text-muted-foreground">
             Enter and manage assessment scores for your assigned classes and subjects
           </p>

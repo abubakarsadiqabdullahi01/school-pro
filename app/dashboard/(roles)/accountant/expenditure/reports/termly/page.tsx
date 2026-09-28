@@ -3,8 +3,12 @@ import { TermlyExpenditureReportView } from "@/components/expenditure/views/term
 export default async function AccountantTermlyExpenditurePage({
   searchParams,
 }: {
-  searchParams: Promise<{ termId?: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { termId } = await searchParams
-  return <TermlyExpenditureReportView basePath="/dashboard/accountant/expenditure" termId={termId} />
+  return (
+    <TermlyExpenditureReportView
+      basePath="/dashboard/accountant/expenditure"
+      searchParams={await searchParams}
+    />
+  )
 }

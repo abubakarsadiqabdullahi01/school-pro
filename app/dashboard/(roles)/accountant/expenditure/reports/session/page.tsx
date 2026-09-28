@@ -3,8 +3,12 @@ import { SessionExpenditureReportView } from "@/components/expenditure/views/ses
 export default async function AccountantSessionExpenditurePage({
   searchParams,
 }: {
-  searchParams: Promise<{ sessionId?: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { sessionId } = await searchParams
-  return <SessionExpenditureReportView basePath="/dashboard/accountant/expenditure" sessionId={sessionId} />
+  return (
+    <SessionExpenditureReportView
+      basePath="/dashboard/accountant/expenditure"
+      searchParams={await searchParams}
+    />
+  )
 }

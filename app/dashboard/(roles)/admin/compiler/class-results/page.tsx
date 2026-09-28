@@ -4,6 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { ClassResultsOverview } from "@/components/class-results/ClassResultsOverview"
 import type { ClassLevel } from "@prisma/client"
 import { requirePermission } from "@/lib/authz"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminClassResultsPage() {
   const actor = await requirePermission("compiler.review_results").catch(() => null)
@@ -91,7 +92,10 @@ export default async function AdminClassResultsPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Class Results</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Class Results</h2>
+            <InfoGuide guideKey="compiler.classResults" />
+          </div>
           <p className="text-muted-foreground">
             View and analyze class performance results for {school.name} ({school.code})
           </p>

@@ -3,8 +3,7 @@ import { HrReportsView } from "@/components/hr/views/hr-reports-view"
 export default async function AccountantHrReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ runId?: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { runId } = await searchParams
-  return <HrReportsView basePath="/dashboard/accountant/hr" runId={runId} />
+  return <HrReportsView basePath="/dashboard/accountant/hr" searchParams={await searchParams} />
 }

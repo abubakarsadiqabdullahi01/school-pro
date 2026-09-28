@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function GradingSystemsPage() {
   const { school, schoolId } = await requireAdminSchool("school.manage")
@@ -30,7 +31,10 @@ export default async function GradingSystemsPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-4"> 
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Grading Systems</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Grading Systems</h1>
+            <InfoGuide guideKey="admin.schoolSettings" />
+          </div>
           <p className="text-muted-foreground">Manage grading systems for {school.name} ({school.code})</p>
         </div>
         <Button variant="outline" size="sm" asChild>

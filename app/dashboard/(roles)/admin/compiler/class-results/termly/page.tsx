@@ -4,6 +4,7 @@ import { ClassResultsTermlyComponent } from "@/components/compiler/class-results
 import type { ClassLevel } from "@prisma/client"
 import { requirePermission } from "@/lib/authz"
 import { redirect } from "next/navigation"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminClassResultsTermlyPage() {
   const actor = await requirePermission("compiler.review_results").catch(() => null)
@@ -84,7 +85,10 @@ export default async function AdminClassResultsTermlyPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Class Results Termly</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Class Results Termly</h2>
+            <InfoGuide guideKey="compiler.classResultsTermly" />
+          </div>
           <p className="text-muted-foreground">
             Generate and manage termly class results for {school.name} ({school.code})
           </p>

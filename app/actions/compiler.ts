@@ -1,26 +1,28 @@
 "use server"
 import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
-import { assertSchoolAccess, requireAdminScope, requirePermission } from "@/lib/authz"
+import { assertSchoolAccess, requirePermission } from "@/lib/authz"
 import { recordAudit } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 // import { z } from "zod"
 import type { ClassLevel, ResultWorkflowStatus } from "@prisma/client"
 import { buildClassTermResults } from "@/lib/results/class-term-results"
 import { assertWorkflowTransition } from "@/lib/compiler-v2"
+import { gradingSystemFromSnapshot } from "@/lib/result-snapshot"
 
 
 // Authorize and get school ID
 // Delegates to the shared boundary in lib/authz.ts. `undefined` still means "super
 // admin, no school filter", which is what every caller in this file expects.
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
-  const actor = await requireAdminScope()
+  const actor = await requirePermission("compiler.review_results")
   return actor.schoolId ?? undefined
 }
 
 // Get grading system for a school
 export async function getGradingSystem(schoolId: string) {
   try {
+    const actor = await requirePermission("compiler.review_results")
+    assertSchoolAccess(actor, schoolId)
     const school = await prisma.school.findUnique({
       where: { id: schoolId },
       select: { id: true },
@@ -428,6 +430,7 @@ export async function getClassTermResults(classTermId: string) {
       include: {
         class: { select: { schoolId: true } },
         term: { include: { session: { select: { schoolId: true } } } },
+        resultWorkflow: { select: { gradingSnapshot: true } },
       },
     })
 
@@ -441,7 +444,8 @@ export async function getClassTermResults(classTermId: string) {
       include: { levels: { orderBy: { minScore: "desc" } } },
     })
 
-    if (!gradingSystem) throw new Error("No default grading system found")
+    const frozenGradingSystem = gradingSystemFromSnapshot(classTerm.resultWorkflow?.gradingSnapshot)
+    if (!gradingSystem && !frozenGradingSystem) throw new Error("No default grading system found")
 
     const studentClassTerms = await prisma.studentClassTerm.findMany({
       where: { classTermId, status: { in: ["ACTIVE", "COMPLETED"] } },
@@ -490,7 +494,7 @@ export async function getClassTermResults(classTermId: string) {
         isAbsent: a.isAbsent,
         isExempt: a.isExempt,
       })),
-      gradeBands: gradingSystem.levels,
+      gradeBands: frozenGradingSystem?.levels ?? gradingSystem!.levels,
     })
 
     return { success: true, data: finalResults }
@@ -772,25 +776,61 @@ export async function publishClassTermResults(classTermId: string) {
       }
     }
 
-    const publishedAt = new Date()
-    const result = await prisma.assessment.updateMany({
-      where: {
-        studentClassTermId: { in: completeness.studentClassTermIds },
-        termId: classTerm.termId,
-        isPublished: false,
-      },
-      data: { isPublished: true, publishedAt, publishedBy: actor.userId },
-    })
+    const [gradingSystem, assessmentScheme] = await Promise.all([
+      prisma.gradingSystem.findFirst({
+        where: { schoolId: classTerm.class.schoolId, isDefault: true },
+        include: { levels: { orderBy: { minScore: "desc" } } },
+      }),
+      prisma.assessmentScheme.findUnique({ where: { schoolId: classTerm.class.schoolId } }),
+    ])
+    if (!gradingSystem) throw new Error("No default grading system is configured")
+    if (!assessmentScheme) throw new Error("No assessment scheme is configured")
 
-    const updatedWorkflow = await prisma.classTermResultWorkflow.update({
-      where: { id: workflow.id },
-      data: {
-        status: "PUBLISHED",
-        publishedBy: actor.userId,
-        publishedAt,
-        withdrawnBy: null,
-        withdrawnAt: null,
-      },
+    const gradingSnapshot = {
+      id: gradingSystem.id,
+      name: gradingSystem.name,
+      passMark: gradingSystem.passMark,
+      levels: gradingSystem.levels.map((level) => ({
+        minScore: level.minScore,
+        maxScore: level.maxScore,
+        grade: level.grade,
+        remark: level.remark,
+      })),
+    }
+    const assessmentSchemeSnapshot = {
+      id: assessmentScheme.id,
+      name: assessmentScheme.name,
+      ca1Max: assessmentScheme.ca1Max,
+      ca2Max: assessmentScheme.ca2Max,
+      ca3Max: assessmentScheme.ca3Max,
+      examMax: assessmentScheme.examMax,
+    }
+
+    const publishedAt = new Date()
+    const { result, updatedWorkflow } = await prisma.$transaction(async (tx) => {
+      const result = await tx.assessment.updateMany({
+        where: {
+          studentClassTermId: { in: completeness.studentClassTermIds },
+          termId: classTerm.termId,
+          isPublished: false,
+        },
+        data: { isPublished: true, publishedAt, publishedBy: actor.userId },
+      })
+
+      const updatedWorkflow = await tx.classTermResultWorkflow.update({
+        where: { id: workflow.id },
+        data: {
+          status: "PUBLISHED",
+          publishedBy: actor.userId,
+          publishedAt,
+          withdrawnBy: null,
+          withdrawnAt: null,
+          gradingSnapshot,
+          assessmentSchemeSnapshot,
+          snapshotCapturedAt: publishedAt,
+        },
+      })
+      return { result, updatedWorkflow }
     })
 
     await writeWorkflowEvent({

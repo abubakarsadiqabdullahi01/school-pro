@@ -2,7 +2,7 @@
 
 import { revalidatePath, revalidateTag } from "next/cache"
 import { prisma } from "@/lib/db"
-import { requireAdminScope } from "@/lib/authz"
+import { requirePermission } from "@/lib/authz"
 import { recordAudit } from "@/lib/audit"
 import {
   DEFAULT_ASSESSMENT_SCHEME,
@@ -22,7 +22,7 @@ import {
 
 export async function getAssessmentScheme() {
   try {
-    const actor = await requireAdminScope()
+    const actor = await requirePermission("academics.manage")
 
     if (!actor.schoolId) {
       return {
@@ -45,7 +45,7 @@ export async function getAssessmentScheme() {
 
 export async function updateAssessmentScheme(input: AssessmentScheme) {
   try {
-    const actor = await requireAdminScope()
+    const actor = await requirePermission("academics.manage")
 
     if (!actor.schoolId) {
       return {

@@ -2,6 +2,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { BackButton } from "@/components/back-button"
 import { TraitRatingsGrid } from "@/components/teacher/trait-ratings-grid"
 import { getClassTraitRatings } from "@/app/actions/teacher-traits"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface ClassTraitsPageProps {
   params: Promise<{ classTermId: string }>
@@ -19,7 +20,10 @@ export default async function ClassTraitsPage({ params }: ClassTraitsPageProps) 
       <div className="space-y-6">
         <div>
           <BackButton fallbackHref="/dashboard/teacher/my-classes" />
-          <h1 className="text-3xl font-bold tracking-tight">Behaviour &amp; Skills</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Behaviour &amp; Skills</h1>
+            <InfoGuide guideKey="teacher.traits" />
+          </div>
           <p className="text-muted-foreground">
             Rate each student&apos;s affective and psychomotor traits for the term. They print on the
             report sheet.

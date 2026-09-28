@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar } from "lucide-react";
 import type { ClassLevel } from "@prisma/client";
 import { requireTeacher } from "@/lib/authz";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function TeacherCASheetPage() {
   const actor = await requireTeacher().catch(() => null);
@@ -80,9 +81,12 @@ export default async function TeacherCASheetPage() {
       <div className="space-y-6">
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-3xl font-bold tracking-tight">
-              Continuous Assessment Sheet
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-3xl font-bold tracking-tight">
+                Continuous Assessment Sheet
+              </h2>
+              <InfoGuide guideKey="compiler.continuousAssessments" />
+            </div>
             {currentTerm && (
               <Badge
                 variant="secondary"

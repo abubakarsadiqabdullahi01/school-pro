@@ -1,7 +1,6 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import { auth } from "@/auth";
 import { requireTeacher } from "@/lib/authz";
 import { recordAudit } from "@/lib/audit";
 import { unstable_cache } from "next/cache";
@@ -343,6 +342,7 @@ export async function getAssessmentsWithStatus(
       where: {
         teacherId: teacher.id,
         subjectId: subjectId,
+        termId,
       },
     });
 
@@ -614,6 +614,23 @@ export async function saveAssessments(
       throw new Error("Term ID and Subject ID are required");
     }
 
+    const classContext = await prisma.classTerm.findFirst({
+      where: {
+        id: classTermId,
+        termId,
+        class: { schoolId },
+        classSubjects: { some: { subjectId } },
+      },
+      select: { id: true, resultWorkflow: { select: { status: true } } },
+    });
+    if (!classContext) throw new Error("The subject is not offered by this class in the selected term");
+    if (
+      classContext.resultWorkflow?.status === "LOCKED" ||
+      classContext.resultWorkflow?.status === "PUBLISHED"
+    ) {
+      throw new Error("Published or locked results must be withdrawn before scores can be edited");
+    }
+
     log.debug("Input Parameters:");
     log.debug("- termId:", termId);
     log.debug("- subjectId:", subjectId);
@@ -694,7 +711,7 @@ export async function saveAssessments(
     log.debug(`Found ${existingAssessments.length} existing assessments`);
 
     // Process assessments in batches for better performance
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = assessments.length;
     const savedAssessments = [];
 
     for (let i = 0; i < assessments.length; i += BATCH_SIZE) {
@@ -723,10 +740,10 @@ export async function saveAssessments(
               termId,
               studentClassTermId: assessment.studentClassTermId,
               teacherId: teacher.id,
-              ca1: assessment.ca1 ?? 0,
-              ca2: assessment.ca2 ?? 0,
-              ca3: assessment.ca3 ?? 0,
-              exam: assessment.exam ?? 0,
+              ca1: assessment.ca1 ?? null,
+              ca2: assessment.ca2 ?? null,
+              ca3: assessment.ca3 ?? null,
+              exam: assessment.exam ?? null,
               isAbsent: assessment.isAbsent || false,
               isExempt: assessment.isExempt || false,
               isPublished: false,

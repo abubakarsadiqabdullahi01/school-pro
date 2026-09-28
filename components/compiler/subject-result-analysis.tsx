@@ -21,6 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { formatDocumentDate } from "@/lib/format"
 
 interface SubjectAssessment {
   totalScore: number | null
@@ -570,7 +571,7 @@ export function SubjectResultAnalysis({
                       <div key={index} className="p-4 border rounded-md bg-muted/50">
                         <p className="text-sm">{comment}</p>
                         <div className="text-xs text-muted-foreground mt-2">
-                          Added on {new Date().toLocaleDateString()}
+                          Added on {formatDocumentDate(new Date())}
                         </div>
                       </div>
                     ))}

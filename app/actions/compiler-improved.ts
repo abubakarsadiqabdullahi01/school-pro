@@ -1,7 +1,6 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import { auth } from "@/auth";
 import { assertSchoolAccess, requirePermission } from "@/lib/authz";
 import { recordAudit } from "@/lib/audit";
 import { unstable_cache } from "next/cache";
@@ -37,6 +36,9 @@ interface AssessmentWithCalculations extends AssessmentData {
 // school access does not have to resolve the session a second time.
 async function authorizeAndGetUser() {
   const actor = await requirePermission("compiler.enter_scores");
+  if (actor.role === "TEACHER") {
+    throw new Error("Teachers must enter scores from their assigned class workspace");
+  }
 
   return {
     actor,
@@ -589,9 +591,15 @@ export async function saveAssessments(
       where: { classTermId },
       select: { status: true },
     });
-    if (workflow?.status === "LOCKED") {
-      throw new Error("This class result set is locked and cannot be edited.");
+    if (workflow?.status === "LOCKED" || workflow?.status === "PUBLISHED") {
+      throw new Error("Published or locked results must be withdrawn before scores can be edited.");
     }
+
+    const offeredSubject = await prisma.classSubject.findFirst({
+      where: { classTermId, subjectId },
+      select: { id: true },
+    });
+    if (!offeredSubject) throw new Error("This subject is not offered by the selected class this term");
 
     // Find assigned teacher for this subject and class
     const teacherAssignment = await findAssignedTeacher(subjectId, classTermId);
@@ -618,7 +626,9 @@ export async function saveAssessments(
     log.debug(`Found ${existingAssessments.length} existing assessments`);
 
     // Process assessments in batches for better performance
-    const BATCH_SIZE = 5;
+    // One logical save is one transaction: never report failure after committing only the
+    // first few students. Prisma still sends the upserts as a compact transaction batch.
+    const BATCH_SIZE = assessments.length;
     const savedAssessments = [];
 
     for (let i = 0; i < assessments.length; i += BATCH_SIZE) {
@@ -647,10 +657,10 @@ export async function saveAssessments(
               termId,
               studentClassTermId: assessment.studentClassTermId,
               teacherId: teacherAssignment.teacherId, // Use the assigned teacher or null
-              ca1: assessment.ca1 ?? 0, // Default to 0 instead of null
-              ca2: assessment.ca2 ?? 0, // Default to 0 instead of null
-              ca3: assessment.ca3 ?? 0, // Default to 0 instead of null
-              exam: assessment.exam ?? 0, // Default to 0 instead of null
+              ca1: assessment.ca1 ?? null,
+              ca2: assessment.ca2 ?? null,
+              ca3: assessment.ca3 ?? null,
+              exam: assessment.exam ?? null,
               isAbsent: assessment.isAbsent || false,
               isExempt: assessment.isExempt || false,
               isPublished: false,
