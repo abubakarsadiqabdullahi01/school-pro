@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,8 @@ interface Student {
   firstName: string
   lastName: string
   fullName: string
+  /** Passport photograph, or "" when none has been uploaded. */
+  avatarUrl?: string
   class: string
   gender: string
   state: string
@@ -401,7 +404,19 @@ export default function StudentList() {
                         <TableRow key={student.id}>
                           <TableCell className="font-medium">{student.admissionNo}</TableCell>
                           <TableCell>
-                            {student.firstName} {student.lastName}
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={student.avatarUrl} alt="" />
+                                {/* Initials when there is no photo, so the column keeps
+                                    its width and rows stay the same height either way. */}
+                                <AvatarFallback className="text-xs">
+                                  {`${student.firstName[0] ?? ""}${student.lastName[0] ?? ""}`.toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span>
+                                {student.firstName} {student.lastName}
+                              </span>
+                            </div>
                           </TableCell>
                           <TableCell>{student.class}</TableCell>
                           <TableCell>

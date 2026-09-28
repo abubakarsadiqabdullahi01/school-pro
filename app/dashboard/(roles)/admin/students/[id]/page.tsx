@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import StudentDetails from "@/components/student-management/student-details";
 import { requireAdminSchool } from "@/lib/admin-page-context";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface StudentDetailsPageProps {
   params: Promise<{
@@ -46,7 +47,10 @@ export default async function StudentDetailsPage({
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Student Details</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Student Details</h1>
+            <InfoGuide guideKey="admin.studentDetail" />
+          </div>
           <p className="text-muted-foreground">
             Viewing student information for {school.name}
           </p>

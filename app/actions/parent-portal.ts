@@ -3,7 +3,18 @@
 import { prisma } from "@/lib/db"
 import { requireActor } from "@/lib/authz"
 import { PUBLISHED_ONLY, averageScore, subjectTotal } from "@/lib/results-visibility"
+import {
+  buildAcademicHistory,
+  type AcademicHistory,
+} from "@/lib/results/academic-history.server"
+import {
+  buildSessionReportForStudent,
+  sessionScoreHeaders,
+  type SessionReportForStudent,
+} from "@/lib/results/session-report.server"
+import { buildTermReportForStudent } from "@/lib/results/term-report.server"
 import { gradeScoreForSchool } from "@/lib/grading.server"
+import { Prisma } from "@prisma/client"
 
 /**
  * What a parent may see of their own child.
@@ -71,7 +82,9 @@ export type ChildOverview = {
     billed: string
     paid: string
     balance: string
-    charges: Array<{ id: string; name: string; due: string; paid: string; balance: string; status: string }>
+    onlinePaymentAvailable: boolean
+    allowPartialPayments: boolean
+    charges: Array<{ id: string; termId: string | null; name: string; due: string; paid: string; balance: string; balanceKobo: number; status: string }>
     payments: Array<{
       id: string
       receiptNo: string
@@ -84,8 +97,10 @@ export type ChildOverview = {
   }
 }
 
-const naira = (value: { toString(): string }) =>
-  `₦${Number(value.toString()).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const naira = (value: Prisma.Decimal.Value) => {
+  const [whole, fraction] = new Prisma.Decimal(value).toFixed(2).split(".")
+  return `₦${whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`
+}
 
 /**
  * One child's term at a glance: where they are, what they offer, what has been
@@ -95,7 +110,10 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
   try {
     const { student, relationship } = await childOfSignedInParent(studentId)
 
-    const [enrolment, assessments, charges, payments] = await Promise.all([
+    const gatewayEnvironment = process.env.PAYMENT_CHECKOUT_ENV?.toUpperCase() === "LIVE"
+      || (process.env.PAYMENT_CHECKOUT_ENV === undefined && process.env.NODE_ENV === "production")
+      ? "LIVE" : "TEST"
+    const [enrolment, assessments, charges, payments, paymentConfiguration] = await Promise.all([
       prisma.studentClassTerm.findFirst({
         where: { studentId, status: "ACTIVE" },
         orderBy: { createdAt: "desc" },
@@ -126,6 +144,7 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
         orderBy: { createdAt: "desc" },
         select: {
           id: true,
+          termId: true,
           finalAmountDue: true,
           amountPaid: true,
           balance: true,
@@ -145,6 +164,16 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
           status: true,
           term: { select: { name: true } },
         },
+      }),
+      prisma.schoolPaymentConfiguration.findUnique({
+        where: {
+          schoolId_provider_environment: {
+            schoolId: student.schoolId,
+            provider: "PAYSTACK",
+            environment: gatewayEnvironment,
+          },
+        },
+        select: { isEnabled: true, status: true, allowPartialPayments: true },
       }),
     ])
 
@@ -167,9 +196,9 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
       }),
     )
 
-    const billed = charges.reduce((sum, charge) => sum + Number(charge.finalAmountDue), 0)
-    const paid = charges.reduce((sum, charge) => sum + Number(charge.amountPaid), 0)
-    const balance = charges.reduce((sum, charge) => sum + Number(charge.balance), 0)
+    const billed = charges.reduce((sum, charge) => sum.plus(charge.finalAmountDue), new Prisma.Decimal(0))
+    const paid = charges.reduce((sum, charge) => sum.plus(charge.amountPaid), new Prisma.Decimal(0))
+    const balance = charges.reduce((sum, charge) => sum.plus(charge.balance), new Prisma.Decimal(0))
 
     return {
       success: true,
@@ -203,12 +232,16 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
           billed: naira(billed),
           paid: naira(paid),
           balance: naira(balance),
+          onlinePaymentAvailable: paymentConfiguration?.isEnabled === true && paymentConfiguration.status === "READY",
+          allowPartialPayments: paymentConfiguration?.allowPartialPayments === true,
           charges: charges.map((charge) => ({
             id: charge.id,
+            termId: charge.termId,
             name: charge.feeSchedule?.name ?? "Fee",
             due: naira(charge.finalAmountDue),
             paid: naira(charge.amountPaid),
             balance: naira(charge.balance),
+            balanceKobo: charge.balance.mul(100).toNumber(),
             status: charge.status,
           })),
           payments: payments.map((payment) => ({
@@ -284,13 +317,109 @@ export async function getMyChildren(): Promise<ActionResult<Array<{
         admissionNo: student.admissionNo,
         className: student.classTerms[0]?.classTerm.class.name ?? null,
         termName: student.classTerms[0]?.classTerm.term.name ?? null,
-        balance: naira(student.charges.reduce((sum, charge) => sum + Number(charge.balance), 0)),
+        balance: naira(
+          student.charges.reduce((sum, charge) => sum.plus(charge.balance), new Prisma.Decimal(0)),
+        ),
       })),
     }
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : "Could not load your children",
+    }
+  }
+}
+
+/**
+ * One child's whole record: every session, every term, each session's cumulative summary,
+ * and the class movements between them.
+ *
+ * Authorization is `childOfSignedInParent`, the same guard the overview uses, so a parent
+ * can no more reach another family's history than they can their current term.
+ */
+export async function getChildAcademicHistory(
+  studentId: string,
+): Promise<ActionResult<AcademicHistory & { studentName: string; admissionNo: string }>> {
+  try {
+    const { student } = await childOfSignedInParent(studentId)
+    const history = await buildAcademicHistory(student.id, student.schoolId)
+
+    return {
+      success: true,
+      data: {
+        ...history,
+        studentName: `${student.user.firstName} ${student.user.lastName}`,
+        admissionNo: student.admissionNo,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Could not load this child's history",
+    }
+  }
+}
+
+/**
+ * A linked child's sessional report card data, for the same PDF the school prints termly.
+ *
+ * Gated by the session summary rule, not the per-term one: a sessional card is a statement
+ * about the whole year, so it is withheld while any term in it is.
+ */
+export async function getChildSessionReport(
+  studentId: string,
+  sessionId: string,
+): Promise<ActionResult<SessionReportForStudent & { scoreHeaders: [string, string, string, string, string] }>> {
+  try {
+    const { student } = await childOfSignedInParent(studentId)
+
+    const history = await buildAcademicHistory(student.id, student.schoolId)
+    const session = history.sessions.find((row) => row.sessionId === sessionId)
+    if (!session) throw new Error("No record for that session")
+    if (session.summary && !session.summary.access.allowed) {
+      throw new Error(session.summary.access.reason)
+    }
+
+    const data = await buildSessionReportForStudent(student.id, sessionId, student.schoolId)
+    if (!data) throw new Error("That session has no report card for this child")
+
+    return { success: true, data: { ...data, scoreHeaders: sessionScoreHeaders(data.report.terms) } }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Could not load the sessional report",
+    }
+  }
+}
+
+/**
+ * A linked child's termly report card, in the school's own format.
+ *
+ * Gated per term, not per session: a term that has been paid for is readable even when a
+ * later one has not.
+ */
+export async function getChildTermReport(
+  studentId: string,
+  termId: string,
+): Promise<ActionResult<SessionReportForStudent & { scoreHeaders: null }>> {
+  try {
+    const { student } = await childOfSignedInParent(studentId)
+
+    const history = await buildAcademicHistory(student.id, student.schoolId)
+    const term = history.sessions.flatMap((session) => session.terms).find((row) => row.termId === termId)
+    if (!term) throw new Error("No record for that term")
+    if (!term.access.allowed) throw new Error(term.access.reason)
+
+    const data = await buildTermReportForStudent(student.id, termId, student.schoolId)
+    if (!data) throw new Error("That term has no report card for this child")
+
+    // Null headers means the generator keeps its own termly labels, which is the whole
+    // point: this is the school's standard card, not a variant of it.
+    return { success: true, data: { ...data, scoreHeaders: null } }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Could not load the report card",
     }
   }
 }

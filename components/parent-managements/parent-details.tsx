@@ -43,7 +43,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { unlinkStudentFromParent, deleteParent, linkStudentToParent, getUnlinkedStudents } from "@/app/actions/parent-management";
+import { unlinkStudentFromParent, deleteParent, linkStudentToParent, getUnlinkedStudents, resetParentPassword } from "@/app/actions/parent-management";
+import { ResetPasswordDialog } from "@/components/auth/reset-password-dialog";
 
 // Form schema for linking a student
 const linkStudentSchema = z.object({
@@ -306,6 +307,13 @@ export function ParentDetails({ parent: initialParent }: ParentDetailsProps) {
                 Edit Parent
               </Link>
             </Button>
+            <ResetPasswordDialog
+              personName={parent.fullName}
+              onReset={() => resetParentPassword(parent.id)}
+              // A guardian's login is their email address, so no email means no account to
+              // reset. The dialog says so rather than failing after the click.
+              hasLogin={Boolean(parent.email)}
+            />
             <Button
               variant="destructive"
               onClick={() => deleteMutation.mutate(parent.id)}

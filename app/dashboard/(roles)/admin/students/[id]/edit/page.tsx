@@ -4,6 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition";
 import StudentEditForm from "@/components/student-management/student-edit-form";
 import { BackButtonClient } from "./back-button-client"; // We'll create this
 import { requireAdminSchool } from "@/lib/admin-page-context";
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface EditStudentPageProps {
   params: Promise<{
@@ -28,7 +29,10 @@ export default async function EditStudentPage({
       <section className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Edit Student</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-3xl font-bold tracking-tight">Edit Student</h1>
+              <InfoGuide guideKey="admin.students" />
+            </div>
             <p className="text-muted-foreground">Update student information</p>
           </div>
           {/* Client component for interactive button */}

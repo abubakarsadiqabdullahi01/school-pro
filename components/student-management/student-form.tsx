@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { StateLgaFields } from "@/components/forms/state-lga-fields"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
@@ -189,7 +190,9 @@ export default function StudentForm() {
         setLastAdmissionNo(result.data?.admissionNo || "") 
 
         toast.success("Student Registered Successfully", {
-          description: `Registration Number: ${result.data?.admissionNo}`,
+          description: result.data?.temporaryPassword
+            ? `Registration: ${result.data.admissionNo}. Temporary password: ${result.data.temporaryPassword}`
+            : `Registration Number: ${result.data?.admissionNo}`,
         })
         
         if (selectedParent) {
@@ -426,32 +429,7 @@ const handleParentSelect = (parent: ParentOption) => {
                         </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <FormField
-                          control={form.control}
-                          name="state"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>State</FormLabel>
-                              <FormControl>
-                                <Input placeholder="Enter state" {...field} className="h-11" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="lga"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Local Government Area</FormLabel>
-                              <FormControl>
-                                <Input placeholder="Enter LGA" {...field} className="h-11" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        <StateLgaFields form={form} stateName="state" lgaName="lga" />
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -786,15 +764,19 @@ const handleParentSelect = (parent: ParentOption) => {
                               </div>
                               <div>
                                 <h4 className="font-medium text-foreground">Default Password</h4>
-                                <p className="text-sm text-muted-foreground">Temporary password for first login</p>
+                                <p className="text-sm text-muted-foreground">First password for the portal</p>
                               </div>
                             </div>
+                            {/* The real value, not a promise about one. It is the enrolment
+                                year chosen in Academic Details, so it is knowable before
+                                submitting and can be written on the admission slip. */}
                             <div className="bg-muted/50 p-3 rounded-md">
-                              <p className="font-mono text-lg font-semibold text-center text-foreground">
-                                {currentYear}
+                              <p className="font-mono text-lg font-semibold text-center tracking-widest text-foreground">
+                                {form.getValues("year") || currentYear}
                               </p>
                               <p className="text-xs text-center text-muted-foreground mt-1">
-                                Student must change this on first login
+                                The enrolment year. Easy to pass on and easy to guess — ask them
+                                to change it from their profile once they are in.
                               </p>
                             </div>
                           </div>
@@ -972,7 +954,7 @@ const handleParentSelect = (parent: ParentOption) => {
                                 {selectedParent.id.startsWith("new-") && Array.isArray(selectedParent.credentials) && (
                                   <Alert className="bg-yellow-50 border-yellow-200 mt-4">
                                     <AlertDescription className="text-yellow-800 text-sm">
-                                      New parent account will be created with default password: {currentYear}
+                                      A secure temporary password will be generated for the new parent account.
                                     </AlertDescription>
                                   </Alert>
                                 )}

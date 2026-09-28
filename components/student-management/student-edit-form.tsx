@@ -39,7 +39,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Input } from "@/components/ui/input"
+import { StateLgaFields } from "@/components/forms/state-lga-fields";
 import {
   Select,
   SelectContent,
@@ -536,40 +537,7 @@ export default function StudentEditForm({ studentId }: StudentEditFormProps) {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <FormField
-                          control={form.control}
-                          name="state"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>State</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder="Enter state"
-                                  {...field}
-                                  className="h-11"
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="lga"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Local Government Area</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder="Enter LGA"
-                                  {...field}
-                                  className="h-11"
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        <StateLgaFields form={form} stateName="state" lgaName="lga" />
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

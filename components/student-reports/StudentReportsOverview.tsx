@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import Image from "next/image"
@@ -58,6 +59,8 @@ interface FormState {
   classId: string
   searchQuery: string
   selectedStudents: string[]
+  /** Whether class positions are printed on the cards produced from this screen. */
+  includePosition: boolean
 }
 
 export function StudentReportsOverview({
@@ -78,6 +81,8 @@ export function StudentReportsOverview({
     classId: "",
     searchQuery: "",
     selectedStudents: [],
+    // On by default, because that is what the cards did before this was a choice.
+    includePosition: true,
   })
 
   const [isGenerating, setIsGenerating] = useState(false)
@@ -277,6 +282,7 @@ export function StudentReportsOverview({
           classStatistics: classStatistics ?? null,
           gradingSystem,
           action,
+          includePosition: form.includePosition,
         })
 
         toast.success(
@@ -296,6 +302,7 @@ export function StudentReportsOverview({
       terms,
       classes,
       form.classId,
+      form.includePosition,
       schoolName,
       schoolCode,
       schoolAddress,
@@ -376,6 +383,7 @@ export function StudentReportsOverview({
           gradingSystem,
           action,
           allStudents: allStudentData,
+          includePosition: form.includePosition,
         })
 
         toast.success(`Generated ${allStudentData.length} report${allStudentData.length > 1 ? "s" : ""} successfully`)
@@ -395,6 +403,7 @@ export function StudentReportsOverview({
       terms,
       classes,
       form.classId,
+      form.includePosition,
       schoolName,
       schoolCode,
       schoolAddress,
@@ -504,6 +513,29 @@ export function StudentReportsOverview({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Printing options. Sits with the selectors rather than on each button, because it
+              applies to whatever is produced next — preview, print or download, one card or
+              a whole class. */}
+          <div className="mt-4 flex items-start justify-between gap-4 rounded-md border bg-muted/40 p-3">
+            <div className="min-w-0">
+              <Label htmlFor="include-position" className="text-sm font-medium">
+                Show position on report cards
+              </Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {form.includePosition
+                  ? "Subject positions and the position in class will be printed."
+                  : "Positions are left off entirely — neither the subject column nor the class rank."}
+              </p>
+            </div>
+            <Switch
+              id="include-position"
+              checked={form.includePosition}
+              onCheckedChange={(checked) =>
+                setForm((prev) => ({ ...prev, includePosition: checked }))
+              }
+            />
           </div>
         </CardContent>
       </Card>

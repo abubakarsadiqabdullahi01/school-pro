@@ -1,10 +1,14 @@
+import Link from "next/link"
 import { notFound } from "next/navigation"
+import { GraduationCap, Receipt } from "lucide-react"
 
 import { getChildOverview } from "@/app/actions/parent-portal"
 import { BackButton } from "@/components/back-button"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface ChildPageProps {
   params: Promise<{ studentId: string }>
@@ -33,13 +37,35 @@ export default async function ParentChildPage({ params }: ChildPageProps) {
       <div className="space-y-6">
         <div>
           <BackButton fallbackHref="/dashboard/parent/children" />
-          <h1 className="text-3xl font-bold tracking-tight">{student.name}</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">{student.name}</h1>
+            <InfoGuide guideKey="parent.children" />
+          </div>
           <p className="text-muted-foreground tabular-nums">
             {student.admissionNo}
             {enrolment
               ? ` · ${enrolment.className} · ${enrolment.termName} · ${enrolment.sessionName}`
               : " · not in a class this term"}
           </p>
+          {/* This page is the current term. Every past term, each session's summary and
+              the class movements between them live one click away. */}
+          {/* Each concern has its own screen. This page was results, subjects, fees and
+              receipts stacked together, so a guardian checking a balance scrolled past
+              their child's marks to reach it. */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard/parent/children/${studentId}/records`}>
+                <GraduationCap className="mr-2 h-4 w-4" />
+                Full academic record
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard/parent/children/${studentId}/fees`}>
+                <Receipt className="mr-2 h-4 w-4" />
+                Fees and receipts
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -123,83 +149,6 @@ export default async function ParentChildPage({ params }: ChildPageProps) {
         </div>
 
         <div className="grid gap-6 xl:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Fees</CardTitle>
-              <CardDescription>What the school has billed, and what is left to pay.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {fees.charges.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nothing billed yet.</p>
-              ) : (
-                <div className="space-y-2">
-                  {fees.charges.map((charge) => (
-                    <div
-                      key={charge.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{charge.name}</p>
-                        <p className="text-xs text-muted-foreground tabular-nums">
-                          {charge.paid} paid of {charge.due}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium tabular-nums">{charge.balance}</span>
-                        <Badge variant="outline" className={STATUS_TONE[charge.status] ?? ""}>
-                          {charge.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Receipts</CardTitle>
-              <CardDescription>Every payment the school has recorded, newest first.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {fees.payments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No payments recorded yet. A receipt appears here as soon as the school records one.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="py-2 pr-3 font-medium">Receipt</th>
-                        <th className="py-2 px-3 font-medium">Date</th>
-                        <th className="py-2 px-3 font-medium">Method</th>
-                        <th className="py-2 pl-3 text-right font-medium">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fees.payments.map((payment) => (
-                        <tr key={payment.id} className="border-b last:border-0">
-                          <td className="py-2 pr-3 font-medium tabular-nums">{payment.receiptNo}</td>
-                          <td className="py-2 px-3 tabular-nums">{payment.paidOn}</td>
-                          <td className="py-2 px-3">{payment.method}</td>
-                          <td className="py-2 pl-3 text-right tabular-nums">
-                            {payment.amount}
-                            {payment.status !== "COMPLETED" && (
-                              <Badge variant="outline" className={`ml-2 ${STATUS_TONE[payment.status] ?? ""}`}>
-                                {payment.status}
-                              </Badge>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </PageTransition>

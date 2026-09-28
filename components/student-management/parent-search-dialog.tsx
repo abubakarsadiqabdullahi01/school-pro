@@ -83,6 +83,15 @@ export function ParentSearchDialog({ open, onOpenChange, onSelect }: ParentSearc
       return
     }
 
+    // The email is the only credential createParent issues. Without it the parent is saved
+    // with no way to sign in, and nothing on screen would have said so.
+    if (!newParent.email) {
+      toast.error("Validation Error", {
+        description: "An email is required — it is the parent's login"
+      })
+      return
+    }
+
     try {
   // Cast gender to Prisma Gender or undefined
   const payload = { ...newParent, gender: newParent.gender ? (newParent.gender as Gender) : undefined }
@@ -205,7 +214,7 @@ export function ParentSearchDialog({ open, onOpenChange, onSelect }: ParentSearc
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Email</label>
+                <label className="text-sm font-medium">Email *</label>
                 <Input
                   type="email"
                   placeholder="Email address"

@@ -7,20 +7,20 @@ import { requireAdminSchool } from "@/lib/admin-page-context"
 export default async function AdminStudentTransitionsPage() {
   const { school } = await requireAdminSchool("compiler.configure_policy")
 
-  // The rules live next to the screen that applies them, so an admin can see why a
-  // promotion was refused and change the rule without hunting through settings.
+  // The rules still live on the same screen as the transitions that apply them — an admin
+  // who has just been told a promotion was refused should not have to hunt through settings
+  // to see why. They are a tab rather than a panel above the page, so the task is what you
+  // land on and the configuration is one click away rather than always in the way.
   const policy = await getTransitionPolicy()
 
   return (
     <PageTransition>
-      <div className="space-y-6">
-        {policy.data && <PromotionPolicyForm policy={policy.data} />}
-        <StudentTransitionsOverview
-          schoolId={school.id}
-          schoolName={school.name}
-          schoolCode={school.code}
-        />
-      </div>
+      <StudentTransitionsOverview
+        schoolId={school.id}
+        schoolName={school.name}
+        schoolCode={school.code}
+        promotionRules={policy.data ? <PromotionPolicyForm policy={policy.data} /> : null}
+      />
     </PageTransition>
   )
 }

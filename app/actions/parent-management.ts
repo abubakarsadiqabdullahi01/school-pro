@@ -3,25 +3,13 @@
 import { prisma } from "@/lib/db";
 import { requirePermission, type Actor } from "@/lib/authz";
 import { toNumber } from "@/lib/money";
+import { defaultPasswordForDate } from "@/lib/auth/default-password";
+import { revokeAllSessionsForUser } from "@/lib/sessions.server";
+import { recordAudit } from "@/lib/audit";
 import bcrypt from "bcryptjs";
-import { Gender, CredentialType } from "@prisma/client";
-import { z } from "zod";
-
-// Schema for credential validation
-const credentialSchema = z.array(
-  z.object({
-    type: z.enum(["EMAIL", "PHONE", "REGISTRATION_NUMBER", "PSN"]),
-    value: z.string().min(1),
-    passwordHash: z.string().min(1),
-    isPrimary: z.boolean(),
-  })
-);
-
-// Function to hash passwords
-async function hashPassword(password: string): Promise<string> {
-  const salt = await bcrypt.genSalt(10);
-  return bcrypt.hash(password, salt);
-}
+import { Gender } from "@prisma/client";
+import { getActiveSchool } from "@/lib/school-context.server";
+import { revalidatePath } from "next/cache";
 
 // Common authorization check
 async function checkAuthorization(
@@ -54,9 +42,9 @@ async function getSchoolId(
     }
     return { success: true, schoolId: admin.schoolId };
   }
-  const school = await prisma.school.findFirst({ select: { id: true } });
+  const school = await getActiveSchool();
   if (!school) {
-    return { success: false, error: "No school found in the system" };
+    return { success: false, error: "Select a school before managing parents" };
   }
   return { success: true, schoolId: school.id };
 }
@@ -134,12 +122,6 @@ export async function createParent(data: {
     state?: string;
     lga?: string;
     address?: string;
-    credentials?: Array<{
-      type: CredentialType;
-      value: string;
-      passwordHash: string;
-      isPrimary: boolean;
-    }>;
   }) {
     try {
       const authResult = await checkAuthorization(["SUPER_ADMIN", "ADMIN"]);
@@ -186,6 +168,7 @@ export async function createParent(data: {
             lastName: existingUser.lastName,
             email: emailCred?.value || data.email || "",
             emailCredentialId: emailCred?.id || "",
+            temporaryPassword: null,
             phone: existingUser.phone || data.phone || "",
             occupation: parent.occupation || "",
             gender: existingUser.gender,
@@ -196,22 +179,16 @@ export async function createParent(data: {
         };
       }
   
-      // Validate credentials
-      if (data.credentials) {
-        const parsedCredentials = credentialSchema.safeParse(data.credentials);
-        if (!parsedCredentials.success) {
-          return { success: false, error: "Invalid credentials format" };
-        }
-      }
-  
+      // Registration year, matching the learner accounts a guardian is handed
+      // alongside. See lib/auth/default-password.ts.
+      const temporaryPassword = data.email ? defaultPasswordForDate(new Date()) : null;
+
       const result = await prisma.$transaction(
         async (tx) => {
-          if (data.credentials) {
-            for (const cred of data.credentials) {
-              const existingCred = await tx.credential.findUnique({ where: { value: cred.value } });
-              if (existingCred) {
-                throw new Error(`A user with this ${cred.type.toLowerCase()} already exists.`);
-              }
+          if (data.email) {
+            const existingCred = await tx.credential.findUnique({ where: { value: data.email } });
+            if (existingCred) {
+              throw new Error("A user with this email already exists.");
             }
           }
   
@@ -230,20 +207,17 @@ export async function createParent(data: {
           });
   
           let emailCredentialId = "";
-          if (data.credentials) {
-            for (const cred of data.credentials) {
-              const passwordHash = await hashPassword(cred.passwordHash);
-              const newCred = await tx.credential.create({
-                data: {
-                  userId: parentUser.id,
-                  type: cred.type,
-                  value: cred.value,
-                  passwordHash,
-                  isPrimary: cred.isPrimary,
-                },
-              });
-              if (cred.type === "EMAIL") emailCredentialId = newCred.id;
-            }
+          if (data.email && temporaryPassword) {
+            const newCred = await tx.credential.create({
+              data: {
+                userId: parentUser.id,
+                type: "EMAIL",
+                value: data.email,
+                passwordHash: await bcrypt.hash(temporaryPassword, 12),
+                isPrimary: true,
+              },
+            });
+            emailCredentialId = newCred.id;
           }
   
           const parent = await tx.parent.create({
@@ -259,8 +233,9 @@ export async function createParent(data: {
             userId: parentUser.id,
             firstName: parentUser.firstName,
             lastName: parentUser.lastName,
-            email: data.credentials?.find((c) => c.type === "EMAIL")?.value || data.email || "",
+            email: data.email || "",
             emailCredentialId,
+            temporaryPassword,
             phone: parentUser.phone || "",
             occupation: parent.occupation || "",
             gender: parentUser.gender,
@@ -282,8 +257,6 @@ export async function createParent(data: {
 // Update an existing parent
 export async function updateParent(data: {
   id: string;
-  userId: string;
-  emailCredentialId?: string;
   firstName: string;
   lastName: string;
   email?: string;
@@ -303,7 +276,7 @@ export async function updateParent(data: {
 
     const parent = await prisma.parent.findUnique({
       where: { id: data.id },
-      select: { schoolId: true },
+      select: { schoolId: true, userId: true, createdAt: true },
     });
 
     if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
@@ -311,8 +284,10 @@ export async function updateParent(data: {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      let temporaryPassword: string | null = null;
+
       await tx.user.update({
-        where: { id: data.userId },
+        where: { id: parent.userId },
         data: {
           firstName: data.firstName,
           lastName: data.lastName,
@@ -330,15 +305,20 @@ export async function updateParent(data: {
       });
 
       if (data.email) {
-        if (data.emailCredentialId) {
-          const existingCred = await tx.credential.findFirst({
-            where: { value: data.email, NOT: { id: data.emailCredentialId } },
+        const emailCredential = await tx.credential.findUnique({
+          where: { userId_type: { userId: parent.userId, type: "EMAIL" } },
+          select: { id: true },
+        });
+
+        if (emailCredential) {
+          const conflictingCredential = await tx.credential.findFirst({
+            where: { value: data.email, NOT: { id: emailCredential.id } },
           });
-          if (existingCred) {
+          if (conflictingCredential) {
             throw new Error("This email is already in use by another user.");
           }
           await tx.credential.update({
-            where: { id: data.emailCredentialId },
+            where: { id: emailCredential.id },
             data: { value: data.email },
           });
         } else {
@@ -346,19 +326,29 @@ export async function updateParent(data: {
           if (existingCred) {
             throw new Error("This email is already in use by another user.");
           }
+          const existingLoginCredential = await tx.credential.findFirst({
+            where: { userId: parent.userId },
+            select: { passwordHash: true },
+          });
+          if (!existingLoginCredential) {
+            // Their registration year, not today's: a guardian added to the portal two
+            // years after enrolment is told the same year their record already shows.
+            temporaryPassword = defaultPasswordForDate(parent.createdAt);
+          }
           await tx.credential.create({
             data: {
-              userId: data.userId,
+              userId: parent.userId,
               type: "EMAIL",
               value: data.email,
-              passwordHash: await hashPassword(new Date().getFullYear().toString()),
+              passwordHash:
+                existingLoginCredential?.passwordHash ?? await bcrypt.hash(temporaryPassword!, 12),
               isPrimary: true,
             },
           });
         }
       }
 
-      return { success: true };
+      return { success: true, temporaryPassword };
     });
 
     return result;
@@ -736,3 +726,68 @@ export async function getUnlinkedStudents(schoolId: string, search?: string) {
       };
     }
   }
+
+/**
+ * Returns a guardian's password to the year they were registered.
+ *
+ * Same shape as resetStudentPassword: every credential on the account, sessions revoked,
+ * the fact recorded in the audit log but never the password itself.
+ */
+export async function resetParentPassword(parentId: string) {
+  try {
+    const authResult = await checkAuthorization(["SUPER_ADMIN", "ADMIN"]);
+    if (!authResult.success) return authResult;
+
+    const schoolResult = await getSchoolId(authResult.user);
+    if (!schoolResult.success) return schoolResult;
+
+    const parent = await prisma.parent.findUnique({
+      where: { id: parentId },
+      select: {
+        schoolId: true,
+        userId: true,
+        createdAt: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
+      return { success: false, error: "Parent not found or unauthorized" };
+    }
+
+    const newPassword = defaultPasswordForDate(parent.createdAt);
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    const { count } = await prisma.credential.updateMany({
+      where: { userId: parent.userId },
+      data: { passwordHash },
+    });
+
+    if (count === 0) {
+      return {
+        success: false,
+        error: "This parent has no login yet. Add an email address to give them one.",
+      };
+    }
+
+    await revokeAllSessionsForUser(parent.userId);
+
+    await recordAudit({
+      actor: authResult.actor,
+      action: "parent.password_reset",
+      entityType: "Parent",
+      entityId: parentId,
+      schoolId: parent.schoolId,
+      summary:
+        `Reset the password for ${parent.user.firstName} ${parent.user.lastName} ` +
+        `to their registration year`,
+    });
+
+    revalidatePath(`/dashboard/admin/parents/${parentId}`);
+
+    return { success: true, data: { newPassword }, message: "Password reset" };
+  } catch (error) {
+    console.error("Error resetting parent password:", error);
+    return { success: false, error: "Failed to reset password" };
+  }
+}

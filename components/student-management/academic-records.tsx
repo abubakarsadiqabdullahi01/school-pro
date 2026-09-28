@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getStudent } from "@/app/actions/student-management"
 import { toast } from "sonner"
 import { FormSkeleton } from "@/components/ui/loading-skeleton"
+import { formatDocumentDate } from "@/lib/format"
 
 interface AcademicRecordsProps {
   studentId: string
@@ -319,8 +320,8 @@ export default function AcademicRecords({ studentId }: AcademicRecordsProps) {
                           {record.sessionName} - {record.termName}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {new Date(record.startDate).toLocaleDateString()} -{" "}
-                          {new Date(record.endDate).toLocaleDateString()}
+                          {formatDocumentDate(record.startDate)} -{" "}
+                          {formatDocumentDate(record.endDate)}
                         </p>
                       </div>
                       <Badge variant="outline">{record.termName}</Badge>

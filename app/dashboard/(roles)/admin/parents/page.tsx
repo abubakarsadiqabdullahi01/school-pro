@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db"
 import { PageTransition } from "@/components/dashboard/page-transition"
 import { ParentsTable } from "@/components/parent-managements/parents-table"
 import { requireAdminSchool } from "@/lib/admin-page-context"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminParentsPage() {
   const { school, schoolId } = await requireAdminSchool("parents.manage")
@@ -58,7 +59,10 @@ export default async function AdminParentsPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Parents Management</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Parents Management</h2>
+            <InfoGuide guideKey="admin.parents" />
+          </div>
           <p className="text-muted-foreground">
             Manage parents for {school.name} ({school.code})
           </p>

@@ -1,177 +1,153 @@
-import { auth } from "@/auth"
-import { prisma } from "@/lib/db"
 import { redirect } from "next/navigation"
-import { BookOpen, Calendar, CheckCircle, FileText } from "lucide-react"
 
+import { getMyOverview } from "@/app/actions/student-portal"
+import { PageTransition } from "@/components/dashboard/page-transition"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { StatsCard } from "@/components/dashboard/stats-card"
-import { formatDate } from "@/lib/format"
-import { PUBLISHED_ONLY, averageScore } from "@/lib/results-visibility"
+import { Button } from "@/components/ui/button"
+import { SummaryTile } from "@/components/portal/portal-panels"
+import Link from "next/link"
+import { CalendarCheck, GraduationCap, Receipt } from "lucide-react"
+import { InfoGuide } from "@/components/ui/info-guide"
+
 
 export default async function StudentDashboardPage() {
-  const session = await auth()
+  // The action carries the authorization: it answers only for the student row belonging
+  // to the signed-in user, so there is no student id to check against here.
+  const result = await getMyOverview()
+  if (!result.success) redirect("/dashboard/access-error")
 
-  if (!session?.user || session.user.role !== "STUDENT") {
-    redirect("/dashboard")
-  }
-
-  const student = await prisma.student.findUnique({
-    where: { userId: session.user.id },
-    include: {
-      school: { select: { name: true, code: true } },
-      user: { select: { firstName: true, lastName: true } },
-      classTerms: {
-        orderBy: { createdAt: "desc" },
-        include: {
-          classTerm: {
-            include: {
-              class: { select: { id: true, name: true, level: true } },
-              term: {
-                include: {
-                  session: { select: { id: true, name: true } },
-                },
-              },
-              classSubjects: {
-                include: {
-                  subject: { select: { id: true, name: true, code: true } },
-                },
-              },
-            },
-          },
-        },
-      },
-      assessments: {
-        // Drafts are staff-only. Without this a student read their exam mark the moment a
-        // teacher typed it, before the school released anything. See lib/results-visibility.
-        where: PUBLISHED_ONLY,
-        orderBy: { updatedAt: "desc" },
-        include: {
-          subject: { select: { name: true, code: true } },
-          term: { select: { id: true, name: true, isCurrent: true } },
-        },
-      },
-      attendances: {
-        orderBy: { date: "desc" },
-        take: 10,
-      },
-    },
-  })
-
-  if (!student) {
-    redirect("/dashboard/access-error")
-  }
-
-  const currentEnrollment =
-    student.classTerms.find((entry) => entry.classTerm.term.isCurrent) ?? student.classTerms[0]
-  const currentSubjects = currentEnrollment?.classTerm.classSubjects ?? []
-  const currentAssessments = student.assessments.filter((assessment) => assessment.term.isCurrent)
-  const average = averageScore(currentAssessments)
-  const attendanceTotal = student.attendances.length
-  const presentCount = student.attendances.filter((attendance) => attendance.status === "PRESENT").length
-  const attendanceRate = attendanceTotal > 0 ? Math.round((presentCount / attendanceTotal) * 100) : 0
-
+  const { student, school, enrolment, subjects, results, attendance, fees } = result.data
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-3xl font-bold tracking-tight">
-          Welcome, {student.user.firstName} {student.user.lastName}
-        </h2>
-        <p className="text-muted-foreground">
-          {student.school.name} ({student.school.code}) · {student.admissionNo}
-        </p>
-      </div>
+    <PageTransition>
+      <div className="space-y-6">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">Welcome, {student.name}</h1>
+            <InfoGuide guideKey="student.dashboard" />
+          </div>
+          <p className="text-muted-foreground tabular-nums">
+            {school.name} ({school.code}) · {student.admissionNo}
+            {enrolment
+              ? ` · ${enrolment.className} · ${enrolment.termName} · ${enrolment.sessionName}`
+              : " · not in a class this term"}
+          </p>
+        </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatsCard title="Current Class" value={currentEnrollment?.classTerm.class.name ?? "Not assigned"} icon={<BookOpen className="h-4 w-4 text-muted-foreground" />} />
-        <StatsCard title="Subjects" value={String(currentSubjects.length)} icon={<FileText className="h-4 w-4 text-muted-foreground" />} description="Current term" />
-        <StatsCard title="Attendance" value={attendanceTotal ? `${attendanceRate}%` : "No records"} icon={<CheckCircle className="h-4 w-4 text-muted-foreground" />} />
-        <StatsCard title="Average Score" value={average === null ? "Not released" : `${average}%`} icon={<Calendar className="h-4 w-4 text-muted-foreground" />} />
-      </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryTile label="Class" value={enrolment?.className ?? "Not assigned"} />
+          <SummaryTile
+            label="Average"
+            value={results.average === null ? "Not released" : `${results.average}%`}
+            note={results.released ? results.termName : "Awaiting release"}
+          />
+          <SummaryTile
+            label="Attendance"
+            value={attendance.rate === null ? "No records" : `${attendance.rate}%`}
+            note={attendance.total > 0 ? `${attendance.present} present of ${attendance.total}` : undefined}
+          />
+          <SummaryTile label="Outstanding" value={fees.balance} note={`${fees.paid} paid of ${fees.billed}`} />
+        </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Current Subjects</CardTitle>
-            <CardDescription>Subjects attached to your current class and term.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {currentSubjects.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {currentSubjects.map(({ subject }) => (
-                  <div key={subject.id} className="rounded-md border p-3">
-                    <div className="font-medium">{subject.name}</div>
-                    <div className="text-sm text-muted-foreground">{subject.code}</div>
-                  </div>
-                ))}
+        {/* Attendance, fees and receipts each have their own screen now. This page was a
+            screen and a half of scrolling, and a learner checking a balance passed their
+            own marks to get to it. */}
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/student/records">
+              <GraduationCap className="mr-2 h-4 w-4" />
+              My full record
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/student/attendance">
+              <CalendarCheck className="mr-2 h-4 w-4" />
+              Attendance
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/student/fees">
+              <Receipt className="mr-2 h-4 w-4" />
+              Fees and receipts
+            </Link>
+          </Button>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>My Results</CardTitle>
+                  <CardDescription>
+                    {results.released
+                      ? `${results.termName ?? "This term"} — released by the school.`
+                      : "Nothing released yet."}
+                  </CardDescription>
+                </div>
+                {results.released && results.average !== null && (
+                  <Badge variant="secondary" className="tabular-nums">Average {results.average}%</Badge>
+                )}
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No subjects have been assigned yet.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Attendance Snapshot</CardTitle>
-            <CardDescription>Latest attendance records.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Progress value={attendanceRate} className="h-2" />
-            <div className="space-y-3">
-              {student.attendances.length > 0 ? (
-                student.attendances.slice(0, 5).map((attendance) => (
-                  <div key={attendance.id} className="flex items-center justify-between text-sm">
-                    <span>{formatDate(attendance.date)}</span>
-                    <Badge variant={attendance.status === "PRESENT" ? "default" : "secondary"}>{attendance.status}</Badge>
-                  </div>
-                ))
+            </CardHeader>
+            <CardContent>
+              {!results.released ? (
+                <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  Your results appear here once the school publishes them for the term. Marks a
+                  teacher is still entering are not shown.
+                </p>
               ) : (
-                <p className="text-sm text-muted-foreground">No attendance records yet.</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-2 pr-3 font-medium">Subject</th>
+                        <th className="py-2 px-3 text-right font-medium">CA</th>
+                        <th className="py-2 px-3 text-right font-medium">Exam</th>
+                        <th className="py-2 px-3 text-right font-medium">Total</th>
+                        <th className="py-2 pl-3 text-right font-medium">Grade</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {results.subjects.map((row) => (
+                        <tr key={row.subject} className="border-b last:border-0">
+                          <td className="py-2 pr-3">{row.subject}</td>
+                          <td className="py-2 px-3 text-right tabular-nums">{row.ca ?? "–"}</td>
+                          <td className="py-2 px-3 text-right tabular-nums">{row.exam ?? "–"}</td>
+                          <td className="py-2 px-3 text-right font-medium tabular-nums">{row.total ?? "–"}</td>
+                          <td className="py-2 pl-3 text-right">{row.grade ?? "–"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Results</CardTitle>
-          <CardDescription>Scores recorded for your current term.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {currentAssessments.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="py-2 font-medium">Subject</th>
-                    <th className="py-2 font-medium">CA Total</th>
-                    <th className="py-2 font-medium">Exam</th>
-                    <th className="py-2 font-medium">Grade</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentAssessments.map((assessment) => (
-                    <tr key={assessment.id} className="border-b last:border-0">
-                      <td className="py-2">{assessment.subject.name}</td>
-                      <td className="py-2">{(assessment.ca1 ?? 0) + (assessment.ca2 ?? 0) + (assessment.ca3 ?? 0)}</td>
-                      <td className="py-2">{assessment.exam ?? "-"}</td>
-                      <td className="py-2">{assessment.grade ?? "Pending"}</td>
-                    </tr>
+          <Card>
+            <CardHeader>
+              <CardTitle>My Subjects</CardTitle>
+              <CardDescription>What you offer this term.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {subjects.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No subjects attached to your class yet.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {subjects.map((subject) => (
+                    <Badge key={subject.code} variant="outline">
+                      {subject.name}
+                    </Badge>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Results for this term have not been released yet.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+      </div>
+    </PageTransition>
   )
 }

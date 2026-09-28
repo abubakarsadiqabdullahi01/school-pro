@@ -14,6 +14,7 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { StateLgaFields } from "@/components/forms/state-lga-fields"
 import { updateParent } from "@/app/actions/parent-management"
 
 // Define the form schema
@@ -78,14 +79,14 @@ export function ParentEditForm({ parentData }: ParentEditFormProps) {
     try {
       const result = await updateParent({
         id: parentData.id,
-        userId: parentData.userId,
-        emailCredentialId: parentData.emailCredentialId,
         ...data,
       })
 
       if (result.success) {
         toast.success("Parent Updated", {
-          description: "The parent information has been successfully updated.",
+          description: "temporaryPassword" in result && result.temporaryPassword
+            ? `Login added. Temporary password: ${result.temporaryPassword}. Copy it now; it is shown only once.`
+            : "The parent information has been successfully updated.",
         })
         router.push(`/dashboard/admin/parents/${parentData.id}`)
         router.refresh()
@@ -210,33 +211,7 @@ export function ParentEditForm({ parentData }: ParentEditFormProps) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FormField
-                control={form.control}
-                name="state"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>State</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter state" {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="lga"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Local Government Area</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter LGA" {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <StateLgaFields form={form} stateName="state" lgaName="lga" />
             </div>
 
             <FormField

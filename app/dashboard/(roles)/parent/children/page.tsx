@@ -6,6 +6,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function ParentChildrenPage() {
   const result = await getMyChildren()
@@ -14,7 +15,10 @@ export default async function ParentChildrenPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">My Children</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-3xl font-bold tracking-tight">My Children</h1>
+            <InfoGuide guideKey="parent.children" />
+          </div>
           <p className="text-muted-foreground">
             Open a child to see their class, subjects, released results, fees and receipts.
           </p>

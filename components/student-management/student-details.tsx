@@ -49,10 +49,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   getStudent,
+  resetStudentPassword,
   toggleStudentStatus,
 } from "@/app/actions/student-management";
+import { ResetPasswordDialog } from "@/components/auth/reset-password-dialog";
 import { toast } from "sonner";
 import { FormSkeleton } from "@/components/ui/loading-skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface StudentDetailsProps {
   studentId: string;
@@ -65,6 +68,8 @@ interface StudentData {
   firstName: string;
   lastName: string;
   fullName: string;
+  /** Passport photograph, or "" when none has been uploaded. */
+  avatarUrl?: string;
   dateOfBirth: string;
   gender: string;
   state: string;
@@ -226,6 +231,14 @@ export default function StudentDetails({ studentId }: StudentDetailsProps) {
           <Button variant="outline" size="icon" onClick={() => router.back()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
+          {/* The passport, beside the name. Falls back to initials so the header keeps
+              its shape for a student whose photo has not been uploaded yet. */}
+          <Avatar className="h-16 w-16 border">
+            <AvatarImage src={student.avatarUrl} alt="" />
+            <AvatarFallback className="text-lg">
+              {`${student.firstName[0] ?? ""}${student.lastName[0] ?? ""}`.toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
           <div>
             <h1 className="text-3xl font-bold">{student.fullName}</h1>
             <p className="text-muted-foreground">
@@ -241,6 +254,10 @@ export default function StudentDetails({ studentId }: StudentDetailsProps) {
               Edit Student
             </Link>
           </Button>
+          <ResetPasswordDialog
+            personName={student.fullName}
+            onReset={() => resetStudentPassword(student.id)}
+          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon">
@@ -719,6 +736,11 @@ export default function StudentDetails({ studentId }: StudentDetailsProps) {
                   Academic Records
                 </Link>
               </Button>
+              <ResetPasswordDialog
+                personName={student.fullName}
+                onReset={() => resetStudentPassword(student.id)}
+                triggerClassName="w-full justify-start"
+              />
               <Button
                 variant="outline"
                 className="w-full justify-start"

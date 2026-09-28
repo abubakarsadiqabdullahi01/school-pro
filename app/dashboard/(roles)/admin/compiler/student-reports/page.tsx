@@ -4,6 +4,7 @@ import { PageTransition } from "@/components/dashboard/page-transition"
 import { StudentReportsOverview } from "@/components/student-reports/StudentReportsOverview"
 import type { ClassLevel } from "@prisma/client"
 import { requirePermission } from "@/lib/authz"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function AdminStudentReportsPage() {
   const actor = await requirePermission("compiler.review_results").catch(() => null)
@@ -87,7 +88,10 @@ export default async function AdminStudentReportsPage() {
     <PageTransition>
       <div className="space-y-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Student Report Cards</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-3xl font-bold tracking-tight">Student Report Cards</h2>
+            <InfoGuide guideKey="compiler.studentReports" />
+          </div>
           <p className="text-muted-foreground">
             Generate and manage individual student report cards for {school.name} ({school.code})
           </p>

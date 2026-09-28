@@ -14,12 +14,20 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { StateLgaFields } from "@/components/forms/state-lga-fields";
 import { createParent } from "@/app/actions/parent-management";
 
 const parentFormSchema = z.object({
   firstName: z.string().min(2, { message: "First name must be at least 2 characters." }),
   lastName: z.string().min(2, { message: "Last name must be at least 2 characters." }),
-  email: z.string().email({ message: "Please enter a valid email address." }).optional().or(z.literal("")),
+  // Required, because it is the only credential this form issues. When it was optional a
+  // parent saved without one got a User, a Parent record and no Credential at all — an
+  // account that looks created in the parents list and simply cannot sign in, with nothing
+  // on screen saying so.
+  email: z
+    .string()
+    .min(1, { message: "An email is required — it is the parent's login." })
+    .email({ message: "Please enter a valid email address." }),
   phone: z.string().optional(),
   occupation: z.string().optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional().nullable(),
@@ -38,7 +46,6 @@ interface ParentCreateFormProps {
 export function ParentCreateForm({ schoolId, schoolName }: ParentCreateFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const currentYear = new Date().getFullYear().toString();
 
   const form = useForm<ParentFormValues>({
     resolver: zodResolver(parentFormSchema),
@@ -58,21 +65,12 @@ export function ParentCreateForm({ schoolId, schoolName }: ParentCreateFormProps
   async function onSubmit(data: ParentFormValues) {
     setIsSubmitting(true);
     try {
-      const credentials = data.email
-        ? [
-            {
-              type: "EMAIL" as const,
-              value: data.email,
-              passwordHash: currentYear,
-              isPrimary: true,
-            },
-          ]
-        : undefined;
-
-      const result = await createParent({ ...data, credentials });
+      const result = await createParent(data);
       if (result.success) {
         toast.success("Parent Created", {
-          description: "The parent has been successfully created.",
+          description: result.data?.temporaryPassword
+            ? `Temporary password: ${result.data.temporaryPassword}. Copy it now; it is shown only once.`
+            : "The parent has been successfully created.",
         });
         router.push("/dashboard/admin/parents");
         router.refresh();
@@ -125,12 +123,12 @@ export function ParentCreateForm({ schoolId, schoolName }: ParentCreateFormProps
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email</FormLabel>
+                    <FormLabel>Email *</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter email address" type="email" {...field} value={field.value || ""} />
                     </FormControl>
                     <FormDescription>
-                      This will be used as a login credential. Default password will be {currentYear}.
+                      This is the parent&apos;s login. A secure temporary password is shown once after creation.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -188,32 +186,7 @@ export function ParentCreateForm({ schoolId, schoolName }: ParentCreateFormProps
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FormField
-                control={form.control}
-                name="state"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>State</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter state" {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="lga"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Local Government Area</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter LGA" {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <StateLgaFields form={form} stateName="state" lgaName="lga" />
             </div>
             <FormField
               control={form.control}

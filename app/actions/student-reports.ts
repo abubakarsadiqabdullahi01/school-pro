@@ -1,16 +1,16 @@
 "use server"
 
 import { prisma } from "@/lib/db"
-import { auth } from "@/auth"
-import { requireAdminScope } from "@/lib/authz"
+import { requirePermission } from "@/lib/authz"
 import { calculateGrade } from "@/lib/grading"
 import type { GradingSystem } from "@/lib/grading"
+import { gradingSystemFromSnapshot } from "@/lib/result-snapshot"
 
 // Enhanced authorization function
 // Delegates to the shared boundary in lib/authz.ts. `undefined` still means "super
 // admin, no school filter", which is what every caller in this file expects.
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
-  const actor = await requireAdminScope()
+  const actor = await requirePermission("compiler.review_results")
   return actor.schoolId ?? undefined
 }
 
@@ -28,6 +28,8 @@ export async function getStudentReportData(studentId: string, termId: string) {
             firstName: true,
             lastName: true,
             gender: true,
+            // The passport photograph printed on the report card.
+            avatarUrl: true,
           },
         },
       },
@@ -74,6 +76,7 @@ export async function getStudentReportData(studentId: string, termId: string) {
       include: {
         classTerm: {
           include: {
+            resultWorkflow: { select: { gradingSnapshot: true } },
             classSubjects: {
               include: {
                 subject: {
@@ -107,7 +110,10 @@ export async function getStudentReportData(studentId: string, termId: string) {
       },
     })
 
-    const gradingSystem: GradingSystem = gradingSystemData
+    const frozenGradingSystem = gradingSystemFromSnapshot(
+      studentClassTerm.classTerm.resultWorkflow?.gradingSnapshot,
+    )
+    const gradingSystem: GradingSystem = frozenGradingSystem ?? (gradingSystemData
       ? {
           levels: gradingSystemData.levels.map((level) => ({
             minScore: level.minScore,
@@ -128,7 +134,7 @@ export async function getStudentReportData(studentId: string, termId: string) {
             { minScore: 0, maxScore: 39, grade: "F", remark: "Fail" },
           ],
           passMark: 40,
-        }
+        })
 
     // Get all subjects for this class term
     const allSubjects = studentClassTerm.classTerm.classSubjects.map((cs) => cs.subject)
@@ -272,6 +278,7 @@ export async function getStudentReportData(studentId: string, termId: string) {
       studentName: `${student.user.firstName} ${student.user.lastName}`,
       admissionNo: student.admissionNo,
       gender: student.user.gender || "OTHER",
+      passportUrl: student.user.avatarUrl,
       subjects,
       totalScore: totalScore,
       averageScore,

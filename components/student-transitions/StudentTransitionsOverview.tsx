@@ -16,14 +16,29 @@ import {
   getTransitionHistory,
 } from "@/app/actions/student-transitions"
 import { toast } from "sonner"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 interface StudentTransitionsOverviewProps {
   schoolId: string
   schoolName: string
   schoolCode: string
+  /**
+   * The promotion rules form, rendered as its own tab.
+   *
+   * Passed in as a slot rather than imported here, because the policy is loaded on the
+   * server and this component is a client one. It used to sit stacked above the page, which
+   * put a settings panel in front of the task on every single visit — and pushed the
+   * transition controls below the fold.
+   */
+  promotionRules?: React.ReactNode
 }
 
-export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }: StudentTransitionsOverviewProps) {
+export function StudentTransitionsOverview({
+  schoolId,
+  schoolName,
+  schoolCode,
+  promotionRules,
+}: StudentTransitionsOverviewProps) {
   // State for transition form
   const [form, setForm] = useState({
     fromTermId: "",
@@ -255,7 +270,10 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
     <div className="space-y-6">
       <div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Student Transitions</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-2xl font-bold tracking-tight">Student Transitions</h2>
+            <InfoGuide guideKey="compiler.studentTransitions" />
+          </div>
           <p className="text-muted-foreground">
             Manage student transitions between terms and classes for {schoolName} ({schoolCode})
           </p>
@@ -265,6 +283,7 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
       <Tabs defaultValue="transitions" className="space-y-4">
         <TabsList>
           <TabsTrigger value="transitions">Transitions</TabsTrigger>
+          {promotionRules && <TabsTrigger value="rules">Promotion Rules</TabsTrigger>}
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
@@ -326,6 +345,12 @@ export function StudentTransitionsOverview({ schoolId, schoolName, schoolCode }:
             }}
           />
         </TabsContent>
+
+        {promotionRules && (
+          <TabsContent value="rules" className="space-y-4">
+            {promotionRules}
+          </TabsContent>
+        )}
 
         <TabsContent value="history" className="space-y-4">
           <Card>

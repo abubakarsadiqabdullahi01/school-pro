@@ -7,6 +7,9 @@ import { toNumber } from "@/lib/money";
 import bcrypt from "bcryptjs";
 import { Gender } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { defaultPasswordForDate, defaultPasswordForStudent } from "@/lib/auth/default-password";
+import { revokeAllSessionsForUser } from "@/lib/sessions.server";
+import { recordAudit } from "@/lib/audit";
 
 // ============================================
 // AUTHENTICATION HELPER
@@ -42,6 +45,13 @@ export async function createStudent(data: {
   createLoginCredentials?: boolean;
 }) {
   try {
+    // The registration year rather than a random string: a bursar enrolling a class
+    // reads it out once, and a learner who forgets it can read it off their own
+    // admission number. See lib/auth/default-password.ts for why that is a first
+    // password and not a lasting one.
+    const temporaryPassword = data.createLoginCredentials
+      ? defaultPasswordForStudent({ year: data.year })
+      : null;
     const { userId, schoolId } = await getAuthenticatedUser();
 
     // Generate admission number
@@ -168,8 +178,7 @@ export async function createStudent(data: {
 
       // Create login credentials if requested
       if (data.createLoginCredentials) {
-        const defaultPassword = `${data.firstName.toLowerCase()}${data.year}`;
-        const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+        const hashedPassword = await bcrypt.hash(temporaryPassword!, 12);
 
         await tx.credential.create({
           data: {
@@ -261,7 +270,7 @@ export async function createStudent(data: {
         console.error("Failed to create/find ClassTerm");
       }
 
-      return { user, student, admissionNo, classTerm };
+      return { user, student, admissionNo, classTerm, temporaryPassword };
     });
 
     revalidatePath("/dashboard/admin/students");
@@ -273,6 +282,7 @@ export async function createStudent(data: {
         userId: result.user.id,
         admissionNo: result.admissionNo,
         classTermId: result.classTerm?.id,
+        temporaryPassword: result.temporaryPassword,
       },
     };
   } catch (error: any) {
@@ -784,6 +794,9 @@ export async function getStudent(input: { studentId: string }) {
         firstName: student.user.firstName,
         lastName: student.user.lastName,
         fullName: `${student.user.firstName} ${student.user.lastName}`,
+        // The passport photograph. Empty string rather than null so the client can hand it
+        // straight to <AvatarImage>, which treats "" as "no image" and falls back cleanly.
+        avatarUrl: student.user.avatarUrl || "",
         dateOfBirth:
           student.user.dateOfBirth?.toISOString().split("T")[0] || "",
         gender: student.user.gender || "OTHER",
@@ -953,6 +966,7 @@ export async function getStudents({
             firstName: s.user.firstName,
             lastName: s.user.lastName,
             fullName: `${s.user.firstName} ${s.user.lastName}`,
+            avatarUrl: s.user.avatarUrl || "",
             class: activeClassTerm?.classTerm?.class?.name || "Not Assigned",
             classTermId: activeClassTerm?.classTermId,
             termName: activeClassTerm?.classTerm?.term?.name,
@@ -1119,6 +1133,10 @@ export async function createParent(data: {
   gender?: Gender;
 }) {
   try {
+    // Same rule as Parents > Add Parent, which is a different function creating the same
+    // kind of record. A guardian added here and a guardian added there must not end up
+    // with passwords of two different shapes.
+    const temporaryPassword = data.email ? defaultPasswordForDate(new Date()) : null;
     const { schoolId } = await getAuthenticatedUser();
 
     // Credential values are unique across the whole platform, not per school, so a clash
@@ -1155,8 +1173,7 @@ export async function createParent(data: {
       });
 
       if (data.email) {
-        const defaultPassword = `${data.firstName.toLowerCase()}123`;
-        const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+        const hashedPassword = await bcrypt.hash(temporaryPassword!, 12);
 
         await tx.credential.create({
           data: {
@@ -1169,7 +1186,7 @@ export async function createParent(data: {
         });
       }
 
-      return { user, parent };
+      return { user, parent, temporaryPassword };
     });
 
     return {
@@ -1180,7 +1197,8 @@ export async function createParent(data: {
         lastName: result.user.lastName,
         phone: result.user.phone,
         occupation: result.parent.occupation,
-        gender: result.user.gender,
+          gender: result.user.gender,
+          temporaryPassword: result.temporaryPassword,
       },
     };
   } catch (error: any) {
@@ -1238,5 +1256,84 @@ export async function checkClassTerms() {
     };
   } catch (error: any) {
     return { success: false, error: error.message };
+  }
+}
+
+// ============================================
+// RESET STUDENT PASSWORD
+// ============================================
+
+/**
+ * Returns a learner's password to their registration year.
+ *
+ * Every credential on the account is updated, not just the one they normally use: a
+ * learner may sign in by admission number and a portal invitation may have added an email
+ * one, and leaving the second on the old password means "reset" did not mean what it said.
+ *
+ * Existing sessions are revoked. A reset is usually requested because somebody else knows
+ * the password, and a signed-in session would outlive the change.
+ */
+export async function resetStudentPassword(studentId: string) {
+  try {
+    const actor = await requirePermission("students.manage");
+    if (!actor.schoolId) {
+      return { success: false, error: "Select a school before resetting a password" };
+    }
+
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: {
+        schoolId: true,
+        userId: true,
+        admissionNo: true,
+        year: true,
+        createdAt: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    if (!student) {
+      return { success: false, error: "Student not found" };
+    }
+
+    if (student.schoolId !== actor.schoolId) {
+      return { success: false, error: "That student belongs to another school" };
+    }
+
+    const newPassword = defaultPasswordForStudent(student);
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    const { count } = await prisma.credential.updateMany({
+      where: { userId: student.userId },
+      data: { passwordHash },
+    });
+
+    if (count === 0) {
+      return {
+        success: false,
+        error: "This student has no login yet, so there is no password to reset.",
+      };
+    }
+
+    await revokeAllSessionsForUser(student.userId);
+
+    await recordAudit({
+      actor,
+      action: "student.password_reset",
+      entityType: "Student",
+      entityId: studentId,
+      schoolId: student.schoolId,
+      // The password itself is never written to the log — only that it was reset, by whom.
+      summary:
+        `Reset the password for ${student.user.firstName} ${student.user.lastName} ` +
+        `(${student.admissionNo}) to their registration year`,
+    });
+
+    revalidatePath(`/dashboard/admin/students/${studentId}`);
+
+    return { success: true, data: { newPassword }, message: "Password reset" };
+  } catch (error) {
+    console.error("Error resetting student password:", error);
+    return { success: false, error: "Failed to reset password" };
   }
 }

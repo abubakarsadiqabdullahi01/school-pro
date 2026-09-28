@@ -11,6 +11,7 @@ import { StatsCard } from "@/components/dashboard/stats-card"
 import { formatDate } from "@/lib/format"
 import { formatNaira, sumAmounts } from "@/lib/money"
 import { PUBLISHED_ONLY, averageScore } from "@/lib/results-visibility"
+import { InfoGuide } from "@/components/ui/info-guide"
 
 export default async function ParentDashboardPage() {
   const session = await auth()
@@ -89,9 +90,12 @@ export default async function ParentDashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">
-          Welcome, {parent.user.firstName} {parent.user.lastName}
-        </h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-3xl font-bold tracking-tight">
+            Welcome, {parent.user.firstName} {parent.user.lastName}
+          </h2>
+          <InfoGuide guideKey="parent.dashboard" />
+        </div>
         <p className="text-muted-foreground">
           {parent.school.name} ({parent.school.code}) parent portal
         </p>

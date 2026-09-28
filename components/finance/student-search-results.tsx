@@ -10,7 +10,10 @@ export type FinanceStudentSearchRow = {
   admissionNo: string
   name: string
   currentClass: string | null
+  currentTerm: string | null
   outstanding: string
+  /** Fees with something still owing, so the row says how much work the account is. */
+  openCharges: number
 }
 
 export function StudentSearchResults({
@@ -45,7 +48,21 @@ export function StudentSearchResults({
           >
             <div className="font-medium">{student.name}</div>
             <div className="text-sm text-muted-foreground">
-              {student.admissionNo} · {student.currentClass ?? "No class"} · Owes {formatNaira(student.outstanding)}
+              {student.admissionNo} · {student.currentClass ?? "No class"}
+              {student.currentTerm ? ` · ${student.currentTerm}` : ""}
+            </div>
+            <div className="text-sm tabular-nums">
+              {Number(student.outstanding) > 0 ? (
+                <>
+                  Owes <span className="font-medium">{formatNaira(student.outstanding)}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    across {student.openCharges} fee{student.openCharges === 1 ? "" : "s"}
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">Nothing outstanding</span>
+              )}
             </div>
           </button>
         ))}
