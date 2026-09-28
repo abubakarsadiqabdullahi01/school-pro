@@ -696,6 +696,10 @@ model UserPermissionProfile {
   @@unique([userId, schoolId, profileId])
   @@index([schoolId, isActive])
   @@index([profileId, isActive])
+  /// Created by migration 20260828130000 but missing here, so a database built from this
+  /// schema (the phpMyAdmin release file) got MySQL's implicit `_fkey` index instead of
+  /// the `_idx` every migrated database has. Declared so the two are the same database.
+  @@index([assignedBy])
 }
 
 model ClassSubject {
