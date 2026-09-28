@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>DigiSchool-Pro operating map</title>
+<meta name="description" content="An interactive map of the DigiSchool-Pro school platform: the term cycle, six service lines, module routes and dependencies, role journeys, and the controls that keep records safe.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── tokens ─────────────────────────────────────────────── */
+:root{
+  --board:#061320; --panel:#0A1D2C; --raise:#102B3D; --sunken:#04101B;
+  --rule:rgba(125,175,205,.20); --rule-hard:rgba(125,175,205,.34);
+  --ink:#E9F1F7; --ink-2:#9BB4C6; --ink-3:#66869C;
+  --seal:#EFB03A;
+  --line-gov:#EFB03A; --line-cal:#3FBDF2; --line-class:#3ED8A3;
+  --line-result:#A98CFF; --line-money:#FF9152; --line-family:#F76FA9;
+  --ok:#3ED8A3; --stop:#FF6B77;
+  --wash:14%; --edge:30%;
+  --shadow:0 18px 44px rgba(0,0,0,.42);
+  --r-s:8px; --r-m:14px; --r-l:22px;
+  --shell:1360px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --board:#EDF1F5; --panel:#FFFFFF; --raise:#E6EDF3; --sunken:#DCE5EC;
+    --rule:rgba(12,52,78,.16); --rule-hard:rgba(12,52,78,.30);
+    --ink:#082033; --ink-2:#3A5C74; --ink-3:#576F80;
+    --seal:#B07515;
+    --line-gov:#A97213; --line-cal:#0D7FB6; --line-class:#0E8A63;
+    --line-result:#6B4FD8; --line-money:#C85A1B; --line-family:#BE3B79;
+    --ok:#0E8A63; --stop:#C93B45;
+    --wash:10%; --edge:34%;
+    --shadow:0 14px 34px rgba(12,42,66,.12);
+  }
+}
+:root[data-theme="light"]{
+  --board:#EDF1F5; --panel:#FFFFFF; --raise:#E6EDF3; --sunken:#DCE5EC;
+  --rule:rgba(12,52,78,.16); --rule-hard:rgba(12,52,78,.30);
+  --ink:#082033; --ink-2:#3A5C74; --ink-3:#576F80;
+  --seal:#B07515;
+  --line-gov:#A97213; --line-cal:#0D7FB6; --line-class:#0E8A63;
+  --line-result:#6B4FD8; --line-money:#C85A1B; --line-family:#BE3B79;
+  --ok:#0E8A63; --stop:#C93B45;
+  --wash:10%; --edge:34%;
+  --shadow:0 14px 34px rgba(12,42,66,.12);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);-webkit-text-size-adjust:100%}
+*,*::before,*::after{box-sizing:inherit}
+body{
+  margin:0; background:var(--board); color:var(--ink);
+  font-family:'Archivo','Helvetica Neue',Arial,sans-serif;
+  font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.55;
+  background:
+    radial-gradient(760px 420px at 12% -8%, color-mix(in srgb,var(--line-cal) 20%,transparent), transparent 70%),
+    radial-gradient(620px 420px at 92% 4%, color-mix(in srgb,var(--line-result) 16%,transparent), transparent 72%),
+    repeating-linear-gradient(0deg,transparent 0 33px, color-mix(in srgb,var(--rule) 55%,transparent) 33px 34px);
+}
+.shell{max-width:var(--shell); margin:0 auto; padding:0 22px; position:relative; z-index:1}
+h1,h2,h3,h4{margin:0; font-weight:700; letter-spacing:-.02em; font-stretch:112%}
+a{color:inherit}
+button{font:inherit; color:inherit}
+code,kbd,.mono{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* ── signage bar ────────────────────────────────────────── */
+.bar{
+  position:sticky; top:env(safe-area-inset-top,0px); z-index:40;
+  padding-top:env(safe-area-inset-top,0px);
+  background:color-mix(in srgb,var(--board) 88%,transparent);
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--rule);
+}
+.bar-in{display:flex; align-items:center; gap:14px; height:62px}
+.seal{display:flex; align-items:center; gap:10px; margin-right:auto; min-width:0}
+.seal-mark{
+  width:34px;height:34px;flex:0 0 auto;border-radius:11px;display:grid;place-items:center;
+  background:linear-gradient(150deg,color-mix(in srgb,var(--line-cal) 70%,transparent),color-mix(in srgb,var(--line-result) 62%,transparent));
+  color:#fff; box-shadow:0 0 0 1px var(--rule-hard), 0 6px 18px rgba(0,0,0,.28);
+}
+.seal-mark svg{width:19px;height:19px}
+.seal-txt{min-width:0}
+.seal-txt b{display:block;font-size:14.5px;line-height:1.1;letter-spacing:-.01em;font-stretch:118%}
+.seal-txt span{display:block;font-size:11.5px;color:var(--ink-3);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;
+  border:1px solid var(--rule); border-radius:999px; background:transparent;
+  color:var(--ink-2); font-size:12.5px; font-weight:600; cursor:pointer;
+  transition:color .16s, border-color .16s, background .16s, transform .16s;
+}
+.chip:hover{color:var(--ink); border-color:var(--rule-hard); background:color-mix(in srgb,var(--raise) 70%,transparent)}
+.chip:active{transform:translateY(1px)}
+.chip svg{width:15px;height:15px}
+.chip kbd{
+  font-size:10.5px;padding:2px 5px;border-radius:5px;border:1px solid var(--rule);
+  background:color-mix(in srgb,var(--raise) 80%,transparent); color:var(--ink-3)
+}
+.chip-find{min-width:190px; justify-content:flex-start}
+.chip-find span{margin-right:auto}
+:where(button,a,input,[tabindex]):focus-visible{outline:2px solid var(--line-cal); outline-offset:2px; border-radius:6px}
+
+/* ── hero ───────────────────────────────────────────────── */
+.hero{display:grid; grid-template-columns:minmax(0,1fr) 400px; gap:40px; align-items:center; padding:46px 0 34px}
+.hero-copy h1{font-size:clamp(38px,5.4vw,66px); line-height:.94; font-stretch:122%; letter-spacing:-.045em}
+.hero-copy h1 em{font-style:normal; display:block; color:var(--ink-3); font-stretch:88%; font-weight:500; font-size:.42em; letter-spacing:-.01em; line-height:1.2; margin-top:14px; max-width:30ch}
+.hero-lede{margin:20px 0 0; max-width:56ch; color:var(--ink-2); font-size:16px; line-height:1.58}
+.hero-lede b{color:var(--ink); font-weight:600}
+.tally{display:flex; flex-wrap:wrap; gap:8px; margin-top:24px}
+.tally div{
+  border:1px solid var(--rule); border-radius:var(--r-m); padding:9px 13px 8px;
+  background:color-mix(in srgb,var(--panel) 62%,transparent); min-width:84px;
+}
+.tally b{display:block; font-size:21px; line-height:1.05; font-stretch:118%}
+.tally span{font-size:11px; color:var(--ink-3)}
+.dial{position:relative; justify-self:center; width:100%; max-width:400px; aspect-ratio:1}
+.dial svg{width:100%; height:100%; overflow:visible}
+.dial-arc{fill:none; stroke-width:15; stroke-linecap:round; cursor:pointer; transition:stroke-width .2s, opacity .2s}
+.dial-arc:hover,.dial-arc.on{stroke-width:21}
+.dial.dim .dial-arc:not(.on){opacity:.28}
+.dial-num{font-size:11.5px; font-weight:700; fill:var(--board); pointer-events:none; text-anchor:middle; dominant-baseline:central}
+.dial-hub{position:absolute; inset:24%; display:grid; place-content:center; text-align:center; pointer-events:none}
+.dial-hub b{display:block; font-size:15px; line-height:1.18; font-stretch:112%; text-wrap:balance}
+.dial-hub span{display:block; margin-top:6px; font-size:11.5px; color:var(--ink-3); line-height:1.35; text-wrap:balance}
+.dial-hub i{display:block; margin-bottom:7px; font-style:normal; font-size:10.5px; letter-spacing:.06em; color:var(--ink-3)}
+
+/* ── view rail ──────────────────────────────────────────── */
+.rail{position:sticky; top:calc(62px + env(safe-area-inset-top,0px)); z-index:30; background:color-mix(in srgb,var(--board) 92%,transparent); backdrop-filter:blur(12px); border-bottom:1px solid var(--rule)}
+.rail-in{display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; padding:9px 0}
+.rail-in::-webkit-scrollbar{display:none}
+.rail button{
+  position:relative; flex:0 0 auto; display:inline-flex; align-items:center; gap:8px;
+  padding:9px 15px; border:0; border-radius:var(--r-m); background:transparent;
+  color:var(--ink-3); font-size:13.5px; font-weight:650; cursor:pointer; white-space:nowrap;
+  transition:color .18s, background .18s;
+}
+.rail button svg{width:16px;height:16px; transition:transform .3s}
+.rail button:hover{color:var(--ink); background:color-mix(in srgb,var(--raise) 55%,transparent)}
+.rail button[aria-selected="true"]{color:var(--ink); background:var(--raise)}
+.rail button[aria-selected="true"] svg{transform:scale(1.1)}
+.rail button[aria-selected="true"]::after{content:""; position:absolute; left:15px; right:15px; bottom:-10px; height:2px; background:var(--seal); border-radius:2px}
+
+/* ── layout ─────────────────────────────────────────────── */
+.work{display:grid; grid-template-columns:minmax(0,1fr) 352px; gap:26px; align-items:start; padding:28px 0 60px}
+.stage{min-width:0}
+.view[hidden]{display:none}
+.view-head{margin-bottom:20px; max-width:74ch}
+.view-head h2{font-size:24px; font-stretch:114%}
+.view-head p{margin:7px 0 0; color:var(--ink-2); font-size:14px; line-height:1.55}
+.card{background:var(--panel); border:1px solid var(--rule); border-radius:var(--r-l); box-shadow:var(--shadow)}
+
+/* ── stations & chips ───────────────────────────────────── */
+.station{
+  --c:var(--line-cal);
+  position:relative; display:inline-flex; align-items:center; gap:8px;
+  padding:7px 12px 7px 10px; border-radius:999px; cursor:pointer; text-align:left;
+  border:1px solid color-mix(in srgb,var(--c) var(--edge),transparent);
+  background:color-mix(in srgb,var(--c) var(--wash),var(--panel));
+  color:var(--ink); font-size:12.5px; font-weight:600; line-height:1.15;
+  transition:transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s, background .16s;
+}
+.station::before{
+  content:""; width:9px;height:9px;flex:0 0 auto;border-radius:50%;
+  background:var(--c); box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 22%,transparent);
+}
+.station.hub::before{background:var(--panel); border:3px solid var(--c); width:12px; height:12px}
+.station:hover{transform:translateY(-2px); background:color-mix(in srgb,var(--c) 26%,var(--panel)); box-shadow:0 8px 20px color-mix(in srgb,var(--c) 22%,transparent)}
+.station[aria-pressed="true"]{background:color-mix(in srgb,var(--c) 34%,var(--panel)); border-color:var(--c); box-shadow:0 0 0 1px var(--c)}
+.station.trace-up{box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 70%,transparent)}
+.station.trace-down{box-shadow:0 0 0 2px color-mix(in srgb,var(--line-money) 70%,transparent)}
+.stage.tracing .station:not([aria-pressed="true"]):not(.trace-up):not(.trace-down){opacity:.32}
+
+/* ── term cycle ─────────────────────────────────────────── */
+.runbar{display:flex; align-items:center; gap:10px; margin-bottom:18px; flex-wrap:wrap}
+.btn{
+  display:inline-flex; align-items:center; gap:8px; padding:9px 15px; border-radius:999px;
+  border:1px solid var(--rule); background:var(--raise); color:var(--ink);
+  font-size:13px; font-weight:650; cursor:pointer; transition:transform .16s, box-shadow .16s, background .16s;
+}
+.btn:hover{transform:translateY(-1px); box-shadow:0 8px 18px rgba(0,0,0,.2)}
+.btn svg{width:15px;height:15px}
+.btn-go{background:var(--seal); border-color:transparent; color:#12212c}
+.progress{flex:1 1 160px; height:4px; min-width:120px; border-radius:4px; background:var(--raise); overflow:hidden}
+.progress i{display:block; height:100%; width:0; background:var(--seal); border-radius:4px; transition:width .5s ease}
+.phases{display:grid; gap:14px}
+.phase{
+  --c:var(--line-cal);
+  position:relative; display:grid; grid-template-columns:52px minmax(0,1fr); gap:16px;
+  padding:16px 18px 16px 12px; border-radius:var(--r-l);
+  background:var(--panel); border:1px solid var(--rule);
+  transition:border-color .2s, transform .2s, box-shadow .2s;
+}
+.phase::after{
+  content:""; position:absolute; left:37px; top:100%; width:2px; height:14px;
+  background:linear-gradient(var(--c),transparent);
+}
+.phase:last-child::after{display:none}
+.phase.on{border-color:color-mix(in srgb,var(--c) 62%,transparent); transform:translateX(4px); box-shadow:-4px 0 0 0 var(--c), 0 12px 30px rgba(0,0,0,.24)}
+.phase-n{
+  width:50px;height:50px;border-radius:16px;display:grid;place-items:center;
+  font-size:19px; font-weight:700; font-stretch:118%;
+  background:color-mix(in srgb,var(--c) 18%,var(--panel));
+  border:1px solid color-mix(in srgb,var(--c) 46%,transparent); color:var(--c);
+}
+.phase h3{font-size:16.5px; font-stretch:110%}
+.phase p{margin:4px 0 12px; color:var(--ink-2); font-size:13px; max-width:68ch}
+.row{display:flex; flex-wrap:wrap; gap:8px}
+
+/* ── lines view ─────────────────────────────────────────── */
+.lines{display:grid; gap:12px}
+.lane{--c:var(--line-cal); border:1px solid var(--rule); border-radius:var(--r-l); background:var(--panel); overflow:hidden}
+.lane-top{
+  display:flex; align-items:center; gap:11px; padding:13px 17px;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--c) 20%,transparent),transparent 62%);
+  border-bottom:1px solid var(--rule); cursor:pointer;
+}
+.lane-top svg{width:17px;height:17px;color:var(--c)}
+.lane-top h3{font-size:14.5px}
+.lane-top p{margin:2px 0 0; font-size:12px; color:var(--ink-3)}
+.lane-count{margin-left:auto; font-size:11.5px; color:var(--ink-3); white-space:nowrap}
+.lane-body{position:relative; padding:20px 17px 18px; overflow-x:auto; scrollbar-width:thin}
+.lane-track{position:relative; display:flex; align-items:center; gap:0; min-width:max-content}
+.lane-rail{position:absolute; left:0; right:0; top:50%; height:5px; margin-top:-2.5px; border-radius:5px; background:color-mix(in srgb,var(--c) 34%,transparent)}
+.lane-rail i{position:absolute; top:-2.5px; width:10px; height:10px; border-radius:50%; background:var(--c); box-shadow:0 0 12px var(--c); opacity:0}
+.lane.live .lane-rail i{opacity:1; animation:ride 3.6s linear infinite}
+@keyframes ride{from{left:-2%} to{left:102%}}
+.lane-stop{position:relative; padding:0 10px; z-index:1}
+.lane-stop:first-child{padding-left:0}
+.lane-stop:last-child{padding-right:0}
+
+/* ── connections graph ──────────────────────────────────── */
+.graph-wrap{position:relative; border:1px solid var(--rule); border-radius:var(--r-l); background:var(--panel); overflow:hidden}
+.graph-tools{display:flex; align-items:center; gap:8px; padding:11px 14px; border-bottom:1px solid var(--rule); flex-wrap:wrap}
+.graph-tools .hint{margin-left:auto; font-size:11.5px; color:var(--ink-3)}
+.graph-scroll{overflow:auto; max-height:min(70vh,660px); cursor:grab; background:
+  radial-gradient(circle at 1px 1px, var(--rule) 1px, transparent 0) 0 0/26px 26px;}
+.graph-scroll.drag{cursor:grabbing}
+.graph-scroll svg{display:block}
+.g-edge{fill:none; stroke-width:1.4; opacity:.22; transition:opacity .2s, stroke-width .2s}
+.g-edge.up{opacity:1; stroke-width:2.4; stroke-dasharray:6 7; animation:crawl 1.1s linear infinite}
+.g-edge.down{opacity:.95; stroke-width:2.4; stroke-dasharray:3 8; animation:crawl 1.5s linear infinite reverse}
+@keyframes crawl{to{stroke-dashoffset:-26}}
+.graph-scroll.focus .g-edge:not(.up):not(.down){opacity:.05}
+.g-node{cursor:pointer}
+.g-node circle{transition:r .18s, stroke-width .18s}
+.g-node text{font-size:10.5px; font-weight:600; fill:var(--ink-2); text-anchor:middle; pointer-events:none}
+.g-node:hover circle{r:10}
+.g-node.sel circle{r:11; stroke-width:4}
+.g-node.sel text{fill:var(--ink)}
+.graph-scroll.focus .g-node:not(.sel):not(.near){opacity:.3}
+.g-col{font-size:10px; fill:var(--ink-3); text-anchor:middle; letter-spacing:.02em}
+.g-colline{stroke:var(--rule); stroke-width:1; stroke-dasharray:2 5}
+
+/* ── journeys ───────────────────────────────────────────── */
+.roles{display:grid; grid-template-columns:repeat(auto-fit,minmax(272px,1fr)); gap:14px}
+.role{
+  --c:var(--line-cal); text-align:left; padding:17px; border-radius:var(--r-l); cursor:pointer;
+  background:var(--panel); border:1px solid var(--rule);
+  transition:transform .2s cubic-bezier(.2,.8,.3,1), border-color .2s, box-shadow .2s;
+}
+.role:hover{transform:translateY(-3px); border-color:color-mix(in srgb,var(--c) 55%,transparent); box-shadow:0 14px 32px rgba(0,0,0,.26)}
+.role[aria-expanded="true"]{border-color:var(--c); box-shadow:0 0 0 1px var(--c)}
+.role-top{display:flex; align-items:center; gap:10px; margin-bottom:9px}
+.role-ico{
+  width:36px;height:36px;border-radius:12px;display:grid;place-items:center;flex:0 0 auto;
+  background:color-mix(in srgb,var(--c) 20%,var(--panel)); color:var(--c);
+  border:1px solid color-mix(in srgb,var(--c) 40%,transparent);
+}
+.role-ico svg{width:18px;height:18px}
+.role h3{font-size:15px}
+.role-top small{display:block; font-size:11.5px; color:var(--ink-3); font-weight:500}
+.role p{margin:0 0 13px; font-size:12.5px; color:var(--ink-2); line-height:1.5}
+.journey{display:grid; gap:0; margin-top:4px}
+.stop{position:relative; display:grid; grid-template-columns:26px minmax(0,1fr); gap:11px; padding:0 0 13px}
+.stop::before{content:""; position:absolute; left:12px; top:20px; bottom:-1px; width:2px; background:color-mix(in srgb,var(--c) 40%,transparent)}
+.stop:last-child{padding-bottom:0}
+.stop:last-child::before{display:none}
+.stop-n{
+  width:25px;height:25px;border-radius:50%;display:grid;place-items:center; font-size:11px; font-weight:700;
+  background:color-mix(in srgb,var(--c) 22%,var(--panel)); color:var(--c);
+  border:1px solid color-mix(in srgb,var(--c) 48%,transparent);
+}
+.stop .station{align-self:start}
+.role-block{margin-top:12px; padding:10px 12px; border-radius:var(--r-m); background:var(--sunken); font-size:11.5px; color:var(--ink-3); display:flex; gap:8px; align-items:flex-start}
+.role-block svg{width:14px;height:14px;flex:0 0 auto;margin-top:1px;color:var(--stop)}
+
+/* ── controls ───────────────────────────────────────────── */
+.controls{display:grid; grid-template-columns:repeat(auto-fit,minmax(310px,1fr)); gap:14px}
+.ctrl{
+  position:relative; padding:17px; border-radius:var(--r-l); background:var(--panel);
+  border:1px solid var(--rule); overflow:hidden;
+  transition:transform .2s, border-color .2s;
+}
+.ctrl:hover{transform:translateY(-2px); border-color:var(--rule-hard)}
+.ctrl::before{content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--ctrl-c)}
+.ctrl-top{display:flex; align-items:center; gap:9px; margin-bottom:8px}
+.ctrl-top svg{width:17px;height:17px;color:var(--ctrl-c)}
+.ctrl h3{font-size:14.5px}
+.ctrl-rule{margin:0 0 9px; font-size:13px; color:var(--ink); font-weight:600; line-height:1.4}
+.ctrl p{margin:0 0 11px; font-size:12.5px; color:var(--ink-2); line-height:1.5}
+.ctrl-fail{display:flex; gap:8px; align-items:flex-start; padding:9px 11px; border-radius:var(--r-m); background:var(--sunken); font-size:11.5px; color:var(--ink-3); margin-bottom:12px}
+.ctrl-fail svg{width:14px;height:14px;flex:0 0 auto;margin-top:1px;color:var(--stop)}
+.ctrl-guards{display:flex; flex-wrap:wrap; gap:6px}
+.ctrl-guards .station{font-size:11.5px; padding:5px 10px 5px 8px}
+
+/* ── runtime ────────────────────────────────────────────── */
+.stack{display:grid; gap:0}
+.layer{
+  --c:var(--line-cal); position:relative; display:grid; grid-template-columns:44px minmax(0,1fr);
+  gap:15px; padding:15px 17px; border-radius:var(--r-l); background:var(--panel); border:1px solid var(--rule); margin-bottom:22px;
+  transition:border-color .2s;
+}
+.layer:last-child{margin-bottom:0}
+.layer::after{
+  content:""; position:absolute; left:37px; top:100%; width:2px; height:22px;
+  background:repeating-linear-gradient(var(--c) 0 5px, transparent 5px 10px);
+}
+.layer:last-child::after{display:none}
+.layer-pip{position:absolute; left:33px; top:100%; width:10px; height:10px; border-radius:50%; background:var(--c); opacity:0}
+.stack.live .layer-pip{animation:drop 3.2s linear infinite}
+@keyframes drop{0%{opacity:0;transform:translateY(0)}8%{opacity:1}92%{opacity:1}100%{opacity:0;transform:translateY(22px)}}
+.layer-ico{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 17%,var(--panel));color:var(--c);border:1px solid color-mix(in srgb,var(--c) 40%,transparent)}
+.layer-ico svg{width:19px;height:19px}
+.layer h3{font-size:15px}
+.layer p{margin:4px 0 0; font-size:12.5px; color:var(--ink-2); line-height:1.5; max-width:70ch}
+.layer .row{margin-top:10px}
+.tag{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; border:1px solid var(--rule); background:var(--sunken); font-size:11.5px; color:var(--ink-2); font-weight:600}
+
+/* ── detail panel ───────────────────────────────────────── */
+.panel{position:sticky; top:calc(120px + env(safe-area-inset-top,0px)); display:grid; gap:12px}
+.detail{padding:19px; border-radius:var(--r-l); background:var(--panel); border:1px solid var(--rule); box-shadow:var(--shadow)}
+.detail-line{display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:650; color:var(--d-c,var(--line-cal))}
+.detail-line::before{content:""; width:20px; height:4px; border-radius:4px; background:var(--d-c,var(--line-cal))}
+.detail h2{margin:9px 0 0; font-size:21px; font-stretch:112%; line-height:1.15}
+.meta{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px}
+.meta span{font-size:11px; padding:4px 9px; border-radius:999px; background:var(--sunken); color:var(--ink-2); font-weight:600}
+.detail-copy{margin:13px 0 0; font-size:13.5px; color:var(--ink-2); line-height:1.55}
+.route-box{margin-top:14px; border:1px solid var(--rule); border-radius:var(--r-m); background:var(--sunken); overflow:hidden}
+.route-box code{display:block; padding:11px 12px; font-size:12px; word-break:break-all; color:var(--ink); border-bottom:1px solid var(--rule)}
+.route-acts{display:flex; gap:6px; padding:8px}
+.route-acts .btn{flex:1; justify-content:center; padding:7px 10px; font-size:12px; background:transparent}
+.route-acts .btn:hover{background:var(--raise)}
+.sub{margin:17px 0 8px; font-size:11.5px; font-weight:700; color:var(--ink-3); letter-spacing:.02em}
+.deps{display:flex; flex-wrap:wrap; gap:6px}
+.deps .station{font-size:11.5px; padding:5px 10px 5px 8px}
+.checks{list-style:none; margin:0; padding:0; display:grid; gap:7px}
+.checks li{display:flex; gap:8px; font-size:12.5px; color:var(--ink-2); line-height:1.45}
+.checks svg{width:14px;height:14px;flex:0 0 auto;margin-top:2px;color:var(--ok)}
+.empty{font-size:12.5px; color:var(--ink-3); margin:0}
+.impact{margin-top:15px; padding:12px; border-radius:var(--r-m); background:var(--sunken); border:1px solid var(--rule)}
+.impact b{display:block; font-size:12.5px; margin-bottom:4px}
+.impact p{margin:0; font-size:12px; color:var(--ink-2); line-height:1.5}
+.trace-btn{width:100%; justify-content:center; margin-top:12px}
+.trace-btn[aria-pressed="true"]{background:var(--seal); color:#12212c; border-color:transparent}
+.legend{padding:15px 17px; border-radius:var(--r-l); border:1px solid var(--rule); background:color-mix(in srgb,var(--panel) 60%,transparent)}
+.legend h3{font-size:12px; color:var(--ink-3); margin-bottom:10px}
+.legend button{display:flex; align-items:center; gap:9px; width:100%; padding:5px 0; background:none; border:0; cursor:pointer; font-size:12.5px; color:var(--ink-2); text-align:left}
+.legend button:hover{color:var(--ink)}
+.legend i{width:16px;height:4px;border-radius:4px;flex:0 0 auto}
+.legend b{margin-left:auto; font-size:11px; color:var(--ink-3); font-weight:600}
+
+/* ── finder ─────────────────────────────────────────────── */
+.finder[hidden]{display:none}
+.finder{position:fixed; inset:0; z-index:90; display:grid; place-items:start center; padding:12vh 16px 16px; background:color-mix(in srgb,var(--sunken) 76%,transparent); backdrop-filter:blur(7px)}
+.finder-box{width:min(620px,100%); border-radius:var(--r-l); background:var(--panel); border:1px solid var(--rule-hard); box-shadow:0 30px 70px rgba(0,0,0,.5); overflow:hidden; animation:pop .18s ease}
+@keyframes pop{from{transform:translateY(-8px) scale(.985); opacity:0}}
+.finder-in{display:flex; align-items:center; gap:11px; padding:14px 16px; border-bottom:1px solid var(--rule)}
+.finder-in svg{width:18px;height:18px;color:var(--ink-3);flex:0 0 auto}
+.finder-in input{flex:1; background:none; border:0; outline:none; color:var(--ink); font-size:16px; font-family:inherit}
+.finder-in input::placeholder{color:var(--ink-3)}
+.finder-list{max-height:min(52vh,420px); overflow:auto; padding:7px}
+.hit{display:flex; align-items:center; gap:11px; width:100%; padding:10px 11px; border:0; border-radius:var(--r-m); background:none; cursor:pointer; text-align:left}
+.hit:hover,.hit.at{background:var(--raise)}
+.hit i{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.hit b{font-size:13.5px; font-weight:650; display:block}
+.hit small{display:block; font-size:11.5px; color:var(--ink-3)}
+.hit .mono{margin-left:auto; font-size:11px; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:44%}
+.finder-foot{display:flex; gap:14px; padding:9px 16px; border-top:1px solid var(--rule); font-size:11px; color:var(--ink-3)}
+.toast{position:fixed; left:50%; bottom:26px; transform:translate(-50%,16px); z-index:95; padding:10px 17px; border-radius:999px; background:var(--ink); color:var(--board); font-size:13px; font-weight:650; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s}
+.toast.on{opacity:1; transform:translate(-50%,0)}
+.foot{padding:26px 0 44px; border-top:1px solid var(--rule); color:var(--ink-3); font-size:12px; display:flex; gap:18px; flex-wrap:wrap; align-items:center}
+
+/* ── responsive ─────────────────────────────────────────── */
+@media (max-width:1080px){
+  .work{grid-template-columns:minmax(0,1fr)}
+  .panel{position:static}
+  .hero{grid-template-columns:1fr; gap:26px; padding:34px 0 22px}
+  .dial{max-width:330px; order:-1}
+}
+@media (max-width:640px){
+  .shell{padding:0 15px}
+  .hero-copy h1{font-size:clamp(33px,10vw,46px)}
+  .seal-txt span{display:none}
+  .chip-find{min-width:0}
+  .chip-find span,.chip-find kbd{display:none}
+  .chip-label{display:none}
+  .phase{grid-template-columns:42px minmax(0,1fr); gap:12px; padding:13px}
+  .phase-n{width:42px;height:42px;font-size:16px;border-radius:13px}
+  .phase::after{left:32px}
+  .tally div{flex:1 1 calc(33% - 8px); min-width:0}
+}
+/* ── motion & disclosure ────────────────────────────────── */
+#dialRider{transform-origin:170px 170px; animation:orbit 34s linear infinite}
+@keyframes orbit{to{transform:rotate(360deg)}}
+.dial.dim #dialRider{opacity:.35}
+.g-node:focus-visible circle{stroke-dasharray:3 3}
+.role{outline-offset:3px}
+.role-cue{display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:650; color:var(--ink-3)}
+.role-cue svg{width:14px;height:14px}
+.role[aria-expanded="true"] .role-cue{color:var(--c)}
+.role-cue b{font-weight:650}
+.role-cue b::after{content:"Show the journey"}
+.role[aria-expanded="true"] .role-cue b::after{content:"Hide the journey"}
+.role .journey,.role .role-block{display:none}
+.role[aria-expanded="true"] .journey{display:grid; animation:unfold .26s cubic-bezier(.2,.8,.3,1)}
+.role[aria-expanded="true"] .role-block{display:flex; animation:unfold .3s cubic-bezier(.2,.8,.3,1)}
+@keyframes unfold{from{opacity:0; transform:translateY(-7px)}}
+@media print{
+  .role .journey{display:grid!important}
+  .role .role-block{display:flex!important}
+  body::before,.bar,.rail,.finder,.toast,.route-acts,.trace-btn,.role-cue,.graph-tools{display:none!important}
+  body{background:#fff; color:#000}
+  .view[hidden]{display:block!important}
+  .card,.phase,.lane,.ctrl,.role,.detail,.layer{break-inside:avoid; box-shadow:none}
+  .graph-scroll{max-height:none; overflow:visible}
+  #graphInner{transform:none!important; width:auto!important; height:auto!important}
+  #gsvg{max-width:100%; height:auto}
+  .lane-body{overflow:visible}
+  .work{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important; animation-iteration-count:1!important; transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<g id="ico" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></g>
+<symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3zM9 3v15M15 6v15"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5 19.5 12 7 19.5z"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M7.5 4.5h3.2v15H7.5zM13.3 4.5h3.2v15h-3.2z"/></symbol>
+<symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></symbol>
+<symbol id="i-print" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8V3h10v5M7 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.4-3 7.9-7 9-4-1.1-7-4.6-7-9V6z"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/></symbol>
+<symbol id="i-cap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9l10-5 10 5-10 5zM6 11.5V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8z"/></symbol>
+<symbol id="i-wallet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16.5 14.5h1.5"/></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3C7.2 16.1 4 13.3 4 10.1A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 8 2.1c0 3.2-3.2 6-8 10.2z"/></symbol>
+<symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.6"/><circle cx="18" cy="5" r="2.6"/><path d="M8.6 18.5H13a4 4 0 0 0 0-8h-2a4 4 0 0 1 0-8h4.4"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"/></symbol>
+<symbol id="i-net" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18.5" r="2.5"/><circle cx="19" cy="18.5" r="2.5"/><path d="M12 7.5v3.7M11 12.4 6.4 16.6M13 12.4l4.6 4.2"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V20"/><circle cx="9.5" cy="7" r="3.5"/><path d="M21 20v-1.5a4 4 0 0 0-3-3.9M16 3.6a4 4 0 0 1 0 7.3"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8.5 10V7a3.5 3.5 0 1 1 7 0v3"/></symbol>
+<symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 17.5h.01"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="7" width="12" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/></symbol>
+<symbol id="i-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4.5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5 10-11"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3zM12 10v4M12 17h.01"/></symbol>
+<symbol id="i-cross" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="4.5"/><path d="M11.8 11.8 21 21M17.6 17.6l2-2M14.7 14.7l2-2"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/></symbol>
+<symbol id="i-coins" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="15" cy="13" rx="6" ry="3"/><path d="M21 13v4c0 1.7-2.7 3-6 3s-6-1.3-6-3v-4"/><ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v4c0 1.4 1.9 2.6 4.6 2.9"/></symbol>
+<symbol id="i-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5 21 6.5l-4 4M3 11.5V10a4 4 0 0 1 4-4h14M7 21.5 3 17.5l4-4M21 12.5V14a4 4 0 0 1-4 4H3"/></symbol>
+<symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.2-5.7M3 4v4h4M12 8v4.4l3 1.8"/></symbol>
+<symbol id="i-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 7.5 4-15 3 7.5h4"/></symbol>
+<symbol id="i-eyeoff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 5.2A9.6 9.6 0 0 1 12 5c5 0 9 4.5 9 7 0 1-.7 2.3-1.9 3.5M6.5 6.8C4.3 8.3 3 10.2 3 12c0 2.5 4 7 9 7 1.6 0 3-.4 4.3-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 14.5l2 2 4-4"/></symbol>
+<symbol id="i-board" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18M4 4v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4M12 15v4M9 21l3-2 3 2"/></symbol>
+<symbol id="i-bank" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 10v11M10 10v11M14 10v11M19 10v11M12 3l9 5H3z"/></symbol>
+<symbol id="i-bag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21a2 2 0 0 1-2-2v-7a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v7a2 2 0 0 1-2 2zM9 7V5a2.5 2.5 0 0 1 2.5-2.5h1A2.5 2.5 0 0 1 15 5v2M8 21v-6h8v6M10.5 13h3"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></symbol>
+<symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11M10 20V4M16 20v-7M2 20h20"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 12h14"/></symbol>
+<symbol id="i-fit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></symbol>
+</defs></svg>
+
+<header class="bar">
+  <div class="shell bar-in">
+    <div class="seal">
+      <span class="seal-mark"><svg><use href="#i-map"/></svg></span>
+      <span class="seal-txt"><b>DigiSchool-Pro</b><span id="baseLabel">schoolpro.digisoft.com.ng</span></span>
+    </div>
+    <button class="chip chip-find" id="openFind" type="button"><svg><use href="#i-search"/></svg><span>Find a module</span><kbd>/</kbd></button>
+    <button class="chip" id="hostBtn" type="button" title="Choose where Open route points"><svg><use href="#i-globe"/></svg><span class="chip-label">Host</span></button>
+    <button class="chip" id="printBtn" type="button" title="Print this map"><svg><use href="#i-print"/></svg></button>
+    <button class="chip" id="themeBtn" type="button" title="Switch between board and paper"><svg id="themeIco"><use href="#i-sun"/></svg></button>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="hero">
+    <div class="hero-copy">
+      <h1>The school year,<br>on one board<em id="dialSub">Nine stages, six service lines, and every route in between.</em></h1>
+      <p class="hero-lede">DigiSchool-Pro runs a whole school from one tenant boundary: a term is opened, classes and subjects are built, teachers mark and score, results are compiled and published, money is billed and reconciled, families read only what belongs to them, and the year rolls forward. <b>Pick any stop to see its route, what it needs, and what breaks without it.</b></p>
+      <div class="tally" id="tally"></div>
+    </div>
+    <div class="dial" id="dial">
+      <svg viewBox="0 0 340 340" role="group" aria-label="Term cycle dial"><g id="dialArcs"></g><g id="dialNums"></g><g id="dialRider"><circle r="6" cx="170" cy="36" fill="var(--seal)"/><circle r="11" cx="170" cy="36" fill="var(--seal)" opacity=".22"/></g></svg>
+      <div class="dial-hub"><i id="hubTag">term cycle</i><b id="hubTitle">Nine stages, one loop</b><span id="hubText">Hover a segment to read the stage. Click to open it.</span></div>
+    </div>
+  </section>
+</main>
+
+<nav class="rail" aria-label="Map views"><div class="shell rail-in" id="rail" role="tablist">
+  <button type="button" role="tab" data-view="cycle" aria-selected="true"><svg><use href="#i-route"/></svg>Term cycle</button>
+  <button type="button" role="tab" data-view="lines" aria-selected="false"><svg><use href="#i-layers"/></svg>Service lines</button>
+  <button type="button" role="tab" data-view="graph" aria-selected="false"><svg><use href="#i-net"/></svg>Connections</button>
+  <button type="button" role="tab" data-view="roles" aria-selected="false"><svg><use href="#i-users"/></svg>Role journeys</button>
+  <button type="button" role="tab" data-view="controls" aria-selected="false"><svg><use href="#i-lock"/></svg>Safeguards</button>
+  <button type="button" role="tab" data-view="runtime" aria-selected="false"><svg><use href="#i-server"/></svg>Runtime</button>
+</div></nav>
+
+<div class="shell work">
+  <div class="stage" id="stage">
+    <section class="view" role="tabpanel" tabindex="0" data-view="cycle">
+      <div class="view-head"><h2>From opening the school to closing the term</h2>
+      <p>Stages one and two must happen in order — nothing else is safe until a school exists and a term is current. Stages five to eight run side by side through the term. Stage nine hands the school back to stage two for the next term.</p></div>
+      <div class="runbar">
+        <button class="btn btn-go" id="runBtn" type="button"><svg><use href="#i-play"/></svg><span>Run the term</span></button>
+        <button class="btn" id="runReset" type="button"><svg><use href="#i-reset"/></svg>Reset</button>
+        <div class="progress" aria-hidden="true"><i id="runBar"></i></div>
+      </div>
+      <div class="phases" id="phases"></div>
+    </section>
+
+    <section class="view" role="tabpanel" tabindex="0" data-view="lines" hidden>
+      <div class="view-head"><h2>Six lines, one shared interchange</h2>
+      <p>Every line carries its own work, but all of them stop at the same four interchanges: who you are, which school you are in, which term is current, and what was written down. Hover a line to watch it run.</p></div>
+      <div class="lines" id="lines"></div>
+    </section>
+
+    <section class="view" role="tabpanel" tabindex="0" data-view="graph" hidden>
+      <div class="view-head"><h2>What each module needs before it can work</h2>
+      <p>Columns follow the term cycle, so dependencies read left to right. Select a station to light its upstream requirements in green and everything that would fall over downstream in orange.</p></div>
+      <div class="graph-wrap">
+        <div class="graph-tools">
+          <button class="btn" id="zOut" type="button" title="Zoom out"><svg><use href="#i-minus"/></svg></button>
+          <button class="btn" id="zIn" type="button" title="Zoom in"><svg><use href="#i-plus"/></svg></button>
+          <button class="btn" id="zFit" type="button" title="Fit to width"><svg><use href="#i-fit"/></svg>Fit</button>
+          <span class="hint">Drag to pan · click a station to trace it</span>
+        </div>
+        <div class="graph-scroll" id="graphScroll"><div id="graphInner"></div></div>
+      </div>
+    </section>
+
+    <section class="view" role="tabpanel" tabindex="0" data-view="roles" hidden>
+      <div class="view-head"><h2>Six people, six different maps</h2>
+      <p>Each role sees a narrow, ordered path through the same records. Open a card to walk the journey stop by stop, and to see what that role is deliberately never shown.</p></div>
+      <div class="roles" id="roles"></div>
+    </section>
+
+    <section class="view" role="tabpanel" tabindex="0" data-view="controls" hidden>
+      <div class="view-head"><h2>Nine rules that hold the records together</h2>
+      <p>These run underneath every line. Each one names the rule, what you would notice if it ever stopped holding, and the stations it protects.</p></div>
+      <div class="controls" id="controls"></div>
+    </section>
+
+    <section class="view" role="tabpanel" tabindex="0" data-view="runtime" hidden>
+      <div class="view-head"><h2>How one request reaches the data</h2>
+      <p>The same five checks sit between a click and a row: you are signed in, you are inside one school, your role allows it, the record carries its term, and the write either commits whole or not at all.</p></div>
+      <div class="stack live" id="stack"></div>
+    </section>
+  </div>
+
+  <aside class="panel">
+    <div class="detail" id="detail" aria-live="polite"></div>
+    <div class="legend"><h3>Service lines</h3><div id="legend"></div></div>
+  </aside>
+</div>
+
+<footer class="shell foot">
+  <span>Operating map v2 · 39 modules mapped</span>
+  <span>The cycle repeats: stage 9 reopens stage 2.</span>
+</footer>
+
+<div class="finder" id="finder" hidden role="dialog" aria-modal="true" aria-label="Find a module">
+  <div class="finder-box">
+    <div class="finder-in"><svg><use href="#i-search"/></svg><input id="findInput" type="text" placeholder="Search modules, routes, roles, safeguards" autocomplete="off" spellcheck="false"></div>
+    <div class="finder-list" id="findList"></div>
+    <div class="finder-foot"><span>↑↓ to move</span><span>Enter to open</span><span>Esc to close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+/* ═══ data ══════════════════════════════════════════════ */
+const LINES = {
+  gov:    {name:'Governance',        v:'--line-gov',    icon:'i-shield', blurb:'The tenant boundary, who may act, and what gets checked.'},
+  cal:    {name:'Calendar & structure', v:'--line-cal',  icon:'i-cal',    blurb:'The term, the grading rules, and the shape of the school.'},
+  class:  {name:'Classroom',         v:'--line-class',  icon:'i-cap',    blurb:'Teachers, learners, registers and scores, day by day.'},
+  result: {name:'Results',           v:'--line-result', icon:'i-star',   blurb:'Compile, approve, publish, lock, and move learners on.'},
+  money:  {name:'Money & people',    v:'--line-money',  icon:'i-wallet', blurb:'Charges, collections, balances, spending and payroll.'},
+  family: {name:'Family access',     v:'--line-family', icon:'i-heart',  blurb:'What guardians and learners are allowed to see.'}
+};
+
+const M = {
+  schools:{name:'Schools',route:'/dashboard/super-admin/schools',owner:'Super admin',line:'gov',phase:1,
+    purpose:'Creates each school as its own tenant, with its own identity, status and platform configuration. Every other record in the system hangs off this boundary.',
+    requires:[],checks:['A signed-in super admin','Platform policy for naming and status'],controls:['isolation']},
+  users:{name:'Platform users',route:'/dashboard/super-admin/users/admins',owner:'Super admin',line:'gov',phase:1,
+    purpose:'Creates the first administrators for a school and manages access at platform level.',
+    requires:['schools'],checks:['Role definitions exist','Invitation or credential policy'],controls:['authz']},
+  system:{name:'System settings',route:'/dashboard/super-admin/system',owner:'Super admin',line:'gov',phase:1,
+    purpose:'Platform-wide settings, maintenance behaviour and global operating policy.',
+    requires:[],checks:['Platform authorisation','Audit logging switched on'],controls:['observe']},
+  analytics:{name:'Platform analytics',route:'/dashboard/super-admin/analytics',owner:'Super admin',line:'gov',phase:1,
+    purpose:'Cross-school activity and health, aggregated so that no tenant reads another tenant\u2019s detail.',
+    requires:['schools','users'],checks:['School-scoped source data','Privacy-safe aggregation'],controls:['isolation','observe']},
+  settings:{name:'School settings',route:'/dashboard/admin/school-settings',owner:'Administrator',line:'gov',phase:2,
+    purpose:'School identity, operating defaults, notifications and local policy.',
+    requires:['schools'],checks:['Permission policy for who may change settings'],controls:['isolation']},
+  sessions:{name:'School sessions',route:'/dashboard/admin/school-sessions',owner:'Administrator',line:'cal',phase:2,
+    purpose:'Defines academic years and marks the single active session that academic and financial work runs against.',
+    requires:['schools','settings'],checks:['Dates validated','Only one session active at a time'],controls:['period']},
+  terms:{name:'School terms',route:'/dashboard/admin/school-terms',owner:'Administrator',line:'cal',phase:2,
+    purpose:'Defines term boundaries and the one current term inside the active session.',
+    requires:['sessions'],checks:['Date ranges do not overlap','Exactly one current term'],controls:['period']},
+  calendar:{name:'Academic calendar',route:'/dashboard/admin/calendar',owner:'Administrator',line:'cal',phase:2,
+    purpose:'Publishes events, deadlines, exam windows, holidays and milestones to the right audiences.',
+    requires:['terms'],checks:['Current session and term','Audience visibility rules'],controls:['period']},
+  grading:{name:'Grading systems',route:'/dashboard/admin/school-settings/grading-systems',owner:'Administrator',line:'cal',phase:3,
+    purpose:'Score bands, grades, remarks and pass marks, and how they are shown on a report.',
+    requires:['settings'],checks:['Bands do not overlap or leave gaps'],controls:['resultflow']},
+  assessment:{name:'Assessment scheme',route:'/dashboard/admin/school-settings/assessment-scheme',owner:'Administrator',line:'cal',phase:3,
+    purpose:'The components a subject is marked on and the weight each one carries towards the total.',
+    requires:['grading','terms'],checks:['Weights add up to the required maximum','Scheme is fixed before scoring opens'],controls:['resultflow','period']},
+  classes:{name:'Classes',route:'/dashboard/admin/classes',owner:'Administrator',line:'cal',phase:3,
+    purpose:'The reusable class identities and levels used by enrolment, teaching, fees and reporting.',
+    requires:['schools'],checks:['Naming and level rules'],controls:['isolation']},
+  classTerms:{name:'Class terms',route:'/dashboard/admin/class-terms',owner:'Administrator',line:'cal',phase:3,
+    purpose:'Puts a class into a particular term. This is the record teaching assignments, registers and results actually attach to.',
+    requires:['classes','terms'],checks:['One instance per class per term'],controls:['period','watch']},
+  subjects:{name:'Subjects',route:'/dashboard/admin/subjects',owner:'Administrator',line:'cal',phase:3,
+    purpose:'The subject catalogue and how subjects connect to classes and teachers.',
+    requires:['classes'],checks:['Subject codes unique within the school'],controls:['isolation']},
+  teachers:{name:'Teachers',route:'/dashboard/admin/teachers',owner:'Administrator',line:'class',phase:3,
+    purpose:'Teaching staff and the classes or subjects each of them is assigned to.',
+    requires:['staff','classes','subjects'],checks:['A linked user account','Assignment does not clash'],controls:['authz']},
+  permissions:{name:'Permissions',route:'/dashboard/admin/permissions',owner:'Administrator',line:'gov',phase:4,
+    purpose:'Assigns role capabilities and sensitive access for school staff.',
+    requires:['users','staff'],checks:['Role model defined','Checks enforced on the server, not the menu'],controls:['authz']},
+  students:{name:'Students',route:'/dashboard/admin/students',owner:'Administrator',line:'class',phase:4,
+    purpose:'Learner identity and profile, kept separate from term-by-term enrolment so history stays intact.',
+    requires:['schools'],checks:['Admission policy','Guardian linkage rules'],controls:['isolation','history']},
+  staff:{name:'Staff records',route:'/dashboard/admin/hr/staff',owner:'HR / Administrator',line:'money',phase:4,
+    purpose:'Staff identity, employment status, roles, assignments and payroll eligibility.',
+    requires:['schools','users'],checks:['Employment policy','Active or inactive status'],controls:['authz']},
+  parents:{name:'Parents & guardians',route:'/dashboard/admin/parents',owner:'Administrator',line:'family',phase:4,
+    purpose:'Guardian identity and the verified relationship to one or more learners. This link is what the parent portal trusts.',
+    requires:['students'],checks:['Relationship verified','Contact details validated'],controls:['isolation']},
+  teacherHome:{name:'Teacher dashboard',route:'/dashboard/teacher',owner:'Teacher',line:'class',phase:5,
+    purpose:'Only the teacher\u2019s own classes, subjects, tasks and outstanding items for the current term.',
+    requires:['teachers','classTerms'],checks:['Active assignments','Current period'],controls:['authz','period']},
+  myClasses:{name:'My classes',route:'/dashboard/teacher/my-classes',owner:'Teacher',line:'class',phase:5,
+    purpose:'The class roster, register, traits and class-level actions for a class the teacher owns.',
+    requires:['teacherHome','students'],checks:['Teacher is assigned to this class term','Enrolments loaded'],controls:['authz']},
+  mySubjects:{name:'My subjects',route:'/dashboard/teacher/subjects',owner:'Teacher',line:'class',phase:5,
+    purpose:'The subject assignments this teacher is authorised for, and the classes they apply to.',
+    requires:['teacherHome','subjects'],checks:['Teacher-subject assignment exists'],controls:['authz']},
+  attendance:{name:'Attendance',route:'/dashboard/teacher/attendance',owner:'Teacher',line:'class',phase:5,
+    purpose:'Daily register: one mark per learner, per date, per class term.',
+    requires:['myClasses','calendar'],checks:['Date falls inside the term','One record per learner per day'],controls:['period','idempotent']},
+  scoreEntry:{name:'Score entry',route:'/dashboard/teacher/compiler/subject-results/entry',owner:'Teacher',line:'class',phase:5,
+    purpose:'Captures marks for an authorised subject and class against the assessment scheme, then submits them for review.',
+    requires:['mySubjects','assessment','classTerms'],checks:['Scoring window is open','Marks within component maximums'],controls:['resultflow','authz']},
+  continuous:{name:'Continuous assessments',route:'/dashboard/admin/compiler/continuous-assessments',owner:'Administrator',line:'result',phase:6,
+    purpose:'Reviews components, coverage and anomalies before anything is compiled — the last cheap place to catch a mistake.',
+    requires:['scoreEntry','assessment'],checks:['Every subject has entries','Outliers flagged'],controls:['resultflow']},
+  subjectResults:{name:'Subject results',route:'/dashboard/admin/compiler/subject-results/entry',owner:'Administrator',line:'result',phase:6,
+    purpose:'Subject totals, grades and remarks, with the review status that gates publication.',
+    requires:['continuous','grading'],checks:['Reviewer permission','Totals recalculated, not typed'],controls:['resultflow','authz']},
+  classResults:{name:'Class results',route:'/dashboard/admin/compiler/class-results',owner:'Administrator',line:'result',phase:6,
+    purpose:'Class-wide totals, averages and positions, compiled only from approved subject results.',
+    requires:['subjectResults'],checks:['All subjects covered','Roster snapshot taken'],controls:['resultflow','watch']},
+  reports:{name:'Student reports',route:'/dashboard/admin/compiler/student-reports',owner:'Administrator',line:'result',phase:6,
+    purpose:'Builds the report each family will read. Published reports are snapshots, so later edits upstream cannot rewrite history.',
+    requires:['classResults','attendance'],checks:['Publication approved','Snapshot stored with the report'],controls:['resultflow','history']},
+  financeHome:{name:'Finance dashboard',route:'/dashboard/admin/finance',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'Billed, collected, outstanding, refunded and spent for the selected period, in one view.',
+    requires:['settings','terms'],checks:['Financial period selected','Ledger scoped to the school'],controls:['isolation','period']},
+  fees:{name:'Fee setup',route:'/dashboard/admin/finance/fees',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'Two things, on two screens. A category is the heading a fee is reported under; a schedule is the instruction that bills a class, a term or a whole session and raises one charge per learner. The category has to exist before a schedule can name it.',
+    requires:['classes','terms','financeHome'],checks:['Category exists before the schedule names it','A schedule bills each learner once','A learner admitted later is caught up, not missed'],controls:['idempotent','period','retire']},
+  adjustments:{name:'Discounts & exemptions',route:'/dashboard/admin/finance/discounts',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'Money the school decides not to collect. Granting one and auditing the ones already granted are separate screens, because they are separate jobs done by different people on different days.',
+    requires:['fees','students'],checks:['Applied to a charge that is still owing','A reason recorded with every decision','Never more than the charge itself'],controls:['money','history','authz']},
+  statements:{name:'Statement of account',route:'/dashboard/admin/finance/debtors',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'One learner\u2019s whole financial story on a page a guardian can be handed: every charge, every payment, every adjustment, and the balance that follows from them.',
+    requires:['payments','adjustments'],checks:['Charges and receipts reconcile to the balance shown','Printed copy names the period it covers'],controls:['money','history']},
+  payments:{name:'Student payments',route:'/dashboard/admin/finance/student-payments',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'Records a payment and allocates it against outstanding charges inside one transaction.',
+    requires:['fees','students'],checks:['Unique transaction reference','Allocation never exceeds the charge'],controls:['money','idempotent']},
+  receipts:{name:'Receipts',route:'/dashboard/admin/finance/receipts',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'Issues a durable receipt from a committed payment, with safe reprint and a reversal trail.',
+    requires:['payments'],checks:['Receipt numbering policy','Reprints are marked, not silent'],controls:['money','history']},
+  debtors:{name:'Debtors',route:'/dashboard/admin/finance/debtors',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'Outstanding balances derived from charges, allocations, discounts, refunds and credits.',
+    requires:['payments','fees'],checks:['Charges and payments reconciled','Filtered to the current period'],controls:['watch']},
+  paymentChart:{name:'Payment chart',route:'/dashboard/admin/expenditure/accounts',owner:'Administrator',line:'money',phase:7,
+    purpose:'Where money leaves from \u2014 the cash office, the bank account, the PTA account, petty cash. A balance is the opening figure less everything paid out of it, worked out on read, so a cancelled voucher corrects it at once.',
+    requires:['settings'],checks:['Account names distinct','An account with vouchers against it is closed, not deleted'],controls:['money','retire']},
+  expenseCategories:{name:'Expense categories',route:'/dashboard/admin/expenditure/categories',owner:'Administrator',line:'money',phase:7,
+    purpose:'What the school spends money on, and an optional termly ceiling each is reported against. The ceiling is reported, never enforced: a burst pipe should not be blocked by a stationery budget.',
+    requires:['settings','terms'],checks:['Category names distinct','Ceiling is per term, not per session'],controls:['retire','period']},
+  expenditure:{name:'Expenditure',route:'/dashboard/admin/expenditure',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'Approved spending with category, payee, account, evidence and an audit trail that cannot be quietly edited. Recording, approving and paying are three acts by three recorded people.',
+    requires:['paymentChart','expenseCategories','permissions'],checks:['Category and paying account chosen','Whoever records it does not also approve it','An approved or paid voucher is cancelled with a reason, never edited'],controls:['money','authz','history']},
+  expenditureReports:{name:'Spending reports',route:'/dashboard/admin/expenditure/reports/termly',owner:'Accountant / Administrator',line:'money',phase:7,
+    purpose:'What a term or a session actually spent, by category and by account, with the ceilings shown beside the spend.',
+    requires:['expenditure'],checks:['Period named on every figure and every printed copy','Only paid vouchers count as money out'],controls:['period','watch']},
+  budgetSummary:{name:'Budget summary',route:'/dashboard/admin/expenditure/budget-summary',owner:'Administrator',line:'money',phase:7,
+    purpose:'Where the two ledgers meet: fees collected less money paid out. Three balances, because they answer three different questions \u2014 cash as it stands, cash after what is already promised, and cash if every debtor pays.',
+    requires:['financeHome','expenditure'],checks:['Income read from the accumulated fund, so the two modules cannot disagree','Approved-but-unpaid spending shown separately from paid'],controls:['money','watch']},
+  payComponents:{name:'Pay setup',route:'/dashboard/admin/hr/salary-scales',owner:'HR / Administrator',line:'money',phase:7,
+    purpose:'The three things a payslip is built from: salary scales, allowances and deductions. A scale is copied onto a staff record when it is assigned, not linked to it \u2014 so changing the scale later moves nobody\u2019s pay.',
+    requires:['staff'],checks:['Names distinct within the school','A percentage is taken from base salary, a fixed amount is not','Before-tax deductions reduce what a percentage tax is worked out on'],controls:['retire','money']},
+  payroll:{name:'Payroll',route:'/dashboard/admin/hr/payroll',owner:'HR / Accountant',line:'money',phase:7,
+    purpose:'Builds one run a month from everybody with a salary on record, freezes the figures onto each payslip, then moves through approval to payment \u2014 posting the matching expense once.',
+    requires:['payComponents','expenditure','permissions'],checks:['A month is generated once and never regenerated, even after a cancelled run','A month that has not started cannot be run','Anyone without a salary is skipped and named','Whoever runs it does not also approve it'],controls:['money','idempotent','authz','history']},
+  payslips:{name:'Payslips',route:'/dashboard/admin/hr/payslips',owner:'HR / Accountant',line:'money',phase:7,
+    purpose:'The document each member of staff is given. The figures on it are the ones frozen at generation, so a later change to an allowance cannot rewrite a payslip already issued.',
+    requires:['payroll'],checks:['One sheet per person','Figures match the run it came from'],controls:['history','money']},
+  hrReports:{name:'HR reports',route:'/dashboard/admin/hr/reports',owner:'HR / Administrator',line:'money',phase:7,
+    purpose:'The payroll pack, one report per tab: department summary, what each allowance cost, what each deduction recovered, who has not been paid, and what every member of staff is on.',
+    requires:['payroll'],checks:['Figures read from the frozen payslip lines, not the live setup','Each report names the run it covers'],controls:['period','watch']},
+  parentPortal:{name:'Parent portal',route:'/dashboard/parent',owner:'Parent / Guardian',line:'family',phase:8,
+    purpose:'Linked children only: published reports, fees, receipts, attendance summaries and school notices.',
+    requires:['parents','reports','debtors'],checks:['Guardian relationship verified','Published records only'],controls:['isolation','resultflow']},
+  studentPortal:{name:'Student portal',route:'/dashboard/student',owner:'Student',line:'family',phase:8,
+    purpose:'The learner\u2019s own timetable, published reports, attendance, balance and announcements.',
+    requires:['students','reports','attendance'],checks:['Learner linked to a user','Current enrolment','Published records only'],controls:['isolation','resultflow']},
+  profile:{name:'User profile',route:'/dashboard/profile',owner:'Everyone',line:'family',phase:8,
+    purpose:'Self-service account and profile updates that cannot touch roles, school scope or identity fields.',
+    requires:['users'],checks:['Authenticated user','Field-level validation'],controls:['authz']},
+  integrity:{name:'Integrity centre',route:'/dashboard/admin/integrity',owner:'Administrator',line:'gov',phase:9,
+    purpose:'Runs the checks that find orphaned records, clashing periods, duplicates and stale balances before a parent does.',
+    requires:['classTerms','reports','debtors','payroll'],checks:['Read access across modules','Each finding has a remedy'],controls:['watch','observe']},
+  transitions:{name:'Student transitions',route:'/dashboard/admin/compiler/student-transitions',owner:'Administrator',line:'result',phase:9,
+    purpose:'Promotes, repeats, transfers or graduates learners by writing new dated enrolment records, never by overwriting the old ones.',
+    requires:['reports','classes','terms'],checks:['Term complete and results approved','Target class and period chosen'],controls:['history','idempotent']}
+};
+
+const PHASES = [
+  {n:1,line:'gov',   title:'Open the school',      text:'Create the tenant boundary and the people who govern it. Nothing below is safe until this exists.'},
+  {n:2,line:'cal',   title:'Start the term',       text:'Turn on one session and one term, then publish the calendar everything else will be dated against.'},
+  {n:3,line:'cal',   title:'Build the structure',  text:'Grading bands, assessment weights, classes, subjects, and who teaches what.'},
+  {n:4,line:'class', title:'Bring people in',      text:'Staff, learners and guardians, each with the permissions that bound what they can reach.'},
+  {n:5,line:'class', title:'Teach the term',       text:'Registers, traits and scores, captured by the teacher who owns the class.'},
+  {n:6,line:'result',title:'Compile the results',  text:'Check, calculate, approve, publish, lock. One direction only.'},
+  {n:7,line:'money', title:'Bill and pay',         text:'Charges, collections, balances, spending and payroll run alongside teaching, not after it.'},
+  {n:8,line:'family',title:'Open the portals',     text:'Families and learners read only what is published and only what is theirs.'},
+  {n:9,line:'gov',   title:'Close and roll forward',text:'Run the integrity checks, move learners on, and hand the school back to stage two.'}
+];
+
+const CONTROLS = [
+  {id:'isolation',name:'School isolation',line:'gov',icon:'i-shield',
+   rule:'Every read and write is scoped to one school.',
+   detail:'School id is part of the query, not a filter applied afterwards. When a super admin steps into a school, that choice is explicit and recorded.',
+   signal:'One school\u2019s learner or total showing up in another school\u2019s list.'},
+  {id:'authz',name:'Role authorisation',line:'gov',icon:'i-key',
+   rule:'A hidden menu is not a permission.',
+   detail:'Navigation decides what is comfortable to find. The server decides what is allowed, on every sensitive read, write, approval and export.',
+   signal:'A teacher reaching an approval or a payroll screen by typing the route.'},
+  {id:'period',name:'Period integrity',line:'cal',icon:'i-clock',
+   rule:'One current session, one current term, on every record.',
+   detail:'Results, registers, fees and enrolments all carry the period they belong to, so last term stays last term.',
+   signal:'Attendance or fees landing in the wrong term, or two terms open at once.'},
+  {id:'money',name:'Money moves whole',line:'money',icon:'i-coins',
+   rule:'Charge, payment, allocation, refund and payroll commit together or not at all.',
+   detail:'A half-finished financial write is worse than a failed one, so each is wrapped in a single transaction with its audit entry.',
+   signal:'A receipt with no matching payment, or a balance that will not reconcile.'},
+  {id:'resultflow',name:'Result lifecycle',line:'result',icon:'i-file',
+   rule:'Draft, submitted, reviewed, published, locked \u2014 in that order.',
+   detail:'Each step has an owner and a permission. A published report keeps the snapshot it was built from.',
+   signal:'A published report quietly changing after a parent has already read it.'},
+  {id:'history',name:'History is added to, not edited',line:'result',icon:'i-history',
+   rule:'Promotions and transfers write new dated records.',
+   detail:'A learner\u2019s academic path is a sequence of enrolments. Moving a learner adds the next one; it never rewrites the last.',
+   signal:'A learner\u2019s previous class disappearing after promotion.'},
+  {id:'idempotent',name:'Safe retries',line:'money',icon:'i-repeat',
+   rule:'Running the same action twice produces one result.',
+   detail:'Fee generation, payments, receipts, promotions, payroll runs and publishing all key on something stable, so a double click or a retry cannot double the outcome. A payroll month goes further: it is generated once and cannot be generated again, even after the run is cancelled \u2014 the cancelled run stays as the record of what happened.',
+   signal:'Duplicate charges, duplicate receipts, or a payroll run posted twice.'},
+  {id:'retire',name:'Retire, do not delete',line:'money',icon:'i-history',
+   rule:'Anything in use is retired. Only something nothing has ever touched can be deleted.',
+   detail:'A fee category names a charge, a payment account answers "where did that money leave from", a salary scale carries somebody\u2019s pay history, and an allowance is printed on payslips already issued. Each screen greys the delete out and says which of those is in the way; retiring takes it off the forms for new work and leaves every past record reading exactly as it did.',
+   signal:'A receipt, voucher or payslip that can no longer say what it was for.'},
+  {id:'watch',name:'Integrity checks',line:'class',icon:'i-pulse',
+   rule:'The system looks for its own broken edges.',
+   detail:'Scheduled checks hunt for orphaned records, clashing periods, unallocated money, invalid assignments and stale balances, each with a remedy attached.',
+   signal:'Nothing visible \u2014 which is the point. Problems surface here before a family finds them.'},
+  {id:'observe',name:'Observability',line:'gov',icon:'i-chart',
+   rule:'Every job says what it did and what it failed at.',
+   detail:'Structured logs, job status and activity records carry enough context to explain a failure and retry it safely.',
+   signal:'A failed publish or payroll run that nobody can explain, find or repeat.'}
+];
+
+const ROLES = [
+  {id:'super',name:'Super admin',line:'gov',icon:'i-shield',sub:'Platform level',
+   text:'Sets up tenants and watches platform health. Deliberately kept out of everyday school work.',
+   journey:['schools','users','analytics','system'],
+   blocked:'Never opens a school\u2019s learner, result or money records without an explicit, recorded context switch.'},
+  {id:'admin',name:'School administrator',line:'cal',icon:'i-bank',sub:'Owns the term',
+   text:'Runs the school year end to end: open the term, build the structure, approve results, close and roll forward.',
+   journey:['sessions','classes','students','permissions','reports','transitions','integrity'],
+   blocked:'Cannot see any other school\u2019s tenant, at any point.'},
+  {id:'teacher',name:'Teacher',line:'class',icon:'i-board',sub:'Owns the classroom',
+   text:'Works inside assigned classes and subjects only. Captures registers, traits and scores, then submits for review.',
+   journey:['teacherHome','myClasses','mySubjects','attendance','scoreEntry'],
+   blocked:'No classes they are not assigned to, and no edits once results are locked.'},
+  {id:'bursar',name:'Accountant & HR',line:'money',icon:'i-coins',sub:'Owns the ledger',
+   text:'Bills, collects, reconciles, spends and pays staff, with every movement traceable to a person and a moment.',
+   journey:['financeHome','fees','payments','receipts','debtors','paymentChart','expenditure','budgetSummary','payComponents','payroll','hrReports'],
+   blocked:'No score entry, no result approval, no academic publishing.'},
+  {id:'parent',name:'Parent or guardian',line:'family',icon:'i-heart',sub:'Read only',
+   text:'Sees the children linked to them: published reports, fees owed, receipts, attendance and notices.',
+   journey:['parentPortal','profile'],
+   blocked:'Never another family\u2019s record, and never a result before it is published.'},
+  {id:'student',name:'Student',line:'family',icon:'i-bag',sub:'Read only',
+   text:'Sees their own timetable, published reports, attendance and balance.',
+   journey:['studentPortal','profile'],
+   blocked:'Own record only, and only after publication.'}
+];
+
+const STACK = [
+  {line:'cal',icon:'i-globe',name:'The browser',
+   text:'A signed-in browser holds a session and nothing else worth stealing. Every screen it shows was decided by the server first.',
+   tags:['Session cookie','No secrets on the client']},
+  {line:'cal',icon:'i-layers',name:'Next.js App Router',
+   text:'Routes under /dashboard are grouped by the role that owns them. Pages render on the server, so data a person may not see never reaches their machine to be hidden with CSS.',
+   tags:['App Router','Server rendering','/dashboard/*']},
+  {line:'class',icon:'i-server',name:'Server actions and route handlers',
+   text:'The only door to the data. The browser asks; server code decides, validates and writes.',
+   tags:['Server actions','Route handlers','Input validation']},
+  {line:'gov',icon:'i-lock',name:'Five checks, every time',
+   text:'Signed in. Inside one school. Role allows this action. Record carries its term. Write commits whole or not at all.',
+   tags:['Identity','School scope','Role','Period','Transaction']},
+  {line:'result',icon:'i-db',name:'Prisma',
+   text:'One schema describes every table and relation, so school id, period and links are enforced in code as well as in the database.',
+   tags:['Prisma ORM','Migrations','Typed queries']},
+  {line:'money',icon:'i-db',name:'MySQL',
+   text:'Relational storage with foreign keys and real transactions. Results and money depend on both.',
+   tags:['MySQL','Foreign keys','Transactions']},
+  {line:'family',icon:'i-globe',name:'Hosting',
+   text:'Served at schoolpro.digisoft.com.ng as a Node application through the cPanel Node.js selector.',
+   tags:['cPanel','Node.js selector','Single origin']}
+];
+
+/* ═══ derived ═══════════════════════════════════════════ */
+const IDS = Object.keys(M);
+const ORDER = ['gov','cal','class','result','money','family'];
+const USED = {}; IDS.forEach(i=>USED[i]=[]);
+IDS.forEach(id=>M[id].requires.forEach(r=>{ if(USED[r]) USED[r].push(id); }));
+const HUBS = new Set(IDS.filter(id=>USED[id].length>=3));
+const EDGES = []; IDS.forEach(id=>M[id].requires.forEach(r=>EDGES.push([r,id])));
+const BY_PHASE = {}; PHASES.forEach(p=>BY_PHASE[p.n]=[]);
+IDS.forEach(id=>BY_PHASE[M[id].phase].push(id));
+Object.values(BY_PHASE).forEach(a=>a.sort((x,y)=>ORDER.indexOf(M[x].line)-ORDER.indexOf(M[y].line)));
+const BY_LINE = {}; ORDER.forEach(l=>BY_LINE[l]=IDS.filter(i=>M[i].line===l).sort((a,b)=>M[a].phase-M[b].phase));
+const CTRL = {}; CONTROLS.forEach(c=>CTRL[c.id]=c);
+IDS.forEach(id=>M[id].controls=M[id].controls||[]);
+const guardsOf = cid => IDS.filter(id=>M[id].controls.includes(cid));
+
+const $ = s=>document.querySelector(s), $$ = s=>[...document.querySelectorAll(s)];
+const ico = n=>`<svg><use href="#${n}"/></svg>`;
+const cvar = id=>`var(${LINES[M[id].line].v})`;
+const st = id => M[id] ? `<button class="station${HUBS.has(id)?' hub':''}" data-mod="${id}" aria-pressed="false" style="--c:${cvar(id)}" title="${M[id].route}">${M[id].name}</button>` : '';
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem('dsp.'+k); return v===null?d:v; }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem('dsp.'+k,v); }catch(e){} }
+};
+
+/* ═══ tally ═════════════════════════════════════════════ */
+const TALLY = [[IDS.length,'modules'],[6,'service lines'],[9,'stages'],[EDGES.length,'dependencies'],[ROLES.length,'role journeys'],[CONTROLS.length,'safeguards']];
+$('#tally').innerHTML = TALLY.map(([n,l])=>`<div><b data-n="${n}">0</b><span>${l}</span></div>`).join('');
+$$('#tally b').forEach((el,i)=>{
+  const to=+el.dataset.n;
+  if(REDUCED){ el.textContent=to; return; }
+  const t0=performance.now()+i*70;
+  const tick=t=>{ const p=Math.min(1,Math.max(0,(t-t0)/620)); el.textContent=Math.round(to*(1-Math.pow(1-p,3))); if(p<1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+});
+
+/* ═══ dial ══════════════════════════════════════════════ */
+const CX=170, CY=170, R=125;
+const polar=(deg,r)=>[CX+r*Math.cos((deg-90)*Math.PI/180), CY+r*Math.sin((deg-90)*Math.PI/180)];
+const arc=(a,b,r)=>{ const [x1,y1]=polar(a,r),[x2,y2]=polar(b,r); return `M${x1.toFixed(2)} ${y1.toFixed(2)} A${r} ${r} 0 ${b-a>180?1:0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`; };
+$('#dialArcs').innerHTML = PHASES.map((p,i)=>{
+  const a=i*40+3, b=(i+1)*40-3;
+  return `<path class="dial-arc" data-phase="${p.n}" tabindex="0" role="button" aria-label="Stage ${p.n}: ${p.title}" d="${arc(a,b,R)}" style="stroke:var(${LINES[p.line].v})"/>`;
+}).join('');
+$('#dialNums').innerHTML = PHASES.map((p,i)=>{
+  const [x,y]=polar(i*40+20,R);
+  return `<text class="dial-num" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${p.n}</text>`;
+}).join('');
+if(!REDUCED){
+  $$('#dialArcs .dial-arc').forEach((p,i)=>{
+    const len=p.getTotalLength();
+    p.style.strokeDasharray=len; p.style.strokeDashoffset=len;
+    p.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:620,delay:160+i*95,easing:'cubic-bezier(.3,.9,.3,1)',fill:'forwards'});
+  });
+}
+const hub={tag:$('#hubTag'),title:$('#hubTitle'),text:$('#hubText')};
+const setHub=(p)=>{
+  if(!p){ hub.tag.textContent='term cycle'; hub.title.textContent='Nine stages, one loop'; hub.text.textContent='Hover a segment to read the stage. Click to open it.'; return; }
+  hub.tag.textContent='stage '+p.n+' of 9'; hub.title.textContent=p.title; hub.text.textContent=p.text;
+};
+$('#dial').addEventListener('focusin',e=>{ const a=e.target.closest('.dial-arc'); if(a) setHub(PHASES[+a.dataset.phase-1]); });
+$('#dial').addEventListener('pointerover',e=>{ const a=e.target.closest('.dial-arc'); if(!a) return;
+  $('#dial').classList.add('dim'); $$('#dialArcs .dial-arc').forEach(x=>x.classList.toggle('on',x===a));
+  setHub(PHASES[+a.dataset.phase-1]); });
+$('#dial').addEventListener('pointerleave',()=>{ $('#dial').classList.remove('dim'); $$('#dialArcs .dial-arc').forEach(x=>x.classList.remove('on')); setHub(null); });
+$('#dial').addEventListener('click',e=>{ const a=e.target.closest('.dial-arc'); if(!a) return;
+  setView('cycle'); spotlight(+a.dataset.phase-1,true); });
+
+/* ═══ views ═════════════════════════════════════════════ */
+$('#phases').innerHTML = PHASES.map(p=>`
+  <article class="phase" data-phase="${p.n}" style="--c:var(${LINES[p.line].v})">
+    <div class="phase-n">${p.n}</div>
+    <div><h3>${p.title}</h3><p>${p.text}</p><div class="row">${BY_PHASE[p.n].map(st).join('')}</div></div>
+  </article>`).join('');
+
+$('#lines').innerHTML = ORDER.map(l=>{
+  const L=LINES[l], ids=BY_LINE[l];
+  return `<section class="lane" data-line="${l}" style="--c:var(${L.v})">
+    <div class="lane-top" role="button" tabindex="0">${ico(L.icon)}<div><h3>${L.name}</h3><p>${L.blurb}</p></div>
+    <span class="lane-count">${ids.length} stops · ${ids.filter(i=>HUBS.has(i)).length} interchange</span></div>
+    <div class="lane-body"><div class="lane-track"><div class="lane-rail"><i></i></div>
+    ${ids.map(id=>`<span class="lane-stop">${st(id)}</span>`).join('')}</div></div></section>`;
+}).join('');
+$$('.lane').forEach(la=>{
+  la.addEventListener('pointerenter',()=>la.classList.add('live'));
+  la.addEventListener('pointerleave',()=>la.classList.remove('live'));
+});
+
+$('#roles').innerHTML = ROLES.map(r=>`
+  <article class="role" data-role="${r.id}" style="--c:var(${LINES[r.line].v})" aria-expanded="false" role="button" tabindex="0">
+    <div class="role-top"><span class="role-ico">${ico(r.icon)}</span><div><h3>${r.name}</h3><small>${r.sub}</small></div></div>
+    <p>${r.text}</p>
+    <div class="role-cue">${ico('i-route')}<span>${r.journey.length} stops</span>&middot;<b></b></div>
+    <div class="journey">${r.journey.map((id,i)=>`<div class="stop"><span class="stop-n">${i+1}</span>${st(id)}</div>`).join('')}</div>
+    <div class="role-block">${ico('i-eyeoff')}<span>${r.blocked}</span></div>
+  </article>`).join('');
+
+$('#controls').innerHTML = CONTROLS.map(c=>`
+  <article class="ctrl" data-ctrl="${c.id}" style="--ctrl-c:var(${LINES[c.line].v})">
+    <div class="ctrl-top">${ico(c.icon)}<h3>${c.name}</h3></div>
+    <p class="ctrl-rule">${c.rule}</p><p>${c.detail}</p>
+    <div class="ctrl-fail">${ico('i-alert')}<span><b>You would notice:</b> ${c.signal}</span></div>
+    <div class="ctrl-guards">${guardsOf(c.id).map(st).join('')}</div>
+  </article>`).join('');
+
+$('#stack').innerHTML = STACK.map(s=>`
+  <div class="layer" style="--c:var(${LINES[s.line].v})"><span class="layer-pip"></span>
+    <span class="layer-ico">${ico(s.icon)}</span>
+    <div><h3>${s.name}</h3><p>${s.text}</p><div class="row">${s.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div></div>
+  </div>`).join('') + `<p class="empty" style="margin-top:16px">This reflects the deployed setup. If the stack moves, only the labels here change &mdash; the five checks stay in the same place.</p>`;
+
+$('#legend').innerHTML = ORDER.map(l=>`<button type="button" data-line="${l}"><i style="background:var(${LINES[l].v})"></i>${LINES[l].name}<b>${BY_LINE[l].length}</b></button>`).join('');
+
+/* ═══ graph ═════════════════════════════════════════════ */
+const COLW=154, ROWH=76, PADL=80, PADT=62;
+const GW=PADL*2+8*COLW, GH=PADT+7*ROWH+34;
+const POS={};
+PHASES.forEach(p=>{ const ids=BY_PHASE[p.n]; const off=(7-ids.length)/2;
+  ids.forEach((id,i)=>{ POS[id]={x:PADL+(p.n-1)*COLW, y:PADT+(i+off)*ROWH}; }); });
+const curve=(a,b)=>{ const A=POS[a],B=POS[b], dx=Math.max(38,(B.x-A.x)*.5);
+  return `M${A.x} ${A.y} C${A.x+dx} ${A.y} ${B.x-dx} ${B.y} ${B.x} ${B.y}`; };
+$('#graphInner').innerHTML = `<svg id="gsvg" width="${GW}" height="${GH}" viewBox="0 0 ${GW} ${GH}">
+  <g>${PHASES.map(p=>{const x=PADL+(p.n-1)*COLW; return `<line class="g-colline" x1="${x}" y1="${PADT-26}" x2="${x}" y2="${GH-14}"/><text class="g-col" x="${x}" y="${PADT-38}">${p.n}. ${p.title}</text>`;}).join('')}</g>
+  <g id="gEdges">${EDGES.map(([a,b])=>`<path class="g-edge" data-a="${a}" data-b="${b}" d="${curve(a,b)}" style="stroke:${cvar(a)}"/>`).join('')}</g>
+  <g id="gNodes">${IDS.map(id=>`<g class="g-node" data-mod="${id}" tabindex="0"><circle cx="${POS[id].x}" cy="${POS[id].y}" r="${HUBS.has(id)?9:7.5}" fill="var(--panel)" stroke="${cvar(id)}" stroke-width="${HUBS.has(id)?4.5:3}"/><text x="${POS[id].x}" y="${POS[id].y+22}">${M[id].name}</text></g>`).join('')}</g></svg>`;
+let zoom=1;
+const applyZoom=()=>{ const i=$('#graphInner'); i.style.transformOrigin='0 0'; i.style.transform=`scale(${zoom})`; i.style.width=GW*zoom+'px'; i.style.height=GH*zoom+'px'; };
+$('#zIn').onclick=()=>{ zoom=Math.min(1.5,zoom+.15); applyZoom(); };
+$('#zOut').onclick=()=>{ zoom=Math.max(.4,zoom-.15); applyZoom(); };
+$('#zFit').onclick=()=>{ zoom=Math.max(.4,Math.min(1,($('#graphScroll').clientWidth-8)/GW)); applyZoom(); };
+(()=>{ const sc=$('#graphScroll'); let on=false,sx,sy,l,t;
+  sc.addEventListener('pointerdown',e=>{ if(e.target.closest('.g-node')) return; on=true; sc.classList.add('drag'); sx=e.clientX; sy=e.clientY; l=sc.scrollLeft; t=sc.scrollTop; sc.setPointerCapture(e.pointerId); });
+  sc.addEventListener('pointermove',e=>{ if(!on) return; sc.scrollLeft=l-(e.clientX-sx); sc.scrollTop=t-(e.clientY-sy); });
+  ['pointerup','pointercancel'].forEach(ev=>sc.addEventListener(ev,()=>{ on=false; sc.classList.remove('drag'); }));
+})();
+
+/* ═══ selection & trace ═════════════════════════════════ */
+let sel=null, tracing=false;
+const walk=(id,key)=>{ const out=new Set(), q=[id];
+  while(q.length){ const c=q.pop(); (key==='up'?M[c].requires:USED[c]).forEach(n=>{ if(!out.has(n)){ out.add(n); q.push(n); } }); }
+  return out; };
+
+function paintTrace(){
+  const stage=$('#stage'), sc=$('#graphScroll');
+  $$('.station').forEach(b=>b.classList.remove('trace-up','trace-down'));
+  $$('.g-node').forEach(n=>n.classList.remove('near'));
+  $$('.g-edge').forEach(e=>e.classList.remove('up','down'));
+  stage.classList.toggle('tracing',tracing && !!sel);
+  sc.classList.toggle('focus',!!sel);
+  if(!sel) return;
+  const up=walk(sel,'up'), down=walk(sel,'down');
+  $$('.station').forEach(b=>{ const id=b.dataset.mod;
+    if(up.has(id)) b.classList.add('trace-up'); else if(down.has(id)) b.classList.add('trace-down'); });
+  $$('.g-node').forEach(n=>{ const id=n.dataset.mod; if(up.has(id)||down.has(id)) n.classList.add('near'); });
+  $$('.g-edge').forEach(e=>{ const a=e.dataset.a,b=e.dataset.b;
+    if(up.has(a)&&(b===sel||up.has(b))) e.classList.add('up');
+    else if((a===sel||down.has(a))&&down.has(b)) e.classList.add('down'); });
+}
+
+function renderDetail(){
+  const d=$('#detail');
+  if(!sel){ d.innerHTML=`<p class="empty">Pick any stop on the map to read its route, what it needs first, and what depends on it.</p>`; return; }
+  const m=M[sel], L=LINES[m.line], ph=PHASES[m.phase-1], down=walk(sel,'down');
+  d.style.setProperty('--d-c',`var(${L.v})`);
+  d.innerHTML=`
+    <span class="detail-line">${L.name}</span>
+    <h2>${m.name}</h2>
+    <div class="meta"><span>${m.owner}</span><span>Stage ${ph.n} · ${ph.title}</span>${HUBS.has(sel)?'<span>Interchange</span>':''}</div>
+    <p class="detail-copy">${m.purpose}</p>
+    <div class="route-box"><code>${m.route}</code><div class="route-acts">
+      <a class="btn" id="goRoute" href="#" target="_blank" rel="noopener">${ico('i-open')}Open</a>
+      <button class="btn" id="cpRoute" type="button">${ico('i-copy')}Route</button>
+      <button class="btn" id="cpBrief" type="button">${ico('i-file')}Brief</button></div></div>
+    <p class="sub">Needs to exist first</p>
+    ${m.requires.length?`<div class="deps">${m.requires.map(st).join('')}</div>`:'<p class="empty">Nothing. This is a starting point.</p>'}
+    <p class="sub">And these must hold</p>
+    <ul class="checks">${m.checks.map(c=>`<li>${ico('i-check')}<span>${c}</span></li>`).join('')}</ul>
+    <p class="sub">Depends on it</p>
+    ${USED[sel].length?`<div class="deps">${USED[sel].map(st).join('')}</div>`:'<p class="empty">Nothing yet. This is an end point.</p>'}
+    ${m.controls.length?`<p class="sub">Safeguards that apply</p><div class="deps">${m.controls.map(c=>`<button class="station" data-ctrl-jump="${c}" style="--c:var(${LINES[CTRL[c].line].v})">${CTRL[c].name}</button>`).join('')}</div>`:''}
+    <div class="impact"><b>If this is unavailable</b><p>${down.size?`${down.size} module${down.size>1?'s':''} downstream stop working correctly, starting with ${USED[sel].slice(0,2).map(i=>M[i].name).join(' and ')}.`:'Nothing downstream breaks. Failures stay contained here.'}</p></div>
+    <button class="btn trace-btn" id="traceBtn" type="button" aria-pressed="${tracing}">${ico('i-cross')}${tracing?'Clear the trace':'Trace across the map'}</button>`;
+  $('#goRoute').href=(store.get('host','https://schoolpro.digisoft.com.ng'))+m.route;
+  $('#cpRoute').onclick=()=>copy(m.route,'Route copied');
+  $('#cpBrief').onclick=()=>copy(brief(sel),'Brief copied as Markdown');
+  $('#traceBtn').onclick=()=>{ tracing=!tracing; renderDetail(); paintTrace(); };
+}
+
+function brief(id){ const m=M[id], ph=PHASES[m.phase-1];
+  return `## ${m.name}\n\n- Route: \`${m.route}\`\n- Owner: ${m.owner}\n- Line: ${LINES[m.line].name}\n- Stage: ${ph.n}. ${ph.title}\n\n${m.purpose}\n\n**Needs first:** ${m.requires.map(r=>M[r].name).join(', ')||'nothing'}\n\n**Preconditions:**\n${m.checks.map(c=>'- '+c).join('\n')}\n\n**Depended on by:** ${USED[id].map(r=>M[r].name).join(', ')||'nothing'}\n\n**Safeguards:** ${m.controls.map(c=>CTRL[c].name).join(', ')||'none specific'}\n`; }
+
+function select(id,scroll){
+  if(!M[id]) return; sel=id;
+  $$('[data-mod]').forEach(b=>{ const on=b.dataset.mod===id; if(b.tagName==='BUTTON') b.setAttribute('aria-pressed',on?'true':'false'); b.classList.toggle('sel',on); });
+  renderDetail(); paintTrace();
+  location.hash=`${curView}/${id}`;
+  if(scroll){ const n=$(`.view[data-view="${curView}"] [data-mod="${id}"]`); if(n&&n.scrollIntoView) n.scrollIntoView({block:'nearest',inline:'center',behavior:REDUCED?'auto':'smooth'}); }
+}
+
+function copy(t,msg){ navigator.clipboard?.writeText(t).then(()=>toast(msg),()=>toast('Copy blocked by the browser')); }
+let tt; function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('on'); clearTimeout(tt); tt=setTimeout(()=>el.classList.remove('on'),1900); }
+
+/* ═══ view switching ════════════════════════════════════ */
+let curView='cycle';
+function setView(v){
+  curView=v;
+  $$('#rail button').forEach(b=>b.setAttribute('aria-selected',b.dataset.view===v?'true':'false'));
+  $$('.view').forEach(s=>s.hidden=s.dataset.view!==v);
+  store.set('view',v); if(sel) location.hash=`${v}/${sel}`;
+  if(v==='graph'){ $('#zFit').click(); const n=sel&&POS[sel]; if(n){ const sc=$('#graphScroll'); sc.scrollLeft=Math.max(0,n.x*zoom-sc.clientWidth/2); } }
+}
+$('#rail').addEventListener('click',e=>{ const b=e.target.closest('[data-view]'); if(b) setView(b.dataset.view); });
+
+document.addEventListener('click',e=>{
+  const m=e.target.closest('[data-mod]'); if(m){ select(m.dataset.mod); return; }
+  const cj=e.target.closest('[data-ctrl-jump]'); if(cj){ setView('controls'); const c=$(`[data-ctrl="${cj.dataset.ctrlJump}"]`); c.scrollIntoView({block:'center',behavior:REDUCED?'auto':'smooth'}); c.animate([{transform:'scale(1)'},{transform:'scale(1.015)'},{transform:'scale(1)'}],{duration:520}); return; }
+  const lg=e.target.closest('#legend [data-line]'); if(lg){ setView('lines'); const la=$(`.lane[data-line="${lg.dataset.line}"]`); la.classList.add('live'); la.scrollIntoView({block:'center',behavior:REDUCED?'auto':'smooth'}); setTimeout(()=>la.classList.remove('live'),3600); return; }
+  const lt=e.target.closest('.lane-top'); if(lt){ lt.parentElement.classList.toggle('live'); return; }
+  const r=e.target.closest('.role'); if(r){ const on=r.getAttribute('aria-expanded')==='true'; $$('.role').forEach(x=>x.setAttribute('aria-expanded','false')); r.setAttribute('aria-expanded',on?'false':'true'); }
+});
+
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'&&e.key!==' ') return;
+  const a=e.target.closest?.('.dial-arc'); if(a){ e.preventDefault(); setView('cycle'); spotlight(+a.dataset.phase-1,true); return; }
+  const g=e.target.closest?.('.g-node'); if(g){ e.preventDefault(); select(g.dataset.mod); return; }
+  const r=e.target.closest?.('.role'); if(r){ e.preventDefault(); const on=r.getAttribute('aria-expanded')==='true';
+    $$('.role').forEach(x=>x.setAttribute('aria-expanded','false')); r.setAttribute('aria-expanded',on?'false':'true'); }
+});
+
+/* ═══ run the term ══════════════════════════════════════ */
+let runI=-1, runT=null;
+function spotlight(i,jump){
+  runI=i; $$('.phase').forEach((p,n)=>p.classList.toggle('on',n===i));
+  $('#runBar').style.width=((i+1)/9*100)+'%';
+  $$('#dialArcs .dial-arc').forEach((a,n)=>a.classList.toggle('on',n===i));
+  $('#dial').classList.toggle('dim',i>=0); setHub(i>=0?PHASES[i]:null);
+  if(jump||runT){ const el=$$('.phase')[i]; el&&el.scrollIntoView({block:'center',behavior:REDUCED?'auto':'smooth'}); }
+}
+function stopRun(){ clearInterval(runT); runT=null; $('#runBtn').innerHTML=ico('i-play')+`<span>${runI>=0&&runI<8?'Resume':'Run the term'}</span>`; }
+$('#runBtn').onclick=()=>{
+  if(runT){ stopRun(); return; }
+  $('#runBtn').innerHTML=ico('i-pause')+'<span>Pause</span>';
+  if(runI>=8) runI=-1;
+  spotlight(runI+1);
+  runT=setInterval(()=>{ if(runI>=8){ stopRun(); return; } spotlight(runI+1); },2100);
+};
+$('#runReset').onclick=()=>{ runI=-1; stopRun(); $$('.phase').forEach(p=>p.classList.remove('on')); $('#runBar').style.width='0'; $('#dial').classList.remove('dim'); $$('#dialArcs .dial-arc').forEach(a=>a.classList.remove('on')); setHub(null); };
+
+/* ═══ finder ════════════════════════════════════════════ */
+const INDEX=[
+  ...IDS.map(id=>({k:'m',id,label:M[id].name,sub:M[id].owner+' · '+LINES[M[id].line].name,meta:M[id].route,c:cvar(id),blob:(M[id].name+' '+M[id].route+' '+M[id].owner+' '+M[id].purpose).toLowerCase()})),
+  ...CONTROLS.map(c=>({k:'c',id:c.id,label:c.name,sub:'Safeguard',meta:c.rule,c:`var(${LINES[c.line].v})`,blob:(c.name+' '+c.rule+' '+c.detail).toLowerCase()})),
+  ...ROLES.map(r=>({k:'r',id:r.id,label:r.name,sub:'Role journey',meta:r.sub,c:`var(${LINES[r.line].v})`,blob:(r.name+' '+r.text).toLowerCase()})),
+  ...PHASES.map(p=>({k:'p',id:p.n,label:p.title,sub:'Stage '+p.n,meta:p.text,c:`var(${LINES[p.line].v})`,blob:(p.title+' '+p.text).toLowerCase()}))
+];
+let hits=[], at=0;
+function runFind(q){
+  q=q.trim().toLowerCase();
+  hits=(q?INDEX.filter(h=>h.blob.includes(q)):INDEX.filter(h=>h.k==='m')).slice(0,40); at=0;
+  $('#findList').innerHTML=hits.length?hits.map((h,i)=>`<button class="hit${i?'':' at'}" data-i="${i}" type="button"><i style="background:${h.c}"></i><span><b>${h.label}</b><small>${h.sub}</small></span><span class="mono">${h.meta}</span></button>`).join('')
+    :`<p class="empty" style="padding:18px">No stop, safeguard or role matches that. Try a route fragment such as <span class="mono">finance</span>.</p>`;
+}
+function moveHit(d){ if(!hits.length) return; at=(at+d+hits.length)%hits.length;
+  $$('.hit').forEach((h,i)=>h.classList.toggle('at',i===at)); $$('.hit')[at].scrollIntoView({block:'nearest'}); }
+function takeHit(i){ const h=hits[i]; if(!h) return; closeFind();
+  if(h.k==='m'){ if(curView==='controls'||curView==='runtime') setView('cycle'); select(h.id,true); }
+  if(h.k==='c'){ setView('controls'); $(`[data-ctrl="${h.id}"]`).scrollIntoView({block:'center'}); }
+  if(h.k==='r'){ setView('roles'); const r=$(`[data-role="${h.id}"]`); $$('.role').forEach(x=>x.setAttribute('aria-expanded','false')); r.setAttribute('aria-expanded','true'); r.scrollIntoView({block:'center'}); }
+  if(h.k==='p'){ setView('cycle'); spotlight(h.id-1,true); }
+}
+const openFind=()=>{ $('#finder').hidden=false; $('#findInput').value=''; runFind(''); $('#findInput').focus(); };
+const closeFind=()=>{ $('#finder').hidden=true; };
+$('#openFind').onclick=openFind;
+$('#findInput').addEventListener('input',e=>runFind(e.target.value));
+$('#findList').addEventListener('click',e=>{ const b=e.target.closest('.hit'); if(b) takeHit(+b.dataset.i); });
+$('#finder').addEventListener('click',e=>{ if(e.target===$('#finder')) closeFind(); });
+$('#findInput').addEventListener('keydown',e=>{
+  if(e.key==='ArrowDown'){ e.preventDefault(); moveHit(1); }
+  if(e.key==='ArrowUp'){ e.preventDefault(); moveHit(-1); }
+  if(e.key==='Enter'){ e.preventDefault(); takeHit(at); }
+});
+
+/* ═══ chrome ════════════════════════════════════════════ */
+const HOSTS=[['https://schoolpro.digisoft.com.ng','schoolpro.digisoft.com.ng'],['http://localhost:3000','localhost:3000'],['','relative paths']];
+function setHost(i){ store.set('host',HOSTS[i][0]); store.set('hostI',i); $('#baseLabel').textContent=HOSTS[i][1]; if(sel) renderDetail(); }
+$('#hostBtn').onclick=()=>{ const i=(+store.get('hostI',0)+1)%HOSTS.length; setHost(i); toast('Open route now points at '+HOSTS[i][1]); };
+function setTheme(t){ document.documentElement.dataset.theme=t; store.set('theme',t);
+  $('#themeIco').innerHTML=`<use href="#${t==='dark'?'i-sun':'i-moon'}"/>`; }
+$('#themeBtn').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
+$('#printBtn').onclick=()=>window.print();
+
+document.addEventListener('keydown',e=>{
+  const typing=/^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+  if(e.key==='Escape'){ if(!$('#finder').hidden) closeFind(); else if(tracing){ tracing=false; renderDetail(); paintTrace(); } return; }
+  if(typing) return;
+  if(e.key==='/'||((e.metaKey||e.ctrlKey)&&e.key==='k')){ e.preventDefault(); openFind(); return; }
+  const views=['cycle','lines','graph','roles','controls','runtime'];
+  if(/^[1-6]$/.test(e.key)) setView(views[+e.key-1]);
+  if(e.key==='t'&&sel){ tracing=!tracing; renderDetail(); paintTrace(); }
+});
+
+/* ═══ boot ══════════════════════════════════════════════ */
+setTheme(store.get('theme','dark'));
+setHost(+store.get('hostI',0));
+const h=(location.hash||'').replace('#','').split('/');
+setView(['cycle','lines','graph','roles','controls','runtime'].includes(h[0])?h[0]:store.get('view','cycle'));
+select(M[h[1]]?h[1]:'schools',false);
+applyZoom();
+</script>
+</body>
+</html>

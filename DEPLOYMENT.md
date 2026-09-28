@@ -170,36 +170,72 @@ writes forward slashes and refuses to include an env file.
 
 `deploy/` is gitignored, so it never enters the repository.
 
+#### Delete `.next` on the server before extracting
+
+Not optional, and not tidiness. Extracting an archive over a directory can only
+**overwrite and add** — it can never remove a file the new build no longer
+produces. So every upload onto an existing `.next` leaves the previous build's
+chunks behind, and they accumulate: after three deploys the folder is three
+builds deep and only the newest is referenced.
+
+Usually that is only wasted disk. It stops being harmless when a stale file
+shadows something the new build expects, and the symptom is the kind that wastes
+an afternoon: most of the application works, one route throws, and the page's own
+code is provably fine. That is exactly how the super-admin System Settings screen
+failed on 21 September 2026 — it rendered 200 with real content in dev and in a
+local production build against an identically-built database, and failed only on
+the host. Deleting `.next` and extracting clean fixed it.
+
+So the order is:
+
+1. Upload the zip to the application root.
+2. **Delete the whole `.next` folder** in that directory.
+3. Extract the zip.
+4. Restart.
+
+The site returns 500 between steps 2 and 3. That is a minute or two, and it is
+worth it: it is the only way to know the code on disk is this build and nothing
+else.
+
 ### Check the database, then apply migrations
 
-After uploading the new bundle, run `check:cpanel` from Setup Node.js App, or
-`node cpanel-check.mjs` in the activated app environment. The bundled check uses
-the MariaDB adapter and reports connection status, table count, and whether the
-migration, user, and school tables exist. It makes no changes. Stop if it cannot
-connect; a successful native library load from the old diagnostic is not a
-database connection check.
+After uploading the new bundle, run **check:cpanel** from *Setup Node.js App >
+Run JS script*. The bundled check uses the MariaDB adapter and reports connection
+status, table count, and whether the migration, user and school tables exist. It
+makes no changes. Stop if it cannot connect; a successful native library load from
+the old diagnostic is not a database connection check.
 
-The upload contains `prisma/schema.prisma` and `prisma/migrations`, but it does
-not contain the Prisma CLI: that is a local development dependency. Do not run
-`npx prisma migrate deploy` through cPanel's **Run JS Script** button; it is not
-an npm script in the bundle and `npx` may attempt an install on this constrained
-account. Apply migrations from your local workspace after the host enables
-remote MySQL access for your IP. In a private shell, point `DATABASE_URL` at the
-host's remote MySQL hostname with the production database name and credentials;
-`localhost` in the cPanel app setting would refer to your own machine if copied
-unchanged. Leave the cPanel app's `localhost` URL as it is:
+**This account has no terminal**, so `node cpanel-check.mjs` by hand is not an
+option — the *Run JS script* dropdown is the only way to run it, and it appears
+there because the deployed `package.json` maps `check:cpanel` to it.
+
+Applying migrations is the step with no route on the host. The upload carries
+`prisma/schema.prisma` and `prisma/migrations`, but not the Prisma CLI: that is a
+local development dependency, and `npx` on this constrained account may try to
+install. So pick whichever of these two is available to you:
+
+**If the host will whitelist your IP for remote MySQL**, apply them from your own
+machine. Point `DATABASE_URL` at the host's *remote* MySQL hostname with the
+production database and credentials — `localhost` copied from the cPanel app
+setting would mean your own machine. Leave the cPanel app's `localhost` URL alone:
 
 ```bash
 npx prisma migrate deploy
 npx prisma migrate status
 ```
 
-If remote MySQL is unavailable, ask the hosting provider to run the same command
-with the matching Prisma CLI in an isolated tooling environment that can access
-the new database. Confirm the CLI reports no pending or failed migrations, then
-run `check:cpanel` again and confirm the migration table is present before
-seeding. `migrate deploy` only applies pending migrations and does not reset data;
-do not use `migrate dev` against production.
+`migrate deploy` only applies what is pending and does not reset data. Never use
+`migrate dev` against production.
+
+**If remote MySQL is not available**, use the SQL file route in *Releasing over a
+database used for testing* below. `npm run build:release-sql` writes a single file
+that phpMyAdmin can import, including the migration history, so the schema and its
+record arrive together with no CLI on either end. That path is for a database you
+are starting fresh; it does not migrate a database that already holds data you
+want to keep.
+
+Either way, run **check:cpanel** again afterwards and confirm the migration table
+is present before seeding.
 
 ### Create the first account (first deploy only)
 
@@ -226,6 +262,151 @@ email. The deployed `package.json` also maps cPanel's `seed` and
 
 Then **Restart** the application from the cPanel UI. Passenger caches the running
 process; an upload alone does not pick up new code.
+
+## Releasing over a database used for testing
+
+A database that has been clicked through during testing carries rows nobody wants
+in a release: half-finished payroll runs, test vouchers, fixtures named `ZZ ...`.
+Deleting them table by table is slow and easy to get wrong, because foreign keys
+mean the order matters. Starting the schema again is faster and provably complete.
+
+**This account has no terminal.** The only ways in are **phpMyAdmin** and *Setup
+Node.js App > Run JS script*, which can run only the scripts already listed in the
+deployed `package.json`. That rules out `npx prisma migrate deploy` on the host:
+the Prisma CLI is a devDependency and is deliberately not in the bundle. So the
+schema arrives as a single SQL file instead.
+
+**This destroys every row in the target database. There is no undo.** Take a
+backup first even if you are certain — "certain" and "the wrong database name" are
+not mutually exclusive.
+
+With no terminal, take it in phpMyAdmin: select the database in the left sidebar,
+*Export* > *Quick* > *SQL* > *Go*, and keep the file it downloads. It is the only
+way back if the wrong database gets picked, and it takes seconds.
+
+If you do have remote MySQL access from your own machine — the host has to
+whitelist the IP first — `npm run backup` with `DATABASE_URL` pointing at
+production does the same thing into `backups/`.
+
+### 1. Build the release schema file
+
+On your machine:
+
+```bash
+npm run build:release-sql -- digisof1_schoolpro --reset
+```
+
+Two arguments, both of which matter.
+
+**The database name.** phpMyAdmin has two Import tabs that look identical — one on
+the server page, one inside a database — and importing from the server page fails
+on the very first statement with `#1046 - No database selected`, which reads like
+a problem with the file. Naming the database puts a `USE` line at the top so the
+file works from either tab.
+
+**`--reset`.** Without it the file creates tables and drops nothing, so importing
+it over a database that still holds the tables stops on the first statement with
+`#1050 - Table 'users' already exists`. With it the file first drops all 68 tables
+this schema owns, then recreates them — so one import turns a database full of
+test data into a fresh release schema, and step 2 below becomes unnecessary.
+
+`--reset` is opt-in for a reason: **it destroys every row in the target
+database.** The filename says which kind you built —
+`release-reset-<database>-<timestamp>.sql` versus
+`release-schema-<database>-<timestamp>.sql` — and so does the file's own header,
+in capitals. Read the first twenty lines before importing; that is the last point
+at which the target is still a decision.
+
+Either file is about 88 KB and contains the 67 tables exactly as applying all 16
+migrations in order would leave them (generated by Prisma from `schema.prisma`,
+not hand-written), plus the `_prisma_migrations` table with one row per migration
+marked applied with its real checksum.
+
+That last part is what keeps it honest. Without the history the database would
+have the right tables and no record of them, and the next `prisma migrate deploy`
+would try to apply all 16 over a populated schema and fail.
+
+The drops name every table individually rather than dropping the database, so
+anything else living in the same database is left alone. Foreign keys are switched
+off for the whole file, so no table has to be dropped before its parent.
+
+Both forms were verified end to end against a local MySQL 8. The plain file was
+imported into an empty database **with no database selected**, which is the case
+that fails without the `USE` line. The reset file was imported over a database
+that already held all 68 tables and a row in `users` — the exact `#1050` condition
+— after first confirming the plain file failed there. Both finished with 68
+tables, 16 history rows, no user rows, `migrate status` reporting *"Database
+schema is up to date!"* and `migrate diff` reporting *"No difference detected."*,
+then the seed creating both super admins and `check:cpanel` reporting `Table
+count: 68` with `true` for all three table checks.
+
+Neither file contains a school, users or demo data.
+
+### 2. Drop and recreate the database — only without `--reset`
+
+**Skip this step if you built the file with `--reset`.** It has the drops in it,
+so the import replaces the tables by itself and the database, its user and its
+privileges are all left as they are.
+
+If you built the plain file, empty the database first: *Databases > MySQL
+Databases*, delete it, create it again with **the same name**, and re-add the user
+with **ALL PRIVILEGES**. Keeping the name means `DATABASE_URL` in the app settings
+does not change, which removes the most common way this goes wrong.
+
+Do not use `prisma migrate reset` for either path. It drops and recreates in one
+step, which reads as convenient right up to the moment it is pointed at the wrong
+`DATABASE_URL`.
+
+### 3. Import the schema through phpMyAdmin
+
+*phpMyAdmin* > *Import* > choose the `.sql` file > *Go*. The file carries its own
+`USE`, so either Import tab works.
+
+Afterwards the sidebar should list **68** tables — the 67 plus
+`_prisma_migrations`, which should hold 16 rows. If the import stopped partway,
+read the error rather than re-running: `#1046` means the file was built without a
+database name, and `#1050` means it was built without `--reset` over a database
+that still had the tables.
+
+### 4. Confirm it from the application's side
+
+*Setup Node.js App > Run JS script* > **check:cpanel**.
+
+It makes no changes. It should print a connection, `Table count: 68`, and `true`
+for the migration, user and school tables. A schema that looks right in
+phpMyAdmin but not here means the app is pointed at a different database.
+
+### 5. Create the super admin accounts
+
+*Run JS script* > **seed** (or `seed:super-admin` — both map to
+`node seed-super-admin.mjs`).
+
+`SUPER_ADMIN_PASSWORD` and `SECOND_SUPER_ADMIN_PASSWORD` must be set in the app's
+environment variables first, at least eight characters each. It creates
+`superadmin@schoolpro.ng` and `admin@schoolpro.ng` with hashed credentials and
+**nothing else** — no school, no classes, no demo data. That is the correct state
+for a release: the first super admin signs in and creates the real school.
+
+It prints `2 created, 0 repaired, 0 already present`. Re-running is safe and
+leaves existing passwords alone.
+
+**Then delete both password variables.** They sit in the app configuration in
+plain text and are visible to anyone with cPanel access; once the accounts exist
+they are not needed again.
+
+### 6. Restart, then sign in
+
+**Restart** from *Setup Node.js App* — Passenger caches the running process, so an
+upload or a schema change alone does not take effect. Then sign in at
+`/auth/login` as `superadmin@schoolpro.ng` and create the school.
+
+### What not to ship
+
+`npm run seed:demo` builds a full demo school — sessions, terms, classes, 65
+learners, fees, payroll, the lot. It is for demonstrating and for local testing,
+and it is not in the bundle's script list. Running it against a release database
+would give the customer somebody else's learners to delete by hand. If a prospect
+needs a populated system to look at, give them a separate database.
 
 ## Verifying
 
