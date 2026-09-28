@@ -7,6 +7,8 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
+    "prepare:local-proxy": "npm run build && node scripts/prepare-local-standalone.mjs",
+    "start:local-proxy": "node --env-file=.env --env-file=.env.local .next/standalone/server.js",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "type-check": "tsc --noEmit",
@@ -18,11 +20,14 @@
     "seed:super-admin": "tsx prisma/seed.ts",
     "seed:demo": "tsx prisma/seed-demo-data.ts",
     "check:cpanel": "node cpanel-check.mjs",
+    "check:integrity": "tsx scripts/run-integrity-checks.ts",
     "backup": "tsx scripts/backup-database.ts",
     "restore": "tsx scripts/restore-database.ts",
     "preview": "next build && next start",
     "build:deploy": "node scripts/package-deploy.mjs",
-    "package:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/zip-deploy.ps1"
+    "build:release-sql": "node scripts/build-release-sql.mjs",
+    "package:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/zip-deploy.ps1",
+    "seed:test-scenario": "tsx scripts/seed-test-scenario.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.8.0",

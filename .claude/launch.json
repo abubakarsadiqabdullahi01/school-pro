@@ -10,6 +10,15 @@
       ],
       "port": 3010,
       "autoPort": true
+    },
+    {
+      "name": "school-pro-proxy",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "start:local-proxy"
+      ],
+      "port": 3000
     }
   ]
 }

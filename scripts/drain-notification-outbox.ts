@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db"
-import { drainOutbox, requeueStalled } from "@/lib/notifications/outbox.server"
+import { drainOutbox, reconcileEmailDeliveryStatuses, requeueStalled } from "@/lib/notifications/outbox.server"
 import { resolveProviders } from "@/lib/notifications/providers"
 
 /**
@@ -39,7 +39,7 @@ async function main() {
     // writing to a log file has a problem worth shouting about.
     console.warn(
       `${stamp()} [notifications] NO PROVIDER CONFIGURED - messages are being written to this ` +
-        `log and NOT delivered. Set TERMII_API_KEY/TERMII_SENDER_ID and RESEND_API_KEY/RESEND_FROM.`,
+        `log and NOT delivered. Set SMARTSMS_API_TOKEN and SMARTSMS_SENDER_ID.`,
     )
   }
 
@@ -63,8 +63,10 @@ async function main() {
   }
 
   const remaining = await prisma.notificationOutbox.count({ where: { status: "QUEUED" } })
+  const delivery = await reconcileEmailDeliveryStatuses(BATCH)
   console.info(
-    `${stamp()} [notifications] sent=${sent} failed=${failed} skipped=${skipped} still queued=${remaining}`,
+    `${stamp()} [notifications] sent=${sent} failed=${failed} skipped=${skipped} still queued=${remaining} ` +
+      `email checked=${delivery.checked} delivered=${delivery.delivered} delivery-failed=${delivery.failed}`,
   )
 
   await prisma.$disconnect()

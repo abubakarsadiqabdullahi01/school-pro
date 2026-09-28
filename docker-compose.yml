@@ -19,6 +19,13 @@ services:
       # behaves identically here and in production.
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      # cPanel's MySQL authenticates with the native plugin; MySQL 8's default
+      # is caching_sha2_password, which the MariaDB driver cannot complete over
+      # a plaintext connection unless the server has the account cached. That
+      # cache is lost on every container restart, so the first connection after
+      # one failed with ER_CANNOT_RETRIEVE_RSA_KEY and the Prisma pool timed out
+      # having created nothing. Matching production removes the difference.
+      - --default-authentication-plugin=mysql_native_password
     volumes:
       - school-pro-db:/var/lib/mysql
     healthcheck:
@@ -26,6 +33,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Production-like local edge. It proxies to the Next.js process running on
+  # the Windows host, while keeping the database-only default unchanged.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: school-pro-nginx
+    restart: unless-stopped
+    profiles: ["proxy"]
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   school-pro-db:
