@@ -90,9 +90,16 @@ export async function verifyGatewayTransaction(
     : gatewayVerificationIdentityProblems(expected, verified)
   const label = providerLabel(transaction.provider)
 
+  // Paystack is asked outside any lock, so the webhook may have posted this payment while we
+  // waited. Every write below is conditional on the status read above and on no receipt
+  // existing; otherwise a parent refreshing the status page could walk a settled payment back
+  // to PENDING, which blocks its refund, or into review with its receipt still standing.
+  const unchanged = { id: transaction.id, status: transaction.status, paymentId: null }
+  const current = async () => (await prisma.gatewayTransaction.findUniqueOrThrow({ where: { id: transaction.id }, select: { status: true } })).status
+
   if (problems.length > 0) {
-    await prisma.gatewayTransaction.update({
-      where: { id: transaction.id },
+    const flagged = await prisma.gatewayTransaction.updateMany({
+      where: unchanged,
       data: {
         status: "REQUIRES_REVIEW",
         providerTransactionId: verified.providerTransactionId,
@@ -107,7 +114,7 @@ export async function verifyGatewayTransaction(
         failureMessage: `${label} verification did not match the immutable local checkout: ${problems.join("; ")}`,
       },
     })
-    return "REQUIRES_REVIEW"
+    return flagged.count === 1 ? "REQUIRES_REVIEW" : current()
   }
 
   if (successful) {
@@ -131,8 +138,8 @@ export async function verifyGatewayTransaction(
   if (["failed", "reversed"].includes(verified.status)) status = "FAILED"
   else if (verified.status === "abandoned") status = "ABANDONED"
 
-  await prisma.gatewayTransaction.update({
-    where: { id: transaction.id },
+  const recorded = await prisma.gatewayTransaction.updateMany({
+    where: unchanged,
     data: {
       status,
       providerTransactionId: verified.providerTransactionId,
@@ -152,7 +159,7 @@ export async function verifyGatewayTransaction(
         : {}),
     },
   })
-  return status
+  return recorded.count === 1 ? status : current()
 }
 
 export type RecoverySummary = {

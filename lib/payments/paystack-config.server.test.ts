@@ -6,7 +6,7 @@ const baseEnvironment = {
   PAYSTACK_SECRET_KEY: "sk_test_example-not-a-real-secret",
   PAYSTACK_PUBLIC_KEY: "pk_test_example-not-a-real-key",
   PAYSTACK_ENV: "test",
-  PAYSTACK_WEBHOOK_URL: "https://schoolpro.digisoft.com.ng/api/webhooks/paystack/",
+  PAYSTACK_WEBHOOK_URL: "https://schoolpro.digisoft.com.ng/api/webhooks/paystack",
   NEXTAUTH_URL: "https://schoolpro.digisoft.com.ng",
 }
 
@@ -41,5 +41,13 @@ describe("loadPlatformPaystackConfig", () => {
       PAYSTACK_WEBHOOK_URL: "http://localhost:3000/api/webhooks/paystack/",
     })
     expect(config.applicationOrigin).toBe("http://localhost:3000")
+  })
+
+  it("never hands out a webhook URL ending in a slash, which Next would answer with a redirect", () => {
+    const config = loadPlatformPaystackConfig({
+      ...baseEnvironment,
+      PAYSTACK_WEBHOOK_URL: "https://schoolpro.digisoft.com.ng/api/webhooks/paystack/",
+    })
+    expect(config.webhookUrl).toBe("https://schoolpro.digisoft.com.ng/api/webhooks/paystack")
   })
 })

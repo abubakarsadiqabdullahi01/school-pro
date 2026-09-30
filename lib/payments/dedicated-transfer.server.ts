@@ -5,7 +5,8 @@ import { postStudentPaymentInTransaction } from "@/lib/finance/payment-ledger.se
 import { formatNaira } from "@/lib/money"
 import { queuePaymentReceiptInTransaction } from "@/lib/notifications/payment-receipt.server"
 import { koboToDecimalNaira } from "./checkout-rules"
-import { dedicatedTransferProblems, splitDedicatedTransfer } from "./dedicated-account-rules"
+import { dedicatedTransferProblems, isUnfinishedVerification, pickDedicatedAccount, splitDedicatedTransfer } from "./dedicated-account-rules"
+import { SETTLED_BY_HAND_PREFIX } from "./gateway-event-notes"
 import { adapterForPaymentConfiguration } from "./payment-settings.server"
 
 function eventData(payload: Prisma.JsonValue | null): Record<string, unknown> {
@@ -47,20 +48,39 @@ export async function processDedicatedTransferEvent(event: GatewayEvent): Promis
   const customerCode = text(data.customerCode, 64)
   const receiverAccountNumber = text(data.receiverAccountNumber, 20)
 
-  const account = await prisma.dedicatedAccount.findFirst({
+  // Somebody already credited this transfer by hand and closed it on the payment monitor.
+  // The receipt they made carries no link to the Paystack reference, so this is the only
+  // thing standing between a redelivery and the student being credited twice.
+  const settledByHand = await prisma.gatewayEvent.findFirst({
+    where: { provider: event.provider, environment: event.environment, reference, status: "IGNORED",
+      lastError: { startsWith: SETTLED_BY_HAND_PREFIX }, id: { not: event.id } },
+    select: { id: true },
+  })
+  if (settledByHand) {
+    await prisma.gatewayEvent.update({
+      where: { id: event.id },
+      data: { status: "IGNORED", processedAt: new Date(), nextAttemptAt: null,
+        lastError: "This transfer was settled by hand on the payment monitor, so it is not credited again" },
+    })
+    return "already_processed"
+  }
+
+  if (!receiverAccountNumber && !customerCode) throw new Error("No dedicated account matched this transfer")
+  const account = pickDedicatedAccount(await prisma.dedicatedAccount.findMany({
     where: {
       provider: event.provider,
       environment: event.environment,
+      // The webhook inbox already knows the school when the event came in on a school's own
+      // connection; an account belonging to any other school is never a candidate then.
+      ...(event.schoolId ? { schoolId: event.schoolId } : {}),
       OR: [
         ...(receiverAccountNumber ? [{ accountNumber: receiverAccountNumber }] : []),
         ...(customerCode ? [{ providerCustomerCode: customerCode }] : []),
       ],
     },
     include: { configuration: true },
-  })
-  if (!account || (!receiverAccountNumber && !customerCode)) {
-    throw new Error("No dedicated account matched this transfer")
-  }
+  }), { receiverAccountNumber, customerCode })
+  if (!account) throw new Error("No dedicated account matched this transfer")
 
   const already = await prisma.gatewayTransaction.findUnique({
     where: { provider_reference: { provider: event.provider, reference } },
@@ -72,11 +92,18 @@ export async function processDedicatedTransferEvent(event: GatewayEvent): Promis
   }
 
   const verified = await (await adapterForPaymentConfiguration(account.configurationId)).verifyPayment(reference)
+  // Not a verdict yet. Throwing leaves nothing written and the processor retries with
+  // backoff; if Paystack never finishes, the event is parked as DEAD and shows on the monitor.
+  if (isUnfinishedVerification(verified.status)) {
+    throw new Error(`Paystack has not finished this transfer yet (${verified.status}); it will be verified again`)
+  }
   const problems = dedicatedTransferProblems({
     expectedEnvironment: account.environment === "TEST" ? "test" : "live",
     accountMode: account.configuration.accountMode,
     expectedSubaccountCode: account.configuration.subaccountCode,
     expectedSplitCode: account.configuration.dedicatedSplitCode,
+    expectedCustomerCode: account.providerCustomerCode,
+    expectedAccountNumber: account.accountNumber,
     verified,
   })
   const amount = koboToDecimalNaira(verified.amountKobo)

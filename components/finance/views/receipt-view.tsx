@@ -13,7 +13,8 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertTriangle, CheckCircle2, ReceiptText } from "lucide-react"
 import { InfoGuide } from "@/components/ui/info-guide"
-import { RefundPaymentButton } from "@/components/finance/refund-payment-button"
+import { PendingRefundDecision, RefundPaymentButton } from "@/components/finance/refund-payment-button"
+import { getEffectivePermissionsForCurrentUser, requireActor } from "@/lib/authz"
 
 
 /**
@@ -44,6 +45,10 @@ export async function ReceiptView({
     if (!receipt.success) notFound()
     data = receipt.data
   }
+  // Only the finance view offers refunds, so only it asks who is looking.
+  const viewer = canRefund
+    ? { actor: await requireActor(), permissions: await getEffectivePermissionsForCurrentUser() }
+    : null
   const paymentDate = new Date(data.paymentDate).toLocaleDateString()
   const paymentMethod = paymentMethodLabel(data.paymentMethod)
   const fileName = `receipt ${data.school.code} ${data.student.admissionNo} ${data.receiptNo}`
@@ -181,8 +186,10 @@ export async function ReceiptView({
         </div>
         <div className="flex gap-2">
           {/* An online receipt is refunded through the gateway from Online Payments, where the
-              money actually goes back to the payer; this button only reverses cash-desk receipts. */}
-          {canRefund && data.status === "COMPLETED" && !data.online && <RefundPaymentButton paymentId={data.id} />}
+              money actually goes back to the payer, and one made from held transfer money goes
+              back to held money; this button only reverses cash-desk receipts. */}
+          {canRefund && data.status === "COMPLETED" && !data.online && !data.fromHeldTransfer && !data.pendingRefund
+            && viewer?.permissions.includes("finance.collect_payments") && <RefundPaymentButton paymentId={data.id} />}
           <PrintButton label={status.stamp ? "Print copy" : "Print Receipt"} />
           <BrandedDocumentDownload
             document={document}
@@ -190,6 +197,17 @@ export async function ReceiptView({
           />
         </div>
       </div>
+
+      {viewer && data.pendingRefund && data.status === "COMPLETED" && (
+        <PendingRefundDecision
+          requestId={data.pendingRefund.id}
+          reason={data.pendingRefund.reason}
+          requestedByName={data.pendingRefund.requestedByName}
+          requestedAt={data.pendingRefund.requestedAt}
+          canApprove={viewer.permissions.includes("finance.approve_refunds")}
+          isRequester={data.pendingRefund.requestedBy === viewer.actor.userId}
+        />
+      )}
 
       <Card
         data-print-document

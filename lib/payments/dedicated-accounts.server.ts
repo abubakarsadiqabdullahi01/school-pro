@@ -5,6 +5,7 @@ import { checkoutEnvironment } from "./checkout-environment"
 import {
   dedicatedAccountReadinessProblems,
   dedicatedBankFor,
+  heldTransferProblem,
   dedicatedCustomerDomain,
   dedicatedCustomerEmail,
   dedicatedSplitShare,
@@ -16,6 +17,32 @@ import { adapterForPaymentConfiguration, paystackConfigurationForSchool } from "
  * Creating a student's dedicated account, shared by the finance actions and by the webhook
  * processor (which finishes the job once Paystack confirms a customer's identification).
  */
+
+/**
+ * Locks one school's held-money row, then the transfer it came from, for the rest of the
+ * transaction, and refuses when the transfer no longer stands (see `heldTransferProblem`).
+ *
+ * Every path that decides where held money goes (apply it, return it outside Paystack,
+ * refund it through Paystack, move it back) takes this lock before checking the others, so
+ * two of them started at the same moment are serialized rather than both passing their
+ * checks. The chargeback path takes the same two locks in the same order, so a dispute
+ * cannot close between a check here and the write that follows it.
+ *
+ * Both reads are locking reads, deliberately: a plain SELECT first would fix this
+ * transaction's snapshot before the lock is held, and later reads would miss what the
+ * transaction it waited for had just committed.
+ */
+export async function lockHeldMoney(tx: Prisma.TransactionClient, id: string, schoolId: string): Promise<void> {
+  const [held] = await tx.$queryRaw<Array<{ gatewayTransactionId: string }>>(
+    Prisma.sql`SELECT gatewayTransactionId FROM UnappliedPayment WHERE id = ${id} AND schoolId = ${schoolId} FOR UPDATE`,
+  )
+  if (!held) return
+  const [transfer] = await tx.$queryRaw<Array<{ status: string }>>(
+    Prisma.sql`SELECT status FROM GatewayTransaction WHERE id = ${held.gatewayTransactionId} FOR UPDATE`,
+  )
+  const problem = heldTransferProblem(transfer?.status ?? null)
+  if (problem) throw new Error(problem)
+}
 
 export async function readyConfiguration(schoolId: string) {
   const environment = checkoutEnvironment()

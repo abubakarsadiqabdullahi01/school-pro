@@ -7,7 +7,7 @@ import { z } from "zod"
 import { recordAudit } from "@/lib/audit"
 import { requireActor, requirePermission } from "@/lib/authz"
 import { prisma } from "@/lib/db"
-import { postStudentPaymentInTransaction } from "@/lib/finance/payment-ledger.server"
+import { postStudentPaymentInTransaction, reverseStudentPaymentInTransaction } from "@/lib/finance/payment-ledger.server"
 import { checkoutEnvironment } from "@/lib/payments/checkout-environment"
 import {
   LIVE_DEDICATED_BANKS,
@@ -15,9 +15,10 @@ import {
   dedicatedCustomerEmail,
   normalizeNigerianPhone,
   dedicatedBankFor,
+  heldReturnConfirmationProblems,
   splitDedicatedTransfer,
 } from "@/lib/payments/dedicated-account-rules"
-import { assignDedicatedAccountForStudent, readiness, readyConfiguration } from "@/lib/payments/dedicated-accounts.server"
+import { assignDedicatedAccountForStudent, lockHeldMoney, readiness, readyConfiguration } from "@/lib/payments/dedicated-accounts.server"
 import { adapterForPaymentConfiguration } from "@/lib/payments/payment-settings.server"
 
 type Result<T> = { success: true; data: T } | { success: false; error: string }
@@ -26,7 +27,7 @@ const message = (error: unknown, fallback: string) => error instanceof Error ? e
 /** Students assigned per click. Each costs two Paystack writes; this keeps well under limits. */
 const ASSIGN_BATCH_SIZE = 25
 
-async function scoped(permission: "finance.manage_gateway" | "finance.view_reports" | "finance.collect_payments") {
+async function scoped(permission: "finance.manage_gateway" | "finance.view_reports" | "finance.collect_payments" | "finance.approve_refunds") {
   const actor = await requirePermission(permission)
   if (!actor.schoolId) throw new Error("Select a school before managing dedicated accounts")
   return { actor, schoolId: actor.schoolId }
@@ -78,21 +79,27 @@ export async function getDedicatedAccountOverview(input: unknown = {}) {
     const students = await prisma.student.findMany({
       where: {
         schoolId,
-        user: { isActive: true },
-        ...(query ? { OR: [{ admissionNo: { contains: query } }, { user: { firstName: { contains: query } } }, { user: { lastName: { contains: query } } }] } : {}),
+        AND: [
+          // An archived student is left off, unless they still hold a live account: that one
+          // must stay reachable, or nobody can deactivate it and transfers keep arriving.
+          { OR: [{ user: { isActive: true } }, { dedicatedAccounts: { some: { status: "ACTIVE", environment } } }] },
+          ...(query ? [{ OR: [{ admissionNo: { contains: query } }, { user: { firstName: { contains: query } } }, { user: { lastName: { contains: query } } }] }] : []),
+        ],
         ...(filters.missingOnly ? { dedicatedAccounts: { none: { status: "ACTIVE", environment } } } : {}),
       },
       orderBy: [{ user: { lastName: "asc" } }, { user: { firstName: "asc" } }],
       take: 200,
       select: {
         id: true, admissionNo: true,
-        user: { select: { firstName: true, lastName: true } },
+        user: { select: { firstName: true, lastName: true, isActive: true } },
         dedicatedAccounts: { where: { status: "ACTIVE", environment }, select: { id: true, accountNumber: true, accountName: true, bankName: true, createdAt: true } },
         dedicatedIdentifications: { where: { environment }, select: { status: true, failureReason: true } },
       },
     })
     const [withAccount, totalStudents] = await Promise.all([
-      prisma.dedicatedAccount.count({ where: { schoolId, environment, status: "ACTIVE" } }),
+      // Counted over the same students as the total, so "still without one" adds up; an
+      // archived student's live account is listed above with its badge instead.
+      prisma.dedicatedAccount.count({ where: { schoolId, environment, status: "ACTIVE", student: { user: { isActive: true } } } }),
       prisma.student.count({ where: { schoolId, user: { isActive: true } } }),
     ])
     return {
@@ -108,6 +115,7 @@ export async function getDedicatedAccountOverview(input: unknown = {}) {
           id: student.id,
           admissionNo: student.admissionNo,
           name: `${student.user.firstName} ${student.user.lastName}`,
+          archived: !student.user.isActive,
           identification: student.dedicatedIdentifications[0] ?? null,
           account: student.dedicatedAccounts[0]
             ? { ...student.dedicatedAccounts[0], createdAt: student.dedicatedAccounts[0].createdAt.toISOString() }
@@ -191,7 +199,7 @@ export async function deactivateDedicatedAccount(input: unknown): Promise<Result
 
 export async function getUnappliedPayments(input: unknown = {}) {
   try {
-    const { schoolId } = await scoped("finance.view_reports")
+    const { actor, schoolId } = await scoped("finance.view_reports")
     const { status } = z.object({ status: z.enum(["OPEN", "APPLIED", "RETURNED"]).optional() }).parse(input)
     const rows = await prisma.unappliedPayment.findMany({
       where: { schoolId, status: status ?? "OPEN" },
@@ -208,6 +216,10 @@ export async function getUnappliedPayments(input: unknown = {}) {
       where: { schoolId, studentId: { in: rows.map((row) => row.studentId) }, balance: { gt: 0 }, status: { in: ["UNPAID", "PARTIAL"] } },
     })
     const owingByStudent = new Map(owing.map((row) => [row.studentId, row._sum.balance?.toFixed(2) ?? "0.00"]))
+    const requesterIds = [...new Set(rows.map((row) => row.returnRequestedBy).filter((id): id is string => Boolean(id)))]
+    const requesters = new Map((await prisma.user.findMany({
+      where: { id: { in: requesterIds } }, select: { id: true, firstName: true, lastName: true },
+    })).map((user) => [user.id, `${user.firstName} ${user.lastName}`]))
     return {
       success: true as const,
       data: rows.map((row) => ({
@@ -225,6 +237,13 @@ export async function getUnappliedPayments(input: unknown = {}) {
         paidAt: row.gatewayTransaction.paidAt?.toISOString() ?? null,
         receiptNo: row.appliedPayment?.receiptNo ?? null,
         resolutionNote: row.resolutionNote,
+        returnRequest: row.returnRequestedBy
+          ? {
+              byName: requesters.get(row.returnRequestedBy) ?? "another user",
+              byMe: row.returnRequestedBy === actor.userId,
+              at: row.returnRequestedAt?.toISOString() ?? null,
+            }
+          : null,
         createdAt: row.createdAt.toISOString(),
       })),
     }
@@ -243,9 +262,11 @@ export async function applyUnappliedPayment(input: unknown): Promise<Result<{ re
     const { actor, schoolId } = await scoped("finance.collect_payments")
     const data = z.object({ id: z.string().uuid(), confirmation: z.literal(true) }).parse(input)
     const receiptNo = await prisma.$transaction(async (tx) => {
+      await lockHeldMoney(tx, data.id, schoolId)
       const held = await tx.unappliedPayment.findFirst({ where: { id: data.id, schoolId, status: "OPEN" }, include: { refund: true } })
       if (!held) throw new Error("Open unapplied money not found")
       if (held.refund && !["REJECTED", "FAILED"].includes(held.refund.status)) throw new Error("A refund of this money is in progress")
+      if (held.returnRequestedBy) throw new Error("A return of this money to the payer is waiting for confirmation")
       await tx.$queryRaw(Prisma.sql`SELECT id FROM students WHERE id = ${held.studentId} FOR UPDATE`)
       const charges = await tx.studentCharge.findMany({
         where: { studentId: held.studentId, schoolId, balance: { gt: 0 }, status: { in: ["UNPAID", "PARTIAL"] } },
@@ -278,26 +299,143 @@ export async function applyUnappliedPayment(input: unknown): Promise<Result<{ re
   }
 }
 
-/** Records that held money went back to the payer outside DigiSchool (e.g. a bank transfer). */
-export async function markUnappliedReturned(input: unknown): Promise<Result<undefined>> {
+/**
+ * Held money handed back to the payer outside DigiSchool (a bank transfer from the school's
+ * account, say). It is a refund, so it takes two people: `requestUnappliedReturn` records
+ * how it went back, and a different person closes it with `confirmUnappliedReturn`. Until
+ * then the money stays OPEN, and can be neither applied to fees nor refunded through Paystack.
+ */
+export async function requestUnappliedReturn(input: unknown): Promise<Result<undefined>> {
   try {
     const { actor, schoolId } = await scoped("finance.manage_gateway")
     const data = z.object({ id: z.string().uuid(), note: z.string().trim().min(10).max(500), confirmation: z.literal(true) }).parse(input)
-    const refunding = await prisma.gatewayRefund.findFirst({
-      where: { unappliedPaymentId: data.id, status: { notIn: ["REJECTED", "FAILED"] } }, select: { id: true },
+    // The held row is locked, as `requestUnappliedRefund` locks it, so a return and a Paystack
+    // refund requested at the same moment cannot both pass their checks and pay the payer twice.
+    await prisma.$transaction(async (tx) => {
+      await lockHeldMoney(tx, data.id, schoolId)
+      const refunding = await tx.gatewayRefund.findFirst({
+        where: { unappliedPaymentId: data.id, status: { notIn: ["REJECTED", "FAILED"] } }, select: { id: true },
+      })
+      if (refunding) throw new Error("A refund of this money is in progress")
+      const changed = await tx.unappliedPayment.updateMany({
+        where: { id: data.id, schoolId, status: "OPEN", returnRequestedBy: null },
+        data: { returnRequestedBy: actor.userId, returnRequestedAt: new Date(), resolutionNote: data.note },
+      })
+      if (changed.count !== 1) throw new Error("Open unapplied money not found, or a return is already waiting for confirmation")
     })
-    if (refunding) throw new Error("A refund of this money is in progress")
-    const changed = await prisma.unappliedPayment.updateMany({
-      where: { id: data.id, schoolId, status: "OPEN" },
-      data: { status: "RETURNED", resolvedBy: actor.userId, resolvedAt: new Date(), resolutionNote: data.note },
-    })
-    if (changed.count !== 1) throw new Error("Open unapplied money not found")
-    await recordAudit({ actor, action: "unapplied_payment.return", entityType: "UnappliedPayment", entityId: data.id,
-      summary: "Marked held transfer money as returned to the payer", after: { note: data.note } })
+    await recordAudit({ actor, action: "unapplied_payment.return_request", entityType: "UnappliedPayment", entityId: data.id,
+      summary: "Recorded held transfer money as returned to the payer, awaiting a second person", after: { note: data.note } })
     refresh()
     return { success: true, data: undefined }
   } catch (error) {
-    return { success: false, error: message(error, "Could not mark the money returned") }
+    return { success: false, error: message(error, "Could not record the return") }
+  }
+}
+
+/**
+ * The second person's confirmation. It is the approval of a refund, so it takes the same
+ * permission as approving a Paystack refund, and it confirms exactly the request the
+ * confirmer was shown: `requestedAt` must still match, so a return withdrawn and recorded
+ * again with a different note cannot be closed on the strength of the one they read.
+ */
+export async function confirmUnappliedReturn(input: unknown): Promise<Result<undefined>> {
+  try {
+    const { actor, schoolId } = await scoped("finance.approve_refunds")
+    const data = z.object({ id: z.string().uuid(), requestedAt: z.string().datetime(), confirmation: z.literal(true) }).parse(input)
+    const held = await prisma.$transaction(async (tx) => {
+      await lockHeldMoney(tx, data.id, schoolId)
+      const row = await tx.unappliedPayment.findFirst({
+        where: { id: data.id, schoolId, status: "OPEN" },
+        select: { id: true, returnRequestedBy: true, returnRequestedAt: true, resolutionNote: true },
+      })
+      if (!row) throw new Error("Open unapplied money not found")
+      const problems = heldReturnConfirmationProblems({ returnRequestedBy: row.returnRequestedBy, actorUserId: actor.userId })
+      if (problems.length > 0) throw new Error(problems.join("; "))
+      if (row.returnRequestedAt?.toISOString() !== new Date(data.requestedAt).toISOString()) {
+        throw new Error("The return was changed after you opened it. Refresh, read it again, then confirm.")
+      }
+      const refunding = await tx.gatewayRefund.findFirst({
+        where: { unappliedPaymentId: row.id, status: { notIn: ["REJECTED", "FAILED"] } }, select: { id: true },
+      })
+      if (refunding) throw new Error("A Paystack refund of this money is also in progress. Settle that first.")
+      await tx.unappliedPayment.update({
+        where: { id: row.id },
+        data: { status: "RETURNED", resolvedBy: actor.userId, resolvedAt: new Date() },
+      })
+      return row
+    })
+    await recordAudit({ actor, action: "unapplied_payment.return", entityType: "UnappliedPayment", entityId: held.id,
+      summary: "Confirmed held transfer money as returned to the payer",
+      before: { status: "OPEN", returnRequestedBy: held.returnRequestedBy }, after: { status: "RETURNED", note: held.resolutionNote } })
+    refresh()
+    return { success: true, data: undefined }
+  } catch (error) {
+    return { success: false, error: message(error, "Could not confirm the return") }
+  }
+}
+
+/** Withdraws a recorded return that has not been confirmed, putting the money back to plain held. */
+export async function withdrawUnappliedReturn(input: unknown): Promise<Result<undefined>> {
+  try {
+    const { actor, schoolId } = await scoped("finance.manage_gateway")
+    const data = z.object({ id: z.string().uuid(), confirmation: z.literal(true) }).parse(input)
+    const changed = await prisma.unappliedPayment.updateMany({
+      where: { id: data.id, schoolId, status: "OPEN", returnRequestedBy: { not: null } },
+      data: { returnRequestedBy: null, returnRequestedAt: null, resolutionNote: null },
+    })
+    if (changed.count !== 1) throw new Error("No return is waiting for confirmation on this money")
+    await recordAudit({ actor, action: "unapplied_payment.return_withdraw", entityType: "UnappliedPayment", entityId: data.id,
+      summary: "Withdrew a recorded return of held transfer money" })
+    refresh()
+    return { success: true, data: undefined }
+  } catch (error) {
+    return { success: false, error: message(error, "Could not withdraw the return") }
+  }
+}
+
+/**
+ * Undoes applying held money: the receipt it made is reversed, the fees it paid reopen, and
+ * the money is held again. Such a receipt cannot be refunded at the counter, which would
+ * reopen the fees while the money stayed with the school recorded nowhere. This is its way
+ * back instead: once held again, it can be applied elsewhere or returned to the payer, and a
+ * return takes two people. No money leaves the school here, and the family is not notified;
+ * they hear when the money is actually applied again or returned.
+ */
+export async function moveAppliedMoneyBackToHeld(input: unknown): Promise<Result<{ receiptNo: string }>> {
+  try {
+    const { actor, schoolId } = await scoped("finance.manage_gateway")
+    const data = z.object({ id: z.string().uuid(), reason: z.string().trim().min(10).max(500), confirmation: z.literal(true) }).parse(input)
+    const receiptNo = await prisma.$transaction(async (tx) => {
+      await lockHeldMoney(tx, data.id, schoolId)
+      const held = await tx.unappliedPayment.findFirst({
+        where: { id: data.id, schoolId, status: "APPLIED" },
+        select: { id: true, studentId: true, amount: true, appliedPayment: { select: { id: true, receiptNo: true, status: true, amount: true } } },
+      })
+      const receipt = held?.appliedPayment
+      if (!held || !receipt) throw new Error("Applied held money not found")
+      if (receipt.status !== "COMPLETED") throw new Error(`Receipt ${receipt.receiptNo} is ${receipt.status.toLowerCase()}, so there is nothing to move back`)
+      // Applying never splits held money, so the receipt is the whole sum. Anything else is a
+      // record this code did not make, and is left for a person to look at.
+      if (!receipt.amount.equals(held.amount)) throw new Error(`Receipt ${receipt.receiptNo} does not match the held amount; refer it for review`)
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM students WHERE id = ${held.studentId} FOR UPDATE`)
+      const outcome = await reverseStudentPaymentInTransaction(tx, {
+        schoolId, paymentId: receipt.id, reason: `Moved back to held money: ${data.reason}`, createdBy: actor.userId,
+      })
+      if (outcome !== "reversed") throw new Error(`Receipt ${receipt.receiptNo} was already reversed`)
+      await tx.unappliedPayment.update({
+        where: { id: held.id },
+        data: { status: "OPEN", appliedPaymentId: null, resolvedBy: null, resolvedAt: null,
+          resolutionNote: `Moved back from receipt ${receipt.receiptNo}: ${data.reason}`.slice(0, 500) },
+      })
+      return receipt.receiptNo
+    }, { isolationLevel: "Serializable" })
+    await recordAudit({ actor, action: "unapplied_payment.unapply", entityType: "UnappliedPayment", entityId: data.id,
+      summary: `Reversed receipt ${receiptNo} and held its transfer money again`,
+      before: { status: "APPLIED", receiptNo }, after: { status: "OPEN", reason: data.reason } })
+    refresh()
+    return { success: true, data: { receiptNo } }
+  } catch (error) {
+    return { success: false, error: message(error, "Could not move the money back to held") }
   }
 }
 

@@ -85,12 +85,38 @@ export function dedicatedAccountReadinessProblems(input: DedicatedReadinessInput
   return problems
 }
 
+/**
+ * Which of the matching dedicated accounts a transfer was paid into.
+ *
+ * A student keeps one Paystack customer for life, so an account that was deactivated and
+ * replaced shares its customer code with the new one. Picking either at random quarantined
+ * a transfer into the new account as "a different receiving account". The receiving account
+ * number is the exact answer; without it, the customer's active account, then its newest.
+ */
+export function pickDedicatedAccount<T extends { accountNumber: string; providerCustomerCode: string; status: string; createdAt: Date }>(
+  candidates: T[],
+  paidInto: { receiverAccountNumber: string | null; customerCode: string | null },
+): T | null {
+  if (paidInto.receiverAccountNumber) {
+    const exact = candidates.find((account) => account.accountNumber === paidInto.receiverAccountNumber)
+    if (exact) return exact
+  }
+  if (!paidInto.customerCode) return null
+  const rank = (account: T) => (account.status === "ACTIVE" ? 0 : 1)
+  return candidates
+    .filter((account) => account.providerCustomerCode === paidInto.customerCode)
+    .sort((a, b) => rank(a) - rank(b) || b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null
+}
+
 export type DedicatedTransferCheck = {
   expectedEnvironment: "test" | "live"
   accountMode: "PLATFORM_MANAGED" | "SCHOOL_OWNED"
   expectedSubaccountCode: string | null
   /** The school's dedicated-account split, when its accounts settle through one. */
   expectedSplitCode?: string | null
+  /** The Paystack customer and account number of the dedicated account the webhook named. */
+  expectedCustomerCode?: string | null
+  expectedAccountNumber?: string | null
   verified: {
     status: string
     environment: "test" | "live"
@@ -99,7 +125,22 @@ export type DedicatedTransferCheck = {
     channel?: string
     subaccountCode?: string
     splitCode?: string
+    customerCode?: string
+    receiverAccountNumber?: string
   }
+}
+
+/**
+ * Paystack answers that mean "not finished yet", not "failed".
+ *
+ * A transfer verified while Paystack is still settling it must be tried again later. Treated
+ * as a problem, it was quarantined and its event marked processed, which parked a real
+ * payment for good with no way to resolve it in the app.
+ */
+const UNFINISHED_VERIFICATION = new Set(["pending", "ongoing", "processing", "queued"])
+
+export function isUnfinishedVerification(status: string): boolean {
+  return UNFINISHED_VERIFICATION.has(status.trim().toLowerCase())
 }
 
 /**
@@ -118,6 +159,17 @@ export function dedicatedTransferProblems(input: DedicatedTransferCheck): string
   const toOwnSubaccount = Boolean(input.expectedSubaccountCode) && verified.subaccountCode === input.expectedSubaccountCode
   if (input.accountMode === "PLATFORM_MANAGED" && !throughOwnSplit && !toOwnSubaccount) {
     problems.push("The transfer did not settle to this school's subaccount")
+  }
+  // The webhook says which account was paid; Paystack's verify says who actually paid. A
+  // school holding its own signing secret could otherwise name another student's account
+  // against a genuine reference and credit the wrong child. Only a value Paystack actually
+  // returned is compared: a missing one is not evidence of anything.
+  if (input.expectedCustomerCode && verified.customerCode && verified.customerCode !== input.expectedCustomerCode) {
+    problems.push("Paystack attributes the transfer to a different customer than this dedicated account")
+  }
+  if (input.expectedAccountNumber && verified.receiverAccountNumber
+    && verified.receiverAccountNumber !== input.expectedAccountNumber) {
+    problems.push("Paystack reports a different receiving account than this dedicated account")
   }
   return problems
 }
@@ -157,4 +209,37 @@ export function dedicatedSplitShare(type: "NONE" | "FLAT" | "PERCENTAGE", value:
     platformPercent: 0,
     note: type === "FLAT" ? "A flat platform charge cannot be taken from dedicated-account transfers, so they carry none." : null,
   }
+}
+
+/**
+ * Whether held money may move, given the transfer it came from.
+ *
+ * While the payer disputes the transfer with their bank, the money may be taken back, so it
+ * can be neither applied, returned nor refunded until the dispute closes. After a refund of
+ * the receipted part the transfer reads REFUNDED, and its held part is still the school's to
+ * decide on; a full chargeback closes the held money itself, so nothing is left to move.
+ */
+export function heldTransferProblem(transferStatus: string | null): string | null {
+  if (transferStatus === null || transferStatus === "SUCCEEDED" || transferStatus === "REFUNDED") return null
+  if (transferStatus === "DISPUTED") {
+    return "The payer has disputed this transfer with their bank. The money cannot be moved until the dispute closes."
+  }
+  return `The transfer behind this money is ${transferStatus.toLowerCase().replaceAll("_", " ")}, so the money cannot be moved until that is resolved.`
+}
+
+/**
+ * Whether this person may confirm that held money was returned to the payer.
+ *
+ * Returning money outside DigiSchool is a refund, and a refund takes two people: the one who
+ * recorded the return cannot also be the one who closes it.
+ */
+export function heldReturnConfirmationProblems(input: {
+  returnRequestedBy: string | null
+  actorUserId: string
+}): string[] {
+  if (!input.returnRequestedBy) return ["Record how the money was returned before it can be confirmed"]
+  if (input.returnRequestedBy === input.actorUserId) {
+    return ["A different person must confirm a return you recorded"]
+  }
+  return []
 }

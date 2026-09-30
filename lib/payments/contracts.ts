@@ -36,6 +36,14 @@ export type VerifiedGatewayPayment = {
   /** Present when the transaction settled through a Paystack split. */
   splitCode?: string
   paidAt?: Date
+  /**
+   * Who Paystack says paid, and into which account. Used to check that a dedicated-account
+   * transfer really belongs to the account the webhook named - the webhook is signed, but
+   * the verify call is the authority. Optional: absent from some responses, and a missing
+   * value is never treated as a mismatch.
+   */
+  customerCode?: string
+  receiverAccountNumber?: string
 }
 
 export type GatewayBank = {
@@ -103,6 +111,8 @@ export type GatewaySettlement = {
   totalFeesKobo: number
   totalProcessedKobo: number
   settlementDate?: Date
+  /** The subaccount Paystack says this settlement was paid to, when it says so. */
+  subaccountCode?: string
 }
 
 export type GatewaySettlementTransaction = {
@@ -172,6 +182,10 @@ export interface PaymentGatewayAdapter {
   createRefund(transaction: string, amountKobo: number, reason: string): Promise<GatewayRefund>
   submitDisputeEvidence(disputeId: string, input: GatewayDisputeEvidenceInput): Promise<void>
   resolveDispute(disputeId: string, resolution: "merchant-accepted" | "declined", message: string, refundAmountKobo: number): Promise<void>
+  /**
+   * Every settlement this connection's key can see. Under the platform key that is every
+   * school's, so a platform-managed school keeps only those labelled with its subaccount.
+   */
   listSettlements(from?: Date, to?: Date): Promise<GatewaySettlement[]>
   listSettlementTransactions(settlementId: string): Promise<GatewaySettlementTransaction[]>
   createCustomer(input: CreateGatewayCustomerInput): Promise<GatewayCustomer>

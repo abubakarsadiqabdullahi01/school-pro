@@ -9,18 +9,27 @@ import {
   applyUnappliedPayment,
   assignDedicatedAccount,
   assignMissingDedicatedAccounts,
+  confirmUnappliedReturn,
   deactivateDedicatedAccount,
-  markUnappliedReturned,
+  moveAppliedMoneyBackToHeld,
   requestDedicatedIdentification,
+  requestUnappliedReturn,
   setDedicatedAccountSettings,
+  withdrawUnappliedReturn,
 } from "@/app/actions/dedicated-accounts"
-import { provideRefundBankDetails, requestUnappliedRefund } from "@/app/actions/gateway-operations-slice7"
+import {
+  confirmRefundBankDetails,
+  provideRefundBankDetails,
+  requestUnappliedRefund,
+  withdrawRefundBankDetails,
+} from "@/app/actions/gateway-operations-slice7"
 import { getPaymentBanks } from "@/app/actions/payment-settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import type { RefundPayoutView } from "@/lib/payments/refund-payout.server"
 
 type Bank = "wema-bank" | "titan-paystack"
 
@@ -128,25 +137,78 @@ export function DeactivateAccountButton({ accountId, accountNumber }: { accountI
   )
 }
 
-export function UnappliedActions({ id, canApply, canReturn }: { id: string; canApply: boolean; canReturn: boolean }) {
+/** A return recorded by one person, waiting for a different person to confirm it. */
+export type PendingReturn = { byName: string; byMe: boolean; at: string | null }
+
+export function UnappliedActions({
+  id,
+  canApply,
+  canReturn,
+  canConfirmReturn,
+  pendingReturn,
+}: {
+  id: string
+  canApply: boolean
+  canReturn: boolean
+  /** Confirming a return approves a refund, so it takes the refund approver's permission. */
+  canConfirmReturn: boolean
+  pendingReturn: PendingReturn | null
+}) {
   const router = useRouter()
   const [mode, setMode] = useState<"idle" | "return">("idle")
   const [note, setNote] = useState("")
   const [error, setError] = useState("")
   const [pending, start] = useTransition()
 
+  const run = (action: () => Promise<{ success: true } | { success: false; error: string }>, done: string) =>
+    start(async () => {
+      setError("")
+      const result = await action()
+      if (!result.success) return setError(result.error)
+      toast.success(done)
+      router.refresh()
+    })
+
+  // Returning money outside Paystack is a refund, so it takes two people: whoever records it
+  // cannot also confirm it. While it waits, the money can be neither applied nor refunded.
+  if (pendingReturn) {
+    const when = pendingReturn.at ? ` on ${new Date(pendingReturn.at).toLocaleDateString("en-NG")}` : ""
+    return (
+      <div className="space-y-2">
+        <p className="text-sm">
+          {pendingReturn.byMe ? "You recorded" : `${pendingReturn.byName} recorded`} this money as returned to the payer{when}.{" "}
+          {pendingReturn.byMe ? "A different person must confirm it." : "Check it was actually returned, then confirm."}
+        </p>
+        {(canReturn || canConfirmReturn) && (
+          <div className="flex flex-wrap gap-2">
+            {canConfirmReturn && !pendingReturn.byMe && pendingReturn.at && (
+              <Button size="sm" disabled={pending} onClick={() => run(() => confirmUnappliedReturn({ id, requestedAt: pendingReturn.at, confirmation: true }), "Return confirmed")}>
+                Confirm returned
+              </Button>
+            )}
+            {canReturn && (
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => withdrawUnappliedReturn({ id, confirmation: true }), "Return withdrawn")}>
+                Withdraw
+              </Button>
+            )}
+          </div>
+        )}
+        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+      </div>
+    )
+  }
+
   if (mode === "return") {
     return (
       <div className="space-y-2">
         <Label htmlFor={`return-${id}`}>How was it returned?</Label>
         <Input id={`return-${id}`} value={note} maxLength={500} placeholder="e.g. Transferred back from the school account on 3 Oct" onChange={(event) => setNote(event.target.value)} />
+        <p className="text-xs text-muted-foreground">A second person confirms it before the money is closed as returned.</p>
         {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         <div className="flex gap-2">
-          <Button size="sm" disabled={pending || note.trim().length < 10} onClick={() => start(async () => {
-            const result = await markUnappliedReturned({ id, note, confirmation: true })
-            if (!result.success) return setError(result.error)
-            router.refresh()
-          })}>Mark returned</Button>
+          <Button size="sm" disabled={pending || note.trim().length < 10} onClick={() => run(() => requestUnappliedReturn({ id, note, confirmation: true }), "Return recorded; waiting for a second person")}>
+            Record return
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setMode("idle")}>Cancel</Button>
         </div>
       </div>
@@ -249,6 +311,41 @@ export function RequiresIdentificationSwitch({ enabled, bank, requiresIdentifica
   )
 }
 
+/**
+ * Reverses the receipt that applied held money and holds the money again, so it can be
+ * applied elsewhere or returned. The counter refund refuses these receipts.
+ */
+export function MoveBackToHeldButton({ id, receiptNo }: { id: string; receiptNo: string }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState("")
+  const [error, setError] = useState("")
+  const [pending, start] = useTransition()
+  if (!open) return <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Move back to held</Button>
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={`unapply-${id}`}>Why?</Label>
+      <Input id={`unapply-${id}`} value={reason} maxLength={500} placeholder="e.g. Parent asked for the money back" onChange={(event) => setReason(event.target.value)} />
+      <p className="text-xs text-muted-foreground">
+        Receipt {receiptNo} is reversed and the fees it paid reopen. The money is held again, to be applied
+        again or returned to the payer. Nothing is paid out here.
+      </p>
+      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" variant="destructive" disabled={pending || reason.trim().length < 10} onClick={() => start(async () => {
+          setError("")
+          const result = await moveAppliedMoneyBackToHeld({ id, reason, confirmation: true })
+          if (!result.success) return setError(result.error)
+          toast.success(`Receipt ${result.data.receiptNo} reversed; the money is held again`)
+          setOpen(false)
+          router.refresh()
+        })}>Reverse receipt and hold</Button>
+        <Button size="sm" variant="outline" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
 export function RefundHeldMoneyButton({ id }: { id: string }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -276,8 +373,16 @@ export function RefundHeldMoneyButton({ id }: { id: string }) {
   )
 }
 
-/** Paystack could not pay a transfer refund back on its own and needs the payer's account. */
-export function RefundBankDetailsForm({ refundId, environment }: { refundId: string; environment: "TEST" | "LIVE" }) {
+/**
+ * Paystack could not pay a transfer refund back on its own and needs the payer's account.
+ * Where the money goes takes two approvers: one enters the account (Paystack names its
+ * holder), a different one checks that name against the payer and confirms it.
+ */
+export function RefundBankDetailsForm({ refundId, environment, payout }: {
+  refundId: string
+  environment: "TEST" | "LIVE"
+  payout: RefundPayoutView | null
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [accountNumber, setAccountNumber] = useState("")
@@ -285,23 +390,59 @@ export function RefundBankDetailsForm({ refundId, environment }: { refundId: str
   const [error, setError] = useState("")
   const [pending, start] = useTransition()
   const { banks, error: bankError, load } = useBanks(environment)
+
+  const run = (action: () => Promise<{ success: true } | { success: false; error: string }>, done: string) => start(async () => {
+    setError("")
+    const result = await action()
+    if (!result.success) return setError(result.error)
+    toast.success(done)
+    setOpen(false)
+    router.refresh()
+  })
+
+  if (payout && !payout.confirmed) {
+    return (
+      <div className="space-y-2 rounded-md border p-3 text-sm">
+        <p>
+          <span className="font-medium">{payout.accountName ?? "Unnamed account"}</span> · {payout.bankName ?? "bank"} · {payout.accountNumber}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Entered by {payout.enteredByName} on {new Date(payout.enteredAt).toLocaleString("en-NG")}. Check the name is the
+          payer&apos;s. A different approver confirms it before anything is sent to Paystack.
+        </p>
+        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={pending} onClick={() => run(() => confirmRefundBankDetails({ refundId, enteredAt: payout.enteredAt, confirmation: true }), "Account confirmed and sent to Paystack")}>
+            Confirm and send
+          </Button>
+          <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => withdrawRefundBankDetails({ refundId, confirmation: true }), "Account withdrawn")}>
+            Withdraw
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (!open) return <Button size="sm" onClick={() => { setOpen(true); void load() }}>Give payer&apos;s bank account</Button>
+  const bank = banks?.find((candidate) => String(candidate.id) === bankId)
   return (
     <div className="space-y-2 rounded-md border p-3">
       <Input aria-label="Payer's account number" placeholder="Account number" inputMode="numeric" maxLength={10} value={accountNumber} onChange={(event) => setAccountNumber(event.target.value)} />
       <Select value={bankId} onValueChange={setBankId}>
         <SelectTrigger aria-label="Payer's bank"><SelectValue placeholder={banks ? "Payer's bank" : "Loading banks…"} /></SelectTrigger>
-        <SelectContent>{banks?.filter((bank) => bank.id !== null).map((bank) => <SelectItem key={bank.id} value={String(bank.id)}>{bank.name}</SelectItem>)}</SelectContent>
+        <SelectContent>{banks?.filter((candidate) => candidate.id !== null).map((candidate) => <SelectItem key={candidate.id} value={String(candidate.id)}>{candidate.name}</SelectItem>)}</SelectContent>
       </Select>
+      <p className="text-xs text-muted-foreground">Paystack names the account holder. A second approver checks it before it is sent.</p>
       {(error || bankError) && <p className="text-sm text-destructive" role="alert">{error || bankError}</p>}
       <div className="flex gap-2">
-        <Button size="sm" disabled={pending || accountNumber.length !== 10 || !bankId} onClick={() => start(async () => {
-          const result = await provideRefundBankDetails({ refundId, accountNumber, bankId, confirmation: true })
+        <Button size="sm" disabled={pending || accountNumber.length !== 10 || !bank} onClick={() => start(async () => {
+          setError("")
+          const result = await provideRefundBankDetails({ refundId, accountNumber, bankId, bankCode: bank!.code, confirmation: true })
           if (!result.success) return setError(result.error)
-          toast.success("Sent to Paystack")
+          toast.success(`${result.data.accountName}'s account is waiting for a second approver`)
           setOpen(false)
           router.refresh()
-        })}>Send to Paystack</Button>
+        })}>Check account</Button>
         <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
       </div>
     </div>

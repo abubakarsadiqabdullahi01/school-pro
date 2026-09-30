@@ -786,6 +786,17 @@ export async function checkTeacherAssignment(
   classTermId: string,
 ) {
   try {
+    // This had no sign-in check at all, and the score-entry screen ships its id to the
+    // browser, so anyone could read teacher names and ids from any school. Same gate as score
+    // entry, and only for a class in the caller's own school.
+    const { actor, schoolId } = await authorizeAndGetUser();
+    const classTerm = await prisma.classTerm.findFirst({
+      where: { id: classTermId, ...(actor.role === "SUPER_ADMIN" ? {} : { class: { schoolId } }) },
+      select: { id: true },
+    });
+    if (!classTerm) {
+      return { success: false, error: "Class not found" };
+    }
     const teacherAssignment = await findAssignedTeacher(subjectId, classTermId);
     return {
       success: true,

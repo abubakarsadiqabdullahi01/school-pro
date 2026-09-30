@@ -19,7 +19,7 @@ vi.mock("@/lib/authz", () => {
 vi.mock("@/lib/school-context.server", () => ({ getActiveSchool: async () => null }))
 
 const { prisma } = await import("@/lib/db")
-const { recordStudentPayment, refundStudentPayment } = await import("@/app/actions/finance")
+const { approveStudentPaymentRefund, recordStudentPayment, requestStudentPaymentRefund } = await import("@/app/actions/finance")
 const { sendResultsNotice } = await import("@/app/actions/notifications")
 const comms = await import("@/app/actions/communications")
 const { drainOutbox } = await import("@/lib/notifications/outbox.server")
@@ -41,6 +41,7 @@ async function cleanupSchool(id: string) {
   const ids = [...(profiles?.parents ?? []), ...(profiles?.students ?? [])].map((profile) => profile.userId)
   await prisma.notificationOutbox.deleteMany({ where: { schoolId: id } })
   await prisma.accountingReversal.deleteMany({ where: { schoolId: id } }).catch(() => undefined)
+  await prisma.counterRefundRequest.deleteMany({ where: { schoolId: id } })
   await prisma.payment.deleteMany({ where: { schoolId: id } })
   await prisma.studentCharge.deleteMany({ where: { schoolId: id } })
   await prisma.feeSchedule.deleteMany({ where: { schoolId: id } })
@@ -101,9 +102,11 @@ beforeAll(async () => {
   }
 })
 
+let approverId = ""
+
 afterAll(async () => {
   if (schoolId) await cleanupSchool(schoolId)
-  await prisma.user.deleteMany({ where: { id: context.userId } })
+  await prisma.user.deleteMany({ where: { id: { in: [context.userId, approverId].filter(Boolean) } } })
 })
 
 describe("counter payments at the bursary", () => {
@@ -133,9 +136,32 @@ describe("counter payments at the bursary", () => {
     expect(result).toMatchObject({ success: false, error: expect.stringMatching(/already receipted/) })
   })
 
-  it("tells the family when a receipt is refunded", async () => {
+  it("refunds a counter receipt only once a second person approves, then tells the family", async () => {
     const payment = await prisma.payment.findFirstOrThrow({ where: { schoolId, studentId: studentA, termId: currentTermId } })
-    expect(await refundStudentPayment({ paymentId: payment.id, reason: "Paid twice at the bursary" })).toMatchObject({ success: true })
+    const requested = await requestStudentPaymentRefund({ paymentId: payment.id, reason: "Paid twice at the bursary" })
+    expect(requested).toMatchObject({ success: true })
+    if (!requested.success) return
+    // Nothing has moved yet, and nobody has been told.
+    expect(await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).toMatchObject({ status: "COMPLETED" })
+    expect(await outbox({ templateKey: "payment.refunded" })).toEqual([])
+    // Asked once; the same person cannot approve it.
+    expect(await requestStudentPaymentRefund({ paymentId: payment.id, reason: "Paid twice at the bursary" }))
+      .toMatchObject({ success: false, error: expect.stringMatching(/already waiting/) })
+    expect(await approveStudentPaymentRefund({ requestId: requested.data.requestId, confirmation: true }))
+      .toMatchObject({ success: false, error: "A different person must approve a refund you asked for" })
+
+    const bursar = context.userId
+    approverId = (await prisma.user.create({ data: { firstName: "Head", lastName: "Approver", role: "ADMIN" } })).id
+    try {
+      context.userId = approverId
+      expect(await approveStudentPaymentRefund({ requestId: requested.data.requestId, confirmation: true })).toMatchObject({ success: true })
+    } finally {
+      context.userId = bursar
+    }
+    expect(await prisma.payment.findUniqueOrThrow({ where: { id: payment.id }, include: { reversals: true } }))
+      .toMatchObject({ status: "REFUNDED", reversals: [expect.objectContaining({ createdBy: approverId })] })
+    expect(await prisma.counterRefundRequest.findUniqueOrThrow({ where: { id: requested.data.requestId } }))
+      .toMatchObject({ status: "APPROVED", requestedBy: bursar, decidedBy: approverId })
     const notices = await outbox({ templateKey: "payment.refunded" })
     expect(notices.some((row) => row.channel === "EMAIL" && row.body.includes("Paid twice at the bursary"))).toBe(true)
   })

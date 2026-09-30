@@ -247,16 +247,18 @@ describe("backoff", () => {
 
 describe("outboxSummary", () => {
   it("counts messages and billable units per channel and status", async () => {
+    // The school is borrowed from the local database, which may hold real queued messages
+    // of its own (a receipt from someone using the app), so only what this test adds counts.
+    const queuedSms = async () => (await outboxSummary(schoolId)).find((row) => row.channel === "SMS" && row.status === "QUEUED")
+    const before = await queuedSms()
     await queueMany([
       message({ dedupeKey: `${DEDUPE_PREFIX}:s1` }),
       message({ dedupeKey: `${DEDUPE_PREFIX}:s2`, body: `${DEDUPE_PREFIX} ${"a".repeat(200)}` }),
     ])
+    const after = await queuedSms()
 
-    const summary = await outboxSummary(schoolId)
-    const queued = summary.find((row) => row.channel === "SMS" && row.status === "QUEUED")
-
-    expect(queued?.messages).toBe(2)
+    expect((after?.messages ?? 0) - (before?.messages ?? 0)).toBe(2)
     // One single-segment message and one that runs to two.
-    expect(queued?.units).toBe(3)
+    expect((after?.units ?? 0) - (before?.units ?? 0)).toBe(3)
   })
 })

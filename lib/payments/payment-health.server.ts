@@ -29,6 +29,29 @@ export type SchoolPaymentHealth = {
   alerts: PaymentHealthAlert[]
 }
 
+/** A webhook event that failed and is retrying, or gave up and waits for a person. */
+export type ParkedGatewayEvent = {
+  id: string
+  status: "FAILED" | "DEAD"
+  environment: "TEST" | "LIVE"
+  eventType: string
+  reference: string | null
+  /** Naira, from the event itself; an unmatched transfer has nothing else to go on. */
+  amount: string | null
+  schoolName: string | null
+  attempts: number
+  receivedAt: string
+  lastError: string | null
+}
+
+/** Shown on the monitor; more than this is a problem of a different size. */
+const PARKED_EVENT_LIMIT = 50
+
+function eventAmount(payload: unknown): string | null {
+  const data = payload && typeof payload === "object" ? (payload as { data?: { amount?: unknown } }).data : undefined
+  return typeof data?.amount === "number" && Number.isFinite(data.amount) ? (data.amount / 100).toFixed(2) : null
+}
+
 const WAITING_STATUSES = ["INITIALIZED", "INITIALIZATION_UNKNOWN", "PENDING", "PROCESSING"] as const
 
 function countBySchool(rows: Array<{ schoolId: string | null; _count: { _all: number } }>) {
@@ -46,12 +69,14 @@ export async function collectPaymentHealth(now: Date = new Date()): Promise<{
   schools: SchoolPaymentHealth[]
   /** Webhook events that failed before a school could be identified. */
   unattributedFailedEvents: number
+  /** The failed and parked events themselves, newest first, so each can be dealt with. */
+  parkedEvents: ParkedGatewayEvent[]
 }> {
   const staleBefore = new Date(now.getTime() - STALE_PENDING_MINUTES * 60_000)
   const disputeHorizon = new Date(now.getTime() + DISPUTE_WARNING_DAYS * 86_400_000)
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000)
 
-  const [configurations, stale, review, failedEvents, unattributed, issues, refunds, disputes, reconciliations, live, unapplied] = await Promise.all([
+  const [configurations, stale, review, failedEvents, unattributed, issues, refunds, disputes, reconciliations, live, unapplied, parked] = await Promise.all([
     prisma.schoolPaymentConfiguration.findMany({
       orderBy: [{ school: { name: "asc" } }, { environment: "asc" }],
       select: {
@@ -64,8 +89,11 @@ export async function collectPaymentHealth(now: Date = new Date()): Promise<{
       where: { status: { in: [...WAITING_STATUSES] }, createdAt: { lt: staleBefore } },
     }),
     prisma.gatewayTransaction.groupBy({ by: ["schoolId"], _count: { _all: true }, where: { status: "REQUIRES_REVIEW" } }),
-    prisma.gatewayEvent.groupBy({ by: ["schoolId"], _count: { _all: true }, where: { status: "FAILED", schoolId: { not: null } } }),
-    prisma.gatewayEvent.count({ where: { status: "FAILED", schoolId: null } }),
+    // DEAD is FAILED that stopped retrying: the more urgent of the two, not the one to drop.
+    // Counting FAILED alone made an event vanish from the monitor at the very moment it gave
+    // up - a transfer into an account nobody recognises among them.
+    prisma.gatewayEvent.groupBy({ by: ["schoolId"], _count: { _all: true }, where: { status: { in: ["FAILED", "DEAD"] }, schoolId: { not: null } } }),
+    prisma.gatewayEvent.count({ where: { status: { in: ["FAILED", "DEAD"] }, schoolId: null } }),
     prisma.gatewayReconciliationIssue.groupBy({ by: ["schoolId"], _count: { _all: true }, where: { status: "OPEN" } }),
     prisma.gatewayRefund.groupBy({
       by: ["schoolId", "status"], _count: { _all: true },
@@ -84,6 +112,15 @@ export async function collectPaymentHealth(now: Date = new Date()): Promise<{
       where: { environment: "LIVE", status: { in: ["SUCCEEDED", "REFUNDED", "DISPUTED"] }, paidAt: { gte: weekAgo } },
     }),
     prisma.unappliedPayment.groupBy({ by: ["schoolId"], _count: { _all: true }, where: { status: "OPEN" } }),
+    prisma.gatewayEvent.findMany({
+      where: { status: { in: ["FAILED", "DEAD"] } },
+      orderBy: { receivedAt: "desc" },
+      take: PARKED_EVENT_LIMIT,
+      select: {
+        id: true, status: true, environment: true, eventType: true, reference: true, payload: true,
+        attempts: true, receivedAt: true, lastError: true, school: { select: { name: true } },
+      },
+    }),
   ])
 
   const staleBySchool = countBySchool(stale)
@@ -142,5 +179,20 @@ export async function collectPaymentHealth(now: Date = new Date()): Promise<{
 
   const schools = [...bySchool.values()]
   for (const school of schools) school.alerts = paymentHealthAlerts(school.counts, now)
-  return { schools, unattributedFailedEvents: unattributed }
+  return {
+    schools,
+    unattributedFailedEvents: unattributed,
+    parkedEvents: parked.map((event) => ({
+      id: event.id,
+      status: event.status as "FAILED" | "DEAD",
+      environment: event.environment as PaymentGatewayEnvironment,
+      eventType: event.eventType,
+      reference: event.reference,
+      amount: eventAmount(event.payload),
+      schoolName: event.school?.name ?? null,
+      attempts: event.attempts,
+      receivedAt: event.receivedAt.toISOString(),
+      lastError: event.lastError,
+    })),
+  }
 }

@@ -279,7 +279,7 @@ export async function updateParent(data: {
       select: { schoolId: true, userId: true, createdAt: true },
     });
 
-    if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
+    if (!parent || (authResult.user.role !== "SUPER_ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
       return { success: false, error: "Parent not found or unauthorized" };
     }
 
@@ -372,7 +372,7 @@ export async function deleteParent(parentId: string) {
       include: { students: true },
     });
 
-    if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
+    if (!parent || (authResult.user.role !== "SUPER_ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
       return { success: false, error: "Parent not found or unauthorized" };
     }
 
@@ -407,7 +407,7 @@ export async function unlinkStudentFromParent(studentParentId: string) {
       include: { parent: { select: { schoolId: true } } },
     });
 
-    if (!studentParent || (authResult.user.role === "ADMIN" && studentParent.parent.schoolId !== schoolResult.schoolId)) {
+    if (!studentParent || (authResult.user.role !== "SUPER_ADMIN" && studentParent.parent.schoolId !== schoolResult.schoolId)) {
       return { success: false, error: "Student-parent relationship not found or unauthorized" };
     }
 
@@ -507,7 +507,7 @@ export async function getParentDetails(parentId: string) {
       },
     });
 
-    if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
+    if (!parent || (authResult.user.role !== "SUPER_ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
       return { success: false, error: "Parent not found or unauthorized" };
     }
 
@@ -596,7 +596,7 @@ export async function linkStudentToParent(data: {
         select: { schoolId: true },
       });
   
-      if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
+      if (!parent || (authResult.user.role !== "SUPER_ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
         return { success: false, error: "Parent not found or unauthorized" };
       }
   
@@ -609,7 +609,7 @@ export async function linkStudentToParent(data: {
         },
       });
   
-      if (!student || (authResult.user.role === "ADMIN" && student.schoolId !== schoolResult.schoolId)) {
+      if (!student || (authResult.user.role !== "SUPER_ADMIN" && student.schoolId !== schoolResult.schoolId)) {
         return { success: false, error: "Student not found or unauthorized" };
       }
   
@@ -672,7 +672,7 @@ export async function getUnlinkedStudents(schoolId: string, search?: string) {
       const schoolResult = await getSchoolId(authResult.user);
       if (!schoolResult.success) return schoolResult;
   
-      if (authResult.user.role === "ADMIN" && schoolId !== schoolResult.schoolId) {
+      if (authResult.user.role !== "SUPER_ADMIN" && schoolId !== schoolResult.schoolId) {
         return { success: false, error: "Unauthorized to access students from this school" };
       }
   
@@ -751,7 +751,7 @@ export async function resetParentPassword(parentId: string) {
       },
     });
 
-    if (!parent || (authResult.user.role === "ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
+    if (!parent || (authResult.user.role !== "SUPER_ADMIN" && parent.schoolId !== schoolResult.schoolId)) {
       return { success: false, error: "Parent not found or unauthorized" };
     }
 

@@ -116,7 +116,7 @@ export async function getPaymentSettingsForSchool(
             ? {
                 secretLast4: configuration.credential.secretLast4,
                 publicKey: configuration.credential.publicKey,
-                webhookUrl: `${origin}/api/webhooks/paystack/${configuration.credential.webhookToken}/`,
+                webhookUrl: `${origin}/api/webhooks/paystack/${configuration.credential.webhookToken}`,
                 rotatedAt: configuration.credential.rotatedAt?.toISOString() ?? null,
               }
             : null,
@@ -152,7 +152,7 @@ export async function adapterForPaymentConfiguration(configurationId: string): P
     publicKey: configuration.credential.publicKey ?? undefined,
     environment: gatewayEnvironment(configuration.environment),
     applicationOrigin: origin,
-    webhookUrl: `${origin}/api/webhooks/paystack/${configuration.credential.webhookToken}/`,
+    webhookUrl: `${origin}/api/webhooks/paystack/${configuration.credential.webhookToken}`,
     timeoutMs: timeoutMs(),
   }
   return new PaystackAdapter(config)

@@ -362,6 +362,7 @@ model Payment {
 
   // Receipt numbers are issued per school, so two schools may both hold receipt 0001.
   unappliedApplications UnappliedPayment[]
+  counterRefundRequests CounterRefundRequest[]
 
   @@unique([schoolId, receiptNo])
   @@index([studentId])
@@ -510,6 +511,7 @@ model School {
   updatedAt                DateTime                          @updatedAt
   dedicatedAccounts        DedicatedAccount[]
   unappliedPayments        UnappliedPayment[]
+  counterRefundRequests    CounterRefundRequest[]
   dedicatedIdentifications DedicatedCustomerIdentification[]
   announcements            Announcement[]
   notificationSettings     SchoolNotificationSettings?
@@ -1273,6 +1275,16 @@ model GatewayRefund {
   expectedAt           DateTime?
   processedAt          DateTime?
   failedAt             DateTime?
+  /// Where Paystack pays a refund it could not return on its own. One approver enters the
+  /// account, a different one confirms it, and only then is it sent; after sending, the
+  /// number is kept masked.
+  payoutAccountNumber  String?                   @db.VarChar(10)
+  payoutBankId         String?                   @db.VarChar(20)
+  payoutBankName       String?                   @db.VarChar(120)
+  payoutAccountName    String?                   @db.VarChar(191)
+  payoutEnteredBy      String?
+  payoutEnteredAt      DateTime?
+  payoutConfirmedBy    String?
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
 
@@ -2506,6 +2518,36 @@ enum GatewayEventStatus {
   DEAD
 }
 
+/// A counter (cash-desk) refund waits here for a second person. The receipt is reversed
+/// only when a different user with refund approval approves it.
+model CounterRefundRequest {
+  id              String              @id @default(uuid())
+  schoolId        String
+  paymentId       String
+  reason          String              @db.VarChar(500)
+  referenceNo     String?             @db.VarChar(120)
+  status          CounterRefundStatus @default(REQUESTED)
+  requestedBy     String
+  decidedBy       String?
+  decidedAt       DateTime?
+  rejectionReason String?             @db.VarChar(500)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, status, createdAt])
+  @@index([paymentId])
+}
+
+enum CounterRefundStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
 enum GatewayRefundStatus {
   REQUESTED
   PENDING
@@ -2840,6 +2882,10 @@ model UnappliedPayment {
   resolvedBy           String?
   resolvedAt           DateTime?
   resolutionNote       String?                @db.VarChar(500)
+  /// Money handed back outside DigiSchool is a refund, so it takes two people: one records
+  /// the return here, and a different person confirms it before the row closes as RETURNED.
+  returnRequestedBy    String?
+  returnRequestedAt    DateTime?
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
@@ -2906,23 +2952,23 @@ enum DedicatedIdentificationStatus {
 /// through the notification outbox like every other message; this row is the record of
 /// what was said, to whom, and when.
 model Announcement {
-  id          String                 @id @default(uuid())
-  schoolId    String
-  title       String                 @db.VarChar(150)
-  message     String                 @db.Text
-  audience    AnnouncementAudience
+  id           String               @id @default(uuid())
+  schoolId     String
+  title        String               @db.VarChar(150)
+  message      String               @db.Text
+  audience     AnnouncementAudience
   /// Class ids when audience is CLASS_PARENTS.
-  classIds    Json?
+  classIds     Json?
   /// ["SMS"], ["EMAIL"] or both.
-  channels    Json
-  status      AnnouncementStatus     @default(DRAFT)
+  channels     Json
+  status       AnnouncementStatus   @default(DRAFT)
   /// Messages are held in the outbox until this time; null sends at once.
   scheduledFor DateTime?
-  queuedCount Int                    @default(0)
-  createdBy   String
-  sentAt      DateTime?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  queuedCount  Int                  @default(0)
+  createdBy    String
+  sentAt       DateTime?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 
   school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 

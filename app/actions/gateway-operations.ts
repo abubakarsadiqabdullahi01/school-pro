@@ -8,6 +8,7 @@ import { recordAudit } from "@/lib/audit"
 import { requirePermission } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import { processGatewayEvent } from "@/lib/payments/gateway-event-processor.server"
+import { refundPayoutViews } from "@/lib/payments/refund-payout.server"
 
 type ActionResult<T> = { success: true; data: T } | { success: false; error: string }
 
@@ -124,10 +125,12 @@ export async function getGatewayTransactionDetail(id: string) {
           orderBy: { receivedAt: "desc" },
           select: { id: true, providerEventId: true, eventType: true, status: true, attempts: true, receivedAt: true, processedAt: true, nextAttemptAt: true, lastError: true },
         },
-        refunds: { orderBy: { createdAt: "desc" }, select: { id: true, status: true, amount: true, reason: true, providerRefundId: true, providerMessage: true, createdAt: true, processedAt: true, rejectionReason: true, environment: true } },
+        refunds: { orderBy: { createdAt: "desc" }, select: { id: true, status: true, amount: true, reason: true, providerRefundId: true, providerMessage: true, createdAt: true, processedAt: true, rejectionReason: true, environment: true,
+          payoutAccountNumber: true, payoutAccountName: true, payoutBankName: true, payoutEnteredBy: true, payoutEnteredAt: true, payoutConfirmedBy: true } },
       },
     })
     if (!transaction) throw new Error("Online payment was not found")
+    const payouts = await refundPayoutViews(transaction.refunds)
 
     return {
       success: true as const,
@@ -156,7 +159,10 @@ export async function getGatewayTransactionDetail(id: string) {
           processedAt: event.processedAt?.toISOString() ?? null,
           nextAttemptAt: event.nextAttemptAt?.toISOString() ?? null,
         })),
-        refunds: transaction.refunds.map((refund) => ({ ...refund, amount: refund.amount.toFixed(2), createdAt: refund.createdAt.toISOString(), processedAt: refund.processedAt?.toISOString() ?? null })),
+        refunds: transaction.refunds.map(({ payoutAccountNumber: _number, payoutAccountName: _name, payoutBankName: _bank, payoutEnteredBy: _by, payoutEnteredAt: _at, payoutConfirmedBy: _confirmed, ...refund }) => ({
+          ...refund, amount: refund.amount.toFixed(2), createdAt: refund.createdAt.toISOString(), processedAt: refund.processedAt?.toISOString() ?? null,
+          payout: payouts.get(refund.id) ?? null,
+        })),
       },
     }
   } catch (error) {

@@ -55,6 +55,9 @@ export function loadPlatformPaystackConfig(
   if (webhook.origin !== applicationOrigin) {
     throw new Error("PAYSTACK_WEBHOOK_URL must use the configured application origin")
   }
+  // Next answers "/path/" with a 308 to "/path", and Paystack does not follow redirects, so
+  // the URL shown for pasting into Paystack never ends in a slash, whatever the env holds.
+  webhook.pathname = webhook.pathname.replace(/\/+$/, "")
 
   return {
     secretKey: parsed.PAYSTACK_SECRET_KEY,

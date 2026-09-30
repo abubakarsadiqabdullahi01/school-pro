@@ -128,6 +128,38 @@ describe("PaystackAdapter", () => {
     expect(result.subaccountCode).toBe("ACCT_school")
   })
 
+  const transfer = {
+    domain: "test", status: "success", reference: "transfer-1", amount: 500_000, requested_amount: 500_000,
+    currency: "NGN", channel: "dedicated_nuban",
+  }
+
+  it("reads who paid and which account received a transfer", async () => {
+    const { adapter } = adapterReturning({ status: true, data: {
+      ...transfer,
+      customer: { id: 1, customer_code: "CUS_ada", email: "student-1@students.example.ng" },
+      authorization: { channel: "dedicated_nuban", receiver_bank_account_number: "0123456789", receiver_bank: "Test Bank" },
+    } })
+    const result = await adapter.verifyPayment("transfer-1")
+    expect(result.customerCode).toBe("CUS_ada")
+    // Kept as text: a leading zero is part of the account number.
+    expect(result.receiverAccountNumber).toBe("0123456789")
+  })
+
+  it("reads an unexpected customer or authorization shape as not returned, instead of failing the verify", async () => {
+    for (const odd of [
+      { customer: [], authorization: [] },
+      { customer: "CUS_ada", authorization: "none" },
+      { customer: { customer_code: 12 }, authorization: { receiver_bank_account_number: 123456789 } },
+      { customer: null, authorization: { receiver_bank_account_number: null } },
+    ]) {
+      const { adapter } = adapterReturning({ status: true, data: { ...transfer, ...odd } })
+      const result = await adapter.verifyPayment("transfer-1")
+      expect(result).toMatchObject({ status: "success", amountKobo: 500_000 })
+      expect(result.customerCode).toBeUndefined()
+      expect(result.receiverAccountNumber).toBeUndefined()
+    }
+  })
+
   it("treats HTTP 200 with Paystack status false as a failure", async () => {
     const { adapter } = adapterReturning({
       status: false,
@@ -224,6 +256,20 @@ describe("PaystackAdapter", () => {
     const transactions = await adapter.listSettlementTransactions(settlements[0]!.providerSettlementId)
     expect(settlements[0]!.providerSettlementId).toBe("18446744073709551615")
     expect(transactions[0]!.providerTransactionId).toBe("9223372036854775808")
+  })
+
+  it("reports which subaccount each settlement was paid to, and never rejects the listing over the label", async () => {
+    const { adapter, fetcher } = adapterReturning({ status: true, data: [
+      { id: 1, status: "success", currency: "NGN", total_amount: 100, total_fees: 1, total_processed: 99, subaccount: { id: 7, subaccount_code: "ACCT_one" } },
+      { id: 2, status: "success", currency: "NGN", total_amount: 200, total_fees: 2, total_processed: 198, subaccount: "ACCT_two" },
+      { id: 3, status: "success", currency: "NGN", total_amount: 300, total_fees: 3, total_processed: 297 },
+      { id: 4, status: "success", currency: "NGN", total_amount: 400, total_fees: 4, total_processed: 396, subaccount: 1151727 },
+      { id: 5, status: "success", currency: "NGN", total_amount: 500, total_fees: 5, total_processed: 495, subaccount: null },
+    ] })
+    const settlements = await adapter.listSettlements()
+    // Filtering is the caller's, on the label; no query parameter whose meaning is unpinned.
+    expect(String(fetcher.mock.calls[0]![0])).not.toContain("subaccount=")
+    expect(settlements.map((settlement) => settlement.subaccountCode)).toEqual(["ACCT_one", "ACCT_two", undefined, undefined, undefined])
   })
 })
 

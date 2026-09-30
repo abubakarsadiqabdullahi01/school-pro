@@ -31,11 +31,11 @@ type ProcessResult = "processed" | "ignored" | "already_processed" | "busy" | "f
 /**
  * How many times an event is retried before it is parked.
  *
- * With the backoff below this spans roughly a day and a half, which covers any outage worth
- * riding out. Past that the failure is not transient, and an event that keeps retrying for
+ * With the backoff below this spans about 17 hours (1, 2, 4 ... minutes, then 256 minutes each),
+ * which covers any outage worth riding out. Past that the failure is not transient, and an event that keeps retrying for
  * ever is an event nobody is looking at — it needs to become visibly stuck instead.
  */
-const MAX_EVENT_ATTEMPTS = 12
+export const MAX_EVENT_ATTEMPTS = 12
 
 function retryAt(attempts: number): Date {
   const seconds = Math.min(6 * 60 * 60, 60 * 2 ** Math.min(Math.max(attempts - 1, 0), 8))
@@ -60,25 +60,60 @@ function eventData(payload: Prisma.JsonValue | null): Record<string, unknown> {
   return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {}
 }
 
+function formatKobo(kobo: number): string {
+  return `₦${(kobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 function textValue(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null
+}
+
+/**
+ * Records a problem the ledger cannot settle on its own where the school and the monitor
+ * already look: the reconciliation exceptions. Idempotent per transaction and kind.
+ */
+async function raiseGatewayIssue(
+  tx: Prisma.TransactionClient,
+  input: { schoolId: string; gatewayTransactionId: string; kind: string; message: string; detail?: Prisma.InputJsonValue },
+) {
+  const dedupeKey = `${input.schoolId}:${input.gatewayTransactionId}:${input.kind}`.slice(0, 191)
+  await tx.gatewayReconciliationIssue.upsert({
+    where: { dedupeKey },
+    create: { schoolId: input.schoolId, gatewayTransactionId: input.gatewayTransactionId, dedupeKey, kind: input.kind,
+      severity: "ERROR", message: input.message, detail: input.detail },
+    update: { status: "OPEN", lastSeenAt: new Date(), resolvedAt: null, message: input.message },
+  })
+}
+
+/** Paystack's refund outcomes are final: once processed, or failed, only "processed" may follow. */
+function refundStatusMayChange(current: string, next: string): boolean {
+  if (current === "PROCESSED") return false
+  if (current === "FAILED") return next === "PROCESSED"
+  return true
 }
 
 async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof prisma.gatewayEvent.findUnique>>>) {
   const data = eventData(event.payload)
   const providerRefundId = textValue(data.id)
-  // A transaction can carry more than one refund (held money, then the applied part), so the
-  // provider's refund id decides. Without one, only a single submitted refund can match.
-  const refund = (providerRefundId
+  const amountKobo = typeof data.amount === "number" && Number.isSafeInteger(data.amount) ? data.amount : null
+  // A transaction can carry two refunds at once (the receipted part and the held part), so
+  // the provider's refund id decides. Without a match on it, only a refund Paystack has not
+  // yet given an id to can be this one, and only on the same amount when the event says.
+  // Taking "the latest in flight" once marked held money returned on the strength of a
+  // refund of the receipt.
+  let refund = providerRefundId
     ? await prisma.gatewayRefund.findFirst({ where: { provider: event.provider, environment: event.environment, providerRefundId } })
-    : null)
-    ?? (event.gatewayTransactionId
-      ? await prisma.gatewayRefund.findFirst({
-          where: { provider: event.provider, environment: event.environment, gatewayTransactionId: event.gatewayTransactionId,
-            approvedAt: { not: null }, status: { in: ["PENDING", "PROCESSING", "NEEDS_ATTENTION"] } },
-          orderBy: { approvedAt: "desc" },
-        })
-      : null)
+    : null
+  if (!refund && event.gatewayTransactionId) {
+    const candidates = await prisma.gatewayRefund.findMany({
+      where: { provider: event.provider, environment: event.environment, gatewayTransactionId: event.gatewayTransactionId,
+        approvedAt: { not: null }, providerRefundId: null, status: { in: ["REQUESTED", "PENDING", "PROCESSING", "NEEDS_ATTENTION"] } },
+    })
+    const matching = amountKobo === null ? candidates : candidates.filter((candidate) => decimalNairaToKobo(candidate.amount) === amountKobo)
+    // Retried with backoff: by then the approval will have saved Paystack's refund id.
+    if (matching.length > 1) throw new Error("More than one refund on this transaction could be this one; waiting for Paystack's refund id")
+    refund = matching[0] ?? null
+  }
   if (!refund) {
     await finishEvent(event.id, "IGNORED", "No local refund request matched this provider event")
     return "ignored" as const
@@ -88,17 +123,34 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
       : event.eventType === "refund.needs-attention" ? "NEEDS_ATTENTION"
         : event.eventType === "refund.processing" ? "PROCESSING" : "PENDING"
 
+  const matched = refund
   await prisma.$transaction(async (tx) => {
-    const current = await tx.gatewayRefund.findUniqueOrThrow({ where: { id: refund.id } })
+    const current = await tx.gatewayRefund.findUniqueOrThrow({ where: { id: matched.id } })
+    // A late or replayed event (a parked one retried by hand, say) never walks a finished
+    // refund back: a processed refund shown as pending invites someone to pay it again.
+    if (!refundStatusMayChange(current.status, status)) {
+      await tx.gatewayEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), nextAttemptAt: null,
+        lastError: `Arrived after the refund was already ${current.status.toLowerCase()}; nothing changed` } })
+      return
+    }
     if (status === "PROCESSED" && current.status !== "PROCESSED") {
       if (current.unappliedPaymentId) {
         // Held money never reached a receipt, so there is nothing to reverse: the held row
-        // simply records that it went back to the payer.
-        await tx.unappliedPayment.update({
-          where: { id: current.unappliedPaymentId },
+        // simply records that it went back to the payer. Only while it is still held: money
+        // applied or returned meanwhile has gone twice, and a person must untangle that.
+        const returned = await tx.unappliedPayment.updateMany({
+          where: { id: current.unappliedPaymentId, status: "OPEN" },
           data: { status: "RETURNED", resolvedBy: current.approvedBy ?? current.requestedBy, resolvedAt: new Date(),
-            resolutionNote: `Refunded through Paystack (${current.providerRefundId ?? event.reference ?? "refund"})` },
+            resolutionNote: `Refunded through Paystack (${providerRefundId ?? current.providerRefundId ?? event.reference ?? "refund"})` },
         })
+        if (returned.count !== 1) {
+          await raiseGatewayIssue(tx, {
+            schoolId: current.schoolId, gatewayTransactionId: current.gatewayTransactionId, kind: "HELD_REFUND_AFTER_RESOLUTION",
+            message: "Paystack refunded held transfer money that had already been applied to fees or returned. The payer may "
+              + "have been paid twice, or fees may show as paid with money that has gone back. Check it and correct it by hand.",
+            detail: { refundId: current.id, unappliedPaymentId: current.unappliedPaymentId },
+          })
+        }
       } else if (current.paymentId) {
         await reverseStudentPaymentInTransaction(tx, {
           schoolId: current.schoolId, paymentId: current.paymentId,
@@ -110,7 +162,10 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
         await queueRefundNoticeInTransaction(tx, {
           schoolId: current.schoolId, paymentId: current.paymentId, reason: current.reason,
         })
-        await tx.gatewayTransaction.update({ where: { id: current.gatewayTransactionId }, data: { status: "REFUNDED" } })
+        const transaction = await tx.gatewayTransaction.findUniqueOrThrow({ where: { id: current.gatewayTransactionId }, select: { status: true } })
+        if (canTransitionGatewayTransaction(transaction.status, "REFUNDED")) {
+          await tx.gatewayTransaction.update({ where: { id: current.gatewayTransactionId }, data: { status: "REFUNDED" } })
+        }
       }
     }
     await tx.gatewayRefund.update({
@@ -119,7 +174,12 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
         processedAt: status === "PROCESSED" ? new Date() : current.processedAt,
         failedAt: status === "FAILED" ? new Date() : null,
         providerMessage: status === "FAILED" ? textValue(data.reason) ?? "Provider reported refund failure"
-          : status === "NEEDS_ATTENTION" ? "Paystack needs the payer's bank account to complete this refund" : null },
+          : status === "NEEDS_ATTENTION" ? "Paystack needs the payer's bank account to complete this refund" : null,
+        // Asked again for an account: the one sent before did not work, so it is entered afresh.
+        ...(status === "NEEDS_ATTENTION" && current.status !== "NEEDS_ATTENTION"
+          ? { payoutAccountNumber: null, payoutBankId: null, payoutBankName: null, payoutAccountName: null,
+              payoutEnteredBy: null, payoutEnteredAt: null, payoutConfirmedBy: null }
+          : {}) },
     })
     await tx.gatewayEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), nextAttemptAt: null, lastError: null } })
   }, { isolationLevel: "Serializable" })
@@ -135,6 +195,22 @@ async function processDisputeEvent(event: NonNullable<Awaited<ReturnType<typeof 
   }
   const status = textValue(data.status) ?? (event.eventType.endsWith(".resolve") ? "resolved" : "awaiting-merchant-feedback")
   const amountKobo = typeof data.amount === "number" && Number.isSafeInteger(data.amount) ? data.amount : null
+  // A create or remind that arrives after the dispute closed (late, or a parked event retried
+  // by hand) must not reopen it: that left a settled transaction DISPUTED for good.
+  const existing = await prisma.gatewayDispute.findUnique({
+    where: { provider_environment_providerDisputeId: { provider: event.provider, environment: event.environment, providerDisputeId } },
+    select: { resolvedAt: true },
+  })
+  if (existing?.resolvedAt && !isDisputeResolution(event.eventType)) {
+    await finishEvent(event.id, "PROCESSED", "Arrived after the dispute had closed; nothing changed")
+    return "processed" as const
+  }
+  // Only a settled transaction becomes DISPUTED. One held for review, or already refunded,
+  // keeps its status: a dispute declined later would otherwise mark a quarantined transfer
+  // SUCCEEDED with no receipt behind it. The dispute row itself records the dispute.
+  const disputedTransaction = event.gatewayTransactionId && !isDisputeResolution(event.eventType)
+    ? await prisma.gatewayTransaction.findUnique({ where: { id: event.gatewayTransactionId }, select: { status: true } })
+    : null
   await prisma.$transaction([
     prisma.gatewayDispute.upsert({
       where: { provider_environment_providerDisputeId: { provider: event.provider, environment: event.environment, providerDisputeId } },
@@ -152,8 +228,8 @@ async function processDisputeEvent(event: NonNullable<Awaited<ReturnType<typeof 
         resolution: textValue(data.resolution), lastEventType: event.eventType, lastEventAt: new Date(),
         resolvedAt: event.eventType.endsWith(".resolve") ? new Date() : undefined },
     }),
-    ...(event.gatewayTransactionId && !isDisputeResolution(event.eventType)
-      ? [prisma.gatewayTransaction.update({ where: { id: event.gatewayTransactionId }, data: { status: "DISPUTED" } })] : []),
+    ...(event.gatewayTransactionId && disputedTransaction?.status === "SUCCEEDED"
+      ? [prisma.gatewayTransaction.updateMany({ where: { id: event.gatewayTransactionId, status: "SUCCEEDED" }, data: { status: "DISPUTED" } })] : []),
     prisma.gatewayEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), nextAttemptAt: null, lastError: null } }),
   ])
 
@@ -164,7 +240,7 @@ async function processDisputeEvent(event: NonNullable<Awaited<ReturnType<typeof 
     await settleResolvedDispute(event.gatewayTransactionId, disputeOutcome({
       status,
       resolution: textValue(data.resolution),
-    }))
+    }), amountKobo)
   }
   return "processed" as const
 }
@@ -175,20 +251,32 @@ async function processDisputeEvent(event: NonNullable<Awaited<ReturnType<typeof 
  * Only a payer-refunded outcome touches the ledger, and it reuses the ordinary reversal so
  * the charge reopens, the balance returns and the receipt is marked exactly as a refund at
  * the counter would be. There is no second way to un-settle a fee.
+ *
+ * A dedicated-account transfer can have part of it held, or applied to fees later through
+ * a receipt of its own. A chargeback takes the whole transfer back, so the held part closes
+ * as returned and a receipt made from it is reversed too; without that, the school could
+ * apply or return money the payer already had back. A partial chargeback cannot be spread
+ * over those pieces by rule, so it goes to a person instead.
  */
 async function settleResolvedDispute(
   gatewayTransactionId: string,
   outcome: DisputeOutcome,
+  disputedAmountKobo: number | null,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
+    // Held money first, then the transfer: the order every held-money action locks them in.
+    const [heldRow] = await tx.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT id FROM UnappliedPayment WHERE gatewayTransactionId = ${gatewayTransactionId} FOR UPDATE`,
+    )
     await tx.$queryRaw(Prisma.sql`SELECT id FROM GatewayTransaction WHERE id = ${gatewayTransactionId} FOR UPDATE`)
     const locked = await tx.gatewayTransaction.findUniqueOrThrow({
       where: { id: gatewayTransactionId },
-      select: { id: true, status: true, schoolId: true, paymentId: true },
+      select: { id: true, status: true, schoolId: true, paymentId: true, amountCharged: true, amountExpected: true },
     })
 
     if (outcome === "SCHOOL_KEEPS") {
-      if (!canTransitionGatewayTransaction(locked.status, "SUCCEEDED")) return
+      // Only a transaction this dispute made DISPUTED goes back to SUCCEEDED.
+      if (locked.status !== "DISPUTED") return
       await tx.gatewayTransaction.update({
         where: { id: locked.id },
         data: { status: "SUCCEEDED", failureCode: null, failureMessage: null },
@@ -197,6 +285,49 @@ async function settleResolvedDispute(
     }
 
     if (outcome === "PAYER_REFUNDED") {
+      const transferredKobo = decimalNairaToKobo(locked.amountCharged ?? locked.amountExpected)
+      if (disputedAmountKobo !== null && disputedAmountKobo < transferredKobo) {
+        await sendDisputeToReview(tx, locked,
+          `The payer won a chargeback of ${formatKobo(disputedAmountKobo)} of the ${formatKobo(transferredKobo)} paid. `
+            + "Nothing was reversed automatically: decide which fees reopen, then correct them by hand.")
+        return
+      }
+      if (heldRow) {
+        const held = await tx.unappliedPayment.findUniqueOrThrow({
+          where: { id: heldRow.id },
+          include: { refund: true, appliedPayment: { select: { id: true, receiptNo: true, status: true } } },
+        })
+        const reason = "Chargeback upheld by Paystack; the payer has been refunded"
+        if (held.status === "APPLIED" && held.appliedPayment?.status === "COMPLETED") {
+          await reverseStudentPaymentInTransaction(tx, {
+            schoolId: locked.schoolId, paymentId: held.appliedPayment.id, reason, referenceNo: null, createdBy: null,
+          })
+          await queueRefundNoticeInTransaction(tx, { schoolId: locked.schoolId, paymentId: held.appliedPayment.id, reason })
+        }
+        if (held.status === "OPEN" || held.status === "APPLIED") {
+          await tx.unappliedPayment.update({
+            where: { id: held.id },
+            data: {
+              status: "RETURNED", resolvedBy: null, resolvedAt: new Date(),
+              resolutionNote: held.appliedPayment
+                ? `Charged back by the payer's bank; receipt ${held.appliedPayment.receiptNo} reversed`
+                : "Charged back by the payer's bank",
+            },
+          })
+        }
+        // Money that was also going back another way may now have gone twice.
+        const alsoGoing = held.status === "RETURNED" ? "had already been returned to the payer"
+          : held.returnRequestedBy ? "had a return outside Paystack recorded against it"
+            : held.refund && !["REJECTED", "FAILED"].includes(held.refund.status) ? "had a Paystack refund in progress"
+              : null
+        if (alsoGoing) {
+          await raiseGatewayIssue(tx, {
+            schoolId: locked.schoolId, gatewayTransactionId: locked.id, kind: "CHARGEBACK_ON_RETURNED_MONEY",
+            message: `The payer charged back a transfer whose held money ${alsoGoing}. They may have been paid twice; check and recover it by hand.`,
+            detail: { unappliedPaymentId: held.id },
+          })
+        }
+      }
       if (locked.paymentId) {
         const reason = "Chargeback upheld by Paystack; the payer has been refunded"
         await reverseStudentPaymentInTransaction(tx, {
@@ -220,16 +351,29 @@ async function settleResolvedDispute(
 
     // Resolved in a way this code does not recognise. Money may or may not have moved, so
     // nothing is assumed and the transaction is put in front of a person.
-    if (!canTransitionGatewayTransaction(locked.status, "REQUIRES_REVIEW")) return
-    await tx.gatewayTransaction.update({
-      where: { id: locked.id },
-      data: {
-        status: "REQUIRES_REVIEW",
-        failureMessage: "Paystack closed this dispute with a resolution this system does not "
-          + "recognise. Check the dispute on Paystack and decide whether the fees stay settled.",
-      },
-    })
+    await sendDisputeToReview(tx, locked, "Paystack closed this dispute with a resolution this system does not "
+      + "recognise. Check the dispute on Paystack and decide whether the fees stay settled.")
   }, { isolationLevel: "Serializable" })
+}
+
+/**
+ * Puts a disputed transaction in front of a person. A settled one gets there as it would
+ * through its dispute: Paystack can send the resolution without the event that opened it,
+ * and refusing the move then dropped a partial chargeback without a word. Anything that
+ * cannot be put in review (already refunded, say) is raised as an exception instead.
+ */
+async function sendDisputeToReview(
+  tx: Prisma.TransactionClient,
+  locked: { id: string; status: GatewayTransactionStatus; schoolId: string },
+  message: string,
+) {
+  const reviewable = canTransitionGatewayTransaction(locked.status, "REQUIRES_REVIEW")
+    || (canTransitionGatewayTransaction(locked.status, "DISPUTED") && canTransitionGatewayTransaction("DISPUTED", "REQUIRES_REVIEW"))
+  if (reviewable && locked.status !== "REFUNDED") {
+    await tx.gatewayTransaction.update({ where: { id: locked.id }, data: { status: "REQUIRES_REVIEW", failureMessage: message } })
+    return
+  }
+  await raiseGatewayIssue(tx, { schoolId: locked.schoolId, gatewayTransactionId: locked.id, kind: "DISPUTE_NEEDS_REVIEW", message })
 }
 
 export async function processGatewayEvent(eventId: string): Promise<ProcessResult> {
@@ -268,6 +412,16 @@ export async function processGatewayEvent(eventId: string): Promise<ProcessResul
       return "ignored"
     }
     const transaction = event.gatewayTransaction
+    // A dedicated-account transfer is recorded in full the first time it is processed:
+    // applied, held for review, or quarantined. A later delivery of the same transfer with
+    // different bytes escapes the payload-hash dedupe and is linked to that record by its
+    // reference. It must not reach the checkout verifier below, which can never match a
+    // transfer and would overwrite a correctly held transfer with REQUIRES_REVIEW - inviting
+    // a manual receipt that credits the student twice.
+    if (transaction?.source === "DEDICATED_ACCOUNT") {
+      await finishEvent(event.id, "PROCESSED")
+      return "already_processed"
+    }
     if (!transaction && event.eventType === "charge.success" && eventData(event.payload).channel === "dedicated_nuban") {
       return await processDedicatedTransferEvent(event)
     }

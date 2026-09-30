@@ -1,7 +1,8 @@
 import { AlertTriangle, CheckCircle2, CircleAlert, Radio } from "lucide-react"
 
-import type { SchoolPaymentHealth } from "@/lib/payments/payment-health.server"
+import type { ParkedGatewayEvent, SchoolPaymentHealth } from "@/lib/payments/payment-health.server"
 import { LiveApprovalControl } from "@/components/payments/live-approval-control"
+import { ParkedEventActions } from "@/components/payments/parked-event-actions"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,10 +24,12 @@ function when(value: Date | null) {
 export function PaymentPilotMonitor({
   schools,
   unattributedFailedEvents,
+  parkedEvents,
   generatedAt,
 }: {
   schools: SchoolPaymentHealth[]
   unattributedFailedEvents: number
+  parkedEvents: ParkedGatewayEvent[]
   generatedAt: string
 }) {
   const liveSchools = schools.filter((school) => school.counts.liveEnabled).length
@@ -43,9 +46,49 @@ export function PaymentPilotMonitor({
       {unattributedFailedEvents > 0 && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{unattributedFailedEvents} failed webhook event{unattributedFailedEvents === 1 ? "" : "s"} could not be matched to a school</AlertTitle>
-          <AlertDescription>Check the Paystack webhook URL and keys. These events are in the inbox and can be reprocessed once the cause is fixed.</AlertDescription>
+          <AlertTitle>{unattributedFailedEvents} failed or parked webhook event{unattributedFailedEvents === 1 ? "" : "s"} could not be matched to a school</AlertTitle>
+          <AlertDescription>
+            Usually a bank transfer into a dedicated account DigiSchool does not know, such as one
+            created directly in the Paystack dashboard: the money reached Paystack but no student
+            was credited. Find the reference in Paystack, credit the student by hand, then close
+            the event below. Otherwise check the webhook URL and keys. Nothing here has been
+            posted to any student.
+          </AlertDescription>
         </Alert>
+      )}
+
+      {parkedEvents.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Webhook events that failed</CardTitle>
+            <CardDescription>
+              A failing event retries on its own for about 17 hours, then is parked here until a
+              person acts: try it again once the cause is fixed, or close it once it has been
+              settled by hand. Closing posts nothing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {parkedEvents.map((event) => (
+              <div key={event.id} className="flex flex-col gap-3 rounded-md border p-3 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0 space-y-1 text-sm">
+                  <p className="font-medium">
+                    {event.schoolName ?? "No school matched"} · {event.eventType}
+                    {event.amount ? ` · ${formatNaira(event.amount)}` : ""}
+                  </p>
+                  <p className="break-all text-muted-foreground">
+                    {event.environment} · {event.reference ?? "no reference"} · received {when(new Date(event.receivedAt))} · {event.attempts} attempt{event.attempts === 1 ? "" : "s"}
+                  </p>
+                  {event.lastError && <p className="break-words text-destructive">{event.lastError.slice(0, 300)}</p>}
+                </div>
+                <div className="shrink-0 md:w-80">
+                  {event.status === "DEAD"
+                    ? <ParkedEventActions eventId={event.id} />
+                    : <Badge variant="secondary">Still retrying</Badge>}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {schools.length === 0 ? (

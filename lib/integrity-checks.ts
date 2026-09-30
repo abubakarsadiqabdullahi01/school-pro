@@ -18,7 +18,7 @@ export async function runIntegrityChecks(schoolId: string, runBy: string) {
     data: {
       schoolId,
       checkType: "FULL_RECONCILIATION",
-      description: "Academic, enrollment, results, finance, expenditure and payroll reconciliation",
+      description: "Academic, enrollment, results, finance, transfer, expenditure and payroll reconciliation",
       status: "RUNNING",
       runBy,
     },
@@ -26,7 +26,7 @@ export async function runIntegrityChecks(schoolId: string, runBy: string) {
   })
 
   try {
-    const [sessions, terms, pointer, payments, charges, expenses, payrollRuns, workflows, enrollments] =
+    const [sessions, terms, pointer, payments, charges, expenses, payrollRuns, workflows, enrollments, transfers] =
       await Promise.all([
         prisma.session.findMany({ where: { schoolId, isCurrent: true }, select: { id: true } }),
         prisma.term.findMany({
@@ -105,6 +105,27 @@ export async function runIntegrityChecks(schoolId: string, runBy: string) {
             },
           },
         }),
+        // Dedicated-account transfers: one arrival can become a receipt, held money, and later
+        // a second receipt when the held part is applied. Those pieces must still add up.
+        prisma.gatewayTransaction.findMany({
+          where: { schoolId, source: "DEDICATED_ACCOUNT", status: { in: ["SUCCEEDED", "REFUNDED"] } },
+          select: {
+            id: true,
+            reference: true,
+            amountCharged: true,
+            amountExpected: true,
+            payment: { select: { amount: true } },
+            unapplied: {
+              select: {
+                id: true,
+                status: true,
+                amount: true,
+                appliedPaymentId: true,
+                appliedPayment: { select: { receiptNo: true, status: true, amount: true } },
+              },
+            },
+          },
+        }),
       ])
 
     const issues: IntegrityIssue[] = []
@@ -160,6 +181,44 @@ export async function runIntegrityChecks(schoolId: string, runBy: string) {
           entityType: "StudentCharge",
           entityId: charge.id,
           message: "Charge paid/balance figures do not reconcile with completed receipt allocations.",
+        })
+      }
+    }
+
+    for (const transfer of transfers) {
+      const arrived = decimal(transfer.amountCharged ?? transfer.amountExpected)
+      const accounted = decimal(transfer.payment?.amount).plus(decimal(transfer.unapplied?.amount))
+      if (!accounted.equals(arrived)) {
+        add({
+          code: "TRANSFER_SPLIT_MISMATCH",
+          severity: "ERROR",
+          entityType: "GatewayTransaction",
+          entityId: transfer.id,
+          message: `Transfer ${transfer.reference} brought ${arrived.toFixed(2)} but its receipt and held money total ${accounted.toFixed(2)}.`,
+        })
+      }
+      const held = transfer.unapplied
+      if (!held) continue
+      if (held.status === "APPLIED") {
+        const receipt = held.appliedPayment
+        if (!receipt || receipt.status !== "COMPLETED" || !receipt.amount.equals(held.amount)) {
+          add({
+            code: "HELD_APPLIED_RECEIPT_MISMATCH",
+            severity: "ERROR",
+            entityType: "UnappliedPayment",
+            entityId: held.id,
+            message: `Held money from ${transfer.reference} is marked applied, but ${receipt
+              ? `receipt ${receipt.receiptNo} is ${receipt.status.toLowerCase()} for ${receipt.amount.toFixed(2)}`
+              : "no receipt is linked"} against ${held.amount.toFixed(2)} held.`,
+          })
+        }
+      } else if (held.appliedPaymentId) {
+        add({
+          code: "HELD_RECEIPT_LINK_STALE",
+          severity: "ERROR",
+          entityType: "UnappliedPayment",
+          entityId: held.id,
+          message: `Held money from ${transfer.reference} is ${held.status.toLowerCase()} but still points at a receipt.`,
         })
       }
     }

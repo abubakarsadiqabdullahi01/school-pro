@@ -703,7 +703,7 @@ export async function updateTeacher(data: {
     // Verify the teacher belongs to the admin's school
     const teacher = await prisma.teacher.findUnique({
       where: { id: data.id },
-      select: { schoolId: true, staffId: true },
+      select: { schoolId: true, staffId: true, userId: true },
     });
 
     if (!teacher) {
@@ -715,6 +715,15 @@ export async function updateTeacher(data: {
     } catch {
       return { success: false, error: "Unauthorized to update this teacher" };
     }
+
+    // The login and email credential being edited are this teacher's, read from the
+    // database. The form sends ids for both, and trusting them let anyone who may edit
+    // their own school's teachers rename any user and rewrite any account's login email.
+    const emailCredential = await prisma.credential.findFirst({
+      where: { userId: teacher.userId, type: "EMAIL" },
+      select: { id: true },
+    });
+    data = { ...data, userId: teacher.userId, emailCredentialId: emailCredential?.id };
 
     // Check if the staff ID is being changed and if it already exists for another teacher
     if (data.staffId !== teacher.staffId) {

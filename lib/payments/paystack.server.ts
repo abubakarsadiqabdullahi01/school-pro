@@ -66,6 +66,16 @@ const verifiedSchema = z
       .optional(),
     // Paystack returns {} when no split applied, so every field is optional.
     split: z.object({ split_code: z.string().optional() }).passthrough().nullable().optional(),
+    // Cross-checks only, never the verdict: a shape nobody expected reads as "not returned"
+    // rather than failing the parse, which would fail every verify, checkout included. A
+    // numeric account number is dropped too, since a number would lose a leading zero.
+    customer: z.object({ customer_code: z.string().optional().catch(undefined) }).passthrough().nullable().optional().catch(undefined),
+    authorization: z
+      .object({ receiver_bank_account_number: z.string().nullable().optional().catch(undefined) })
+      .passthrough()
+      .nullable()
+      .optional()
+      .catch(undefined),
   })
   .passthrough()
 
@@ -102,6 +112,12 @@ const settlementSchema = z.object({
   id: z.union([z.string(), z.number()]), status: z.string(), currency: z.string().min(3),
   total_amount: z.number().int(), total_fees: z.number().int(), total_processed: z.number().int(),
   settlement_date: z.string().nullable().optional(),
+  // A code string or an expanded object. Anything else reads as unlabelled rather than
+  // rejecting the whole listing, which would stop reconciliation for every school.
+  subaccount: z.union([
+    z.string(),
+    z.object({ subaccount_code: z.string().optional().catch(undefined) }).passthrough(),
+  ]).nullable().optional().catch(undefined),
 }).passthrough()
 
 const settlementTransactionSchema = z.object({
@@ -337,6 +353,8 @@ export class PaystackAdapter implements PaymentGatewayAdapter {
       subaccountCode: data.subaccount?.subaccount_code,
       splitCode: data.split?.split_code || undefined,
       paidAt: data.paid_at ? new Date(data.paid_at) : undefined,
+      customerCode: data.customer?.customer_code || undefined,
+      receiverAccountNumber: data.authorization?.receiver_bank_account_number || undefined,
     }
   }
 
@@ -458,6 +476,9 @@ export class PaystackAdapter implements PaymentGatewayAdapter {
       providerSettlementId: safeProviderId(row.id) ?? String(row.id), status: row.status, currency: row.currency,
       totalAmountKobo: row.total_amount, totalFeesKobo: row.total_fees, totalProcessedKobo: row.total_processed,
       settlementDate: row.settlement_date ? new Date(row.settlement_date) : undefined,
+      subaccountCode: typeof row.subaccount === "string"
+        ? row.subaccount || undefined
+        : row.subaccount?.subaccount_code || undefined,
     }))
   }
 

@@ -8,6 +8,7 @@ import {
   DeactivateAccountButton,
   DedicatedAccountSettings,
   IdentifyPayerButton,
+  MoveBackToHeldButton,
   RefundHeldMoneyButton,
   RequiresIdentificationSwitch,
   UnappliedActions,
@@ -107,7 +108,12 @@ export async function DedicatedAccountsView({ basePath, searchParams }: {
               <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No students match.</TableCell></TableRow>
             ) : data.students.map((student) => (
               <TableRow key={student.id}>
-                <TableCell className="font-medium">{student.name}</TableCell>
+                <TableCell className="font-medium">
+                  {student.name}
+                  {student.archived && (
+                    <Badge variant="outline" className="ml-2 font-normal">Archived - deactivate this account</Badge>
+                  )}
+                </TableCell>
                 <TableCell>{student.admissionNo}</TableCell>
                 <TableCell>
                   {student.account
@@ -147,6 +153,7 @@ export async function UnappliedPaymentsView({ basePath, searchParams }: {
   if (!result.success) return <p className="text-destructive" role="alert">{result.error}</p>
   const canApply = permissions.includes("finance.collect_payments")
   const canReturn = permissions.includes("finance.manage_gateway")
+  const canConfirmReturn = permissions.includes("finance.approve_refunds")
   const total = result.data.reduce((sum, row) => sum + Number(row.amount), 0)
 
   return (
@@ -188,9 +195,12 @@ export async function UnappliedPaymentsView({ basePath, searchParams }: {
                 </div>
                 {status === "OPEN" && (
                   <div className="space-y-2 md:w-80">
-                    <UnappliedActions id={row.id} canApply={canApply} canReturn={canReturn} />
-                    {canReturn && <RefundHeldMoneyButton id={row.id} />}
+                    <UnappliedActions id={row.id} canApply={canApply} canReturn={canReturn} canConfirmReturn={canConfirmReturn} pendingReturn={row.returnRequest} />
+                    {canReturn && !row.returnRequest && <RefundHeldMoneyButton id={row.id} />}
                   </div>
+                )}
+                {status === "APPLIED" && canReturn && row.receiptNo && (
+                  <div className="md:w-80"><MoveBackToHeldButton id={row.id} receiptNo={row.receiptNo} /></div>
                 )}
               </CardContent>
             </Card>

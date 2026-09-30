@@ -10,8 +10,15 @@ import { redirect } from "next/navigation"
  * behind it - `compiler.configure_policy` and `reports.export` - so a profile holding only
  * the promotion-policy key was turned away at the door of the one page that asks for
  * exactly that key.
+ *
+ * Except the one key every teacher holds by role. With it counted, any class teacher could
+ * open the admin dashboard, whose figures span the school and whose recent scores name
+ * students in every class. A teacher given an office (an exams officer, say) holds that
+ * office's keys and still gets in.
  */
-export const ADMIN_AREA_PERMISSIONS: PermissionKey[] = [...PERMISSIONS]
+export const ADMIN_AREA_PERMISSIONS: PermissionKey[] = PERMISSIONS.filter(
+  (permission) => permission !== "compiler.enter_scores",
+)
 
 export async function requireAdminSchool(permission: PermissionKey | PermissionKey[] = ADMIN_AREA_PERMISSIONS) {
   const permissions = Array.isArray(permission) ? permission : [permission]

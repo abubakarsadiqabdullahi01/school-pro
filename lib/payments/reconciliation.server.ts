@@ -16,13 +16,24 @@ export const RECONCILIATION_AUDIT_ACTION = "payment_gateway.reconciliation_run"
  */
 export async function reconcileSchoolSettlements(schoolId: string): Promise<ReconciliationSummary> {
   const configurations = await prisma.schoolPaymentConfiguration.findMany({
-    where: { schoolId, isEnabled: true, status: "READY" }, select: { id: true, environment: true },
+    where: { schoolId, isEnabled: true, status: "READY" }, select: { id: true, environment: true, accountMode: true, subaccountCode: true },
   })
   let settlements = 0; let transactions = 0; let issues = 0
   const from = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000)
   for (const configuration of configurations) {
     const adapter = await adapterForPaymentConfiguration(configuration.id)
-    for (const providerSettlement of await adapter.listSettlements(from, new Date())) {
+    // A platform-managed school is reconciled through the platform's key, which sees every
+    // school's settlements and the platform's own. Only a settlement Paystack labels with this
+    // school's subaccount is the school's: an unlabelled one is paid to the platform's main
+    // account. Filing either under this school raised another school's transactions as its
+    // "unmatched" issues, and a settlement is stored against the first school to import it.
+    // Filtered here rather than by a query parameter, whose meaning Paystack does not pin down.
+    const ownSubaccount = configuration.accountMode === "PLATFORM_MANAGED" ? configuration.subaccountCode : null
+    if (configuration.accountMode === "PLATFORM_MANAGED" && !ownSubaccount) continue
+    const listed = await adapter.listSettlements(from, new Date())
+    const own = ownSubaccount ? listed.filter((settlement) => settlement.subaccountCode === ownSubaccount) : listed
+    if (ownSubaccount) await flagMissingSettlements(schoolId, configuration.id, configuration.environment, ownSubaccount, listed.length, own.length, from)
+    for (const providerSettlement of own) {
       settlements += 1
       const settlement = await prisma.gatewaySettlement.upsert({
         where: { provider_environment_providerSettlementId: { provider: "PAYSTACK", environment: configuration.environment, providerSettlementId: providerSettlement.providerSettlementId } },
@@ -58,6 +69,45 @@ export async function reconcileSchoolSettlements(schoolId: string): Promise<Reco
   }
   return { settlements, transactions, issues }
 }
+
+/**
+ * A platform-managed school whose settlements never show up would otherwise reconcile as
+ * "0 settlements, 0 exceptions" for ever, which reads as clean. When Paystack lists
+ * settlements but none carries this school's subaccount, while the school has payments old
+ * enough to have settled, that is raised as an exception to look at. It clears itself once
+ * the school's settlements are found.
+ */
+async function flagMissingSettlements(
+  schoolId: string,
+  configurationId: string,
+  environment: "TEST" | "LIVE",
+  subaccountCode: string,
+  listedCount: number,
+  ownCount: number,
+  from: Date,
+) {
+  const dedupeKey = `${schoolId}:${environment}:settlements-not-found`
+  if (ownCount > 0) {
+    await prisma.gatewayReconciliationIssue.updateMany({ where: { dedupeKey, status: { not: "RESOLVED" } }, data: { status: "RESOLVED", resolvedAt: new Date() } })
+    return
+  }
+  const settledBy = new Date(Date.now() - SETTLEMENT_GRACE_DAYS * 24 * 60 * 60 * 1000)
+  const due = await prisma.gatewayTransaction.count({
+    where: { schoolId, configurationId, status: "SUCCEEDED", paidAt: { gte: from, lte: settledBy } },
+  })
+  if (listedCount === 0 || due === 0) return
+  const message = `Paystack listed ${listedCount} settlement(s) on the platform account and none was labelled with this school's `
+    + `subaccount ${subaccountCode}, although ${due} payment(s) should have settled by now. Check the subaccount code, `
+    + "and compare the school's settlements in the Paystack dashboard."
+  await prisma.gatewayReconciliationIssue.upsert({
+    where: { dedupeKey },
+    create: { schoolId, dedupeKey, kind: "SETTLEMENTS_NOT_FOUND", severity: "WARNING", message, detail: { subaccountCode, listedCount, due } },
+    update: { status: "OPEN", lastSeenAt: new Date(), resolvedAt: null, message },
+  })
+}
+
+/** Paystack settles most payments the next working day; this allows for weekends. */
+const SETTLEMENT_GRACE_DAYS = 4
 
 /** Schools with at least one enabled, verified connection — the ones the daily job visits. */
 export async function schoolsToReconcile(): Promise<string[]> {

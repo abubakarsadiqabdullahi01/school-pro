@@ -288,14 +288,15 @@ export const MODULE_GUIDES = {
     purpose: "Transfers into dedicated accounts that were more than the student owed, waiting for the bursar to decide.",
     example: {
       doing: "A parent sent ₦60,000 when their child owed ₦50,000. ₦10,000 is held here.",
-      then: "When next term's fees are billed, choose Apply to fees and a receipt is issued. Or, if the school sends the money back, record how it was returned.",
+      then: "When next term's fees are billed, choose Apply to fees and a receipt is issued. Or send it back: through Paystack, or outside DigiSchool and recorded here. Either way a second person approves it.",
     },
     rules: [
       "Held money is never put on a fee automatically.",
       "Apply works only once the student owes at least the held amount, so a held sum is never split into untraceable pieces.",
-      "Returning money happens outside DigiSchool (for example a bank transfer from the school). Record it here so the books agree.",
+      "Money going back to the payer takes two people. One records the return (or requests the Paystack refund) and a different person with refund approval confirms it. Until then the money stays held.",
+      "A receipt made from held money cannot be refunded at the counter. Under Applied, Move back to held reverses that receipt, reopens the fees it paid and holds the money again, to be applied again or returned.",
     ],
-    permissions: ["finance.collect_payments", "finance.manage_gateway"],
+    permissions: ["finance.collect_payments", "finance.manage_gateway", "finance.approve_refunds"],
     sourceOfTruth: "app/actions/dedicated-accounts.ts",
   },
 
@@ -1746,6 +1747,7 @@ export const MODULE_GUIDES = {
       "Revoking approval switches the school's live payments off at once. A payment the parent has already made still confirms and gets its receipt.",
       "Critical alerts (failed events, payments needing review, reconciliation exceptions, failed refunds, disputes due soon) mean money may be wrong and should be looked at the same day.",
       "A school taking live money should be reconciled every day. The monitor warns after 26 hours without a reconciliation run.",
+      "A webhook event that keeps failing retries for about 17 hours, then is parked in the failed-events list. Try it again once the cause is fixed, or close it as settled by hand after crediting the money yourself. Closing posts nothing.",
     ],
     permissions: ["school.manage"],
     sourceOfTruth: "lib/payments/payment-health.server.ts",

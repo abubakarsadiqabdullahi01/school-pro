@@ -1,4 +1,6 @@
-import { getFinanceSetupData, getReceiptRegister } from "@/app/actions/finance"
+import Link from "next/link"
+
+import { getFinanceSetupData, getPendingStudentPaymentRefunds, getReceiptRegister } from "@/app/actions/finance"
 import { BackButton } from "@/components/back-button"
 import { ReceiptFilterBar } from "@/components/finance/views/receipt-filter-bar"
 import { ReceiptsRegisterTable } from "@/components/finance/views/receipts-register-table"
@@ -40,14 +42,16 @@ export async function ReceiptsView({
   const terms = setup.success ? setup.data.terms : []
   const filters = reconcilePeriod(parseReceiptFilters(searchParams), terms)
 
-  const register = await getReceiptRegister(filters)
+  const [register, pendingRefunds] = await Promise.all([getReceiptRegister(filters), getPendingStudentPaymentRefunds()])
   if (!register.success) {
     return <p className="text-destructive">{register.error}</p>
   }
 
-  const { rows, totalCount, totalAmount, completedAmount, capped, cashiers } = register.data
+  const { rows, totalCount, totalAmount, completedAmount, refundedAmount, capped, cashiers } = register.data
   const scope = describeReceiptFilters(filters, { sessions, terms, cashiers })
-  const unconfirmed = sumAmounts([totalAmount]).minus(completedAmount)
+  // Refunded receipts were issued but the money went back: neither banked nor awaiting.
+  const refunded = sumAmounts([refundedAmount])
+  const unconfirmed = sumAmounts([totalAmount]).minus(completedAmount).minus(refundedAmount)
 
   const exportTable: ExportTable = {
     columns: ["Date", "Receipt No", "Student", "Admission No", "Class", "Method", "Status", "Amount", "Received By"],
@@ -110,6 +114,23 @@ export async function ReceiptsView({
         cashiers={cashiers}
       />
 
+      {pendingRefunds.success && pendingRefunds.data.length > 0 && (
+        <Card className="border-amber-500/40 print:hidden">
+          <CardHeader>
+            <CardTitle className="text-lg">Refunds waiting for approval</CardTitle>
+            <CardDescription>Each is reversed only once a second person with refund approval approves it on the receipt.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingRefunds.data.map((request) => (
+              <p key={request.id} className="text-sm">
+                <Link className="font-medium underline-offset-4 hover:underline" href={`${registerPath}/${request.paymentId}`}>{request.receiptNo}</Link>
+                {" · "}{formatNaira(request.amount)} · {request.studentName} · asked by {request.requestedByName}: {request.reason}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Receipt Register</CardTitle>
@@ -118,9 +139,11 @@ export async function ReceiptsView({
               means "the most recent 500" is a figure someone balances a cash book against. */}
           <CardDescription>
             {totalCount} {totalCount === 1 ? "receipt" : "receipts"} · {formatNaira(totalAmount)}
-            {unconfirmed.isZero()
+            {unconfirmed.isZero() && refunded.isZero()
               ? " received"
-              : `, of which ${formatNaira(completedAmount)} is confirmed and ${formatNaira(unconfirmed)} is awaiting confirmation`}
+              : `, of which ${formatNaira(completedAmount)} is confirmed`
+                + (refunded.isZero() ? "" : `, ${formatNaira(refundedAmount)} was refunded`)
+                + (unconfirmed.isZero() ? "" : ` and ${formatNaira(unconfirmed)} is awaiting confirmation`)}
             {capped ? " · showing the most recent 500 — narrow the filters to see the rest" : ""}
           </CardDescription>
           <p className="hidden text-sm text-muted-foreground print:block">{scope}</p>

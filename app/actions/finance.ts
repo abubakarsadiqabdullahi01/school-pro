@@ -2212,62 +2212,219 @@ export async function recordStudentPayment(input: unknown): Promise<ActionResult
 }
 
 /**
- * Refunds a completed receipt and restores every allocation to its original charge.
- * The receipt and allocations remain immutable evidence; an append-only reversal explains
- * why their financial effect was undone.
+ * Why a receipt cannot be refunded at the counter, or null when it can. Checked when the
+ * refund is asked for and again when it is approved, since the receipt can change between.
  */
-export async function refundStudentPayment(input: unknown): Promise<ActionResult<{ id: string; status: PaymentStatus }>> {
+async function counterRefundProblem(
+  db: Prisma.TransactionClient | typeof prisma,
+  schoolId: string,
+  paymentId: string,
+): Promise<string | null> {
+  const payment = await db.payment.findFirst({
+    where: { id: paymentId, schoolId },
+    select: {
+      status: true,
+      gatewayTransaction: { select: { id: true } },
+      unappliedApplications: { select: { id: true }, take: 1 },
+    },
+  })
+  if (!payment) return "Payment not found"
+  if (payment.status !== "COMPLETED") {
+    return `Only a completed payment can be refunded; this receipt is ${payment.status.toLowerCase()}`
+  }
+  // Reversing an online receipt here would restore the balance without returning the
+  // parent's money. Online payments are refunded through the gateway, which reverses the
+  // receipt only once the provider confirms the refund.
+  if (payment.gatewayTransaction) {
+    return "This receipt was paid online. Refund it from Online Payments so the money is actually returned to the payer."
+  }
+  // A receipt made by applying held dedicated-account money. Reversing it here reopened the
+  // charges while the held record stayed APPLIED, so the transfer was then neither held,
+  // applied nor refunded anywhere. Its way back is "Move back to held" on the applied money,
+  // which reverses the receipt and holds the money again; returning it takes two people.
+  if (payment.unappliedApplications.length > 0) {
+    return "This receipt was made from a bank transfer into a dedicated account, so it cannot be " +
+      "reversed at the counter. Open Unapplied Money, choose Applied, and use Move back to held " +
+      "on this receipt. The money can then be applied again or returned to the payer."
+  }
+  return null
+}
+
+async function lockReceipt(tx: Prisma.TransactionClient, paymentId: string, schoolId: string) {
+  await tx.$queryRaw(Prisma.sql`SELECT id FROM Payment WHERE id = ${paymentId} AND schoolId = ${schoolId} FOR UPDATE`)
+}
+
+/**
+ * Asks for a counter receipt to be refunded. Money handed back at the desk is money out, so
+ * it takes two people, like every other refund: this records the request, and a different
+ * user with refund approval reverses the receipt with `approveStudentPaymentRefund`. Until
+ * then the receipt, and the fees it paid, stand.
+ */
+export async function requestStudentPaymentRefund(input: unknown): Promise<ActionResult<{ requestId: string }>> {
   try {
     const actor = await requirePaymentRecorder()
     const schoolId = await actorSchool(actor)
     const data = refundPaymentSchema.parse(input)
 
-    const payment = await prisma.payment.findFirst({
-      where: { id: data.paymentId, schoolId },
-      select: {
-        id: true,
-        receiptNo: true,
-        amount: true,
-        status: true,
-        notes: true,
-        studentId: true,
-        allocations: { select: { chargeId: true, amount: true } },
-        gatewayTransaction: { select: { id: true } },
-      },
-    })
-    if (!payment) throw new Error("Payment not found")
-    if (payment.status !== "COMPLETED") {
-      throw new Error(`Only a completed payment can be refunded; this receipt is ${payment.status.toLowerCase()}`)
-    }
-    // Reversing an online receipt here would restore the balance without returning the
-    // parent's money. Online payments are refunded through the gateway, which reverses the
-    // receipt only once the provider confirms the refund.
-    if (payment.gatewayTransaction) {
-      throw new Error("This receipt was paid online. Refund it from Online Payments so the money is actually returned to the payer.")
-    }
-
-    const { reverseStudentPaymentInTransaction } = await import("@/lib/finance/payment-ledger.server")
-    await prisma.$transaction(async (tx) => {
-      const outcome = await reverseStudentPaymentInTransaction(tx, {
-        schoolId, paymentId: payment.id, reason: data.reason, referenceNo: data.referenceNo, createdBy: actor.userId,
+    const request = await prisma.$transaction(async (tx) => {
+      await lockReceipt(tx, data.paymentId, schoolId)
+      const problem = await counterRefundProblem(tx, schoolId, data.paymentId)
+      if (problem) throw new Error(problem)
+      const open = await tx.counterRefundRequest.findFirst({ where: { paymentId: data.paymentId, status: "REQUESTED" }, select: { id: true } })
+      if (open) throw new Error("A refund of this receipt is already waiting for approval")
+      return tx.counterRefundRequest.create({
+        data: { schoolId, paymentId: data.paymentId, reason: data.reason, referenceNo: data.referenceNo || null, requestedBy: actor.userId },
+        include: { payment: { select: { receiptNo: true, amount: true, studentId: true } } },
       })
-      if (outcome === "reversed") await queueRefundNoticeInTransaction(tx, { schoolId, paymentId: payment.id, reason: data.reason })
     })
+
+    await recordAudit({
+      actor,
+      action: "finance.payment.refund_request",
+      entityType: "Payment",
+      entityId: data.paymentId,
+      summary: `Asked to refund ${request.payment.receiptNo}: ${moneyString(request.payment.amount)}, waiting for approval — ${data.reason}`,
+      after: { requestId: request.id, reason: data.reason, referenceNo: data.referenceNo || null },
+    })
+    revalidateFinance("/receipts", `/receipts/${data.paymentId}`)
+    return { success: true, data: { requestId: request.id } }
+  } catch (error) {
+    return toError(error, "Failed to request the refund")
+  }
+}
+
+/**
+ * The second person's approval: only now is the receipt reversed and every allocation
+ * restored to its charge. The receipt and allocations remain immutable evidence; an
+ * append-only reversal explains why their financial effect was undone.
+ */
+export async function approveStudentPaymentRefund(input: unknown): Promise<ActionResult<{ id: string; status: PaymentStatus }>> {
+  try {
+    const actor = await requirePermission("finance.approve_refunds")
+    const schoolId = await actorSchool(actor)
+    const data = z.object({ requestId: z.string().uuid(), confirmation: z.literal(true) }).parse(input)
+
+    const request = await prisma.$transaction(async (tx) => {
+      const found = await tx.counterRefundRequest.findFirst({ where: { id: data.requestId, schoolId }, select: { paymentId: true } })
+      if (!found) throw new Error("Refund request not found")
+      await lockReceipt(tx, found.paymentId, schoolId)
+      const request = await tx.counterRefundRequest.findUniqueOrThrow({
+        where: { id: data.requestId },
+        include: { payment: { select: { id: true, receiptNo: true, amount: true, studentId: true } } },
+      })
+      if (request.status !== "REQUESTED") throw new Error(`This refund request was already ${request.status.toLowerCase()}`)
+      if (request.requestedBy === actor.userId) throw new Error("A different person must approve a refund you asked for")
+      const problem = await counterRefundProblem(tx, schoolId, request.paymentId)
+      if (problem) throw new Error(problem)
+      const { reverseStudentPaymentInTransaction } = await import("@/lib/finance/payment-ledger.server")
+      const outcome = await reverseStudentPaymentInTransaction(tx, {
+        schoolId, paymentId: request.paymentId, reason: request.reason, referenceNo: request.referenceNo, createdBy: actor.userId,
+      })
+      if (outcome !== "reversed") throw new Error("This receipt was already reversed")
+      await queueRefundNoticeInTransaction(tx, { schoolId, paymentId: request.paymentId, reason: request.reason })
+      await tx.counterRefundRequest.update({
+        where: { id: request.id },
+        data: { status: "APPROVED", decidedBy: actor.userId, decidedAt: new Date() },
+      })
+      return request
+    }, { isolationLevel: "Serializable" })
 
     await recordAudit({
       actor,
       action: "finance.payment.refund",
       entityType: "Payment",
-      entityId: payment.id,
-      summary: `Refunded ${payment.receiptNo}: ${moneyString(payment.amount)} — ${data.reason}`,
+      entityId: request.paymentId,
+      summary: `Refunded ${request.payment.receiptNo}: ${moneyString(request.payment.amount)} — ${request.reason}`,
       before: { status: "COMPLETED" },
-      after: { status: "REFUNDED", reason: data.reason, referenceNo: data.referenceNo || null },
+      after: { status: "REFUNDED", reason: request.reason, referenceNo: request.referenceNo, requestedBy: request.requestedBy },
     })
 
-    revalidateFinance("/receipts", `/receipts/${payment.id}`, `/students/${payment.studentId}/statement`, "/debtors")
-    return { success: true, data: { id: payment.id, status: "REFUNDED" } }
+    revalidateFinance("/receipts", `/receipts/${request.paymentId}`, `/students/${request.payment.studentId}/statement`, "/debtors")
+    return { success: true, data: { id: request.paymentId, status: "REFUNDED" } }
   } catch (error) {
-    return toError(error, "Failed to refund payment")
+    return toError(error, "Failed to approve the refund")
+  }
+}
+
+/** Declines a counter refund request; the receipt stands. Any approver, or the requester, may. */
+export async function rejectStudentPaymentRefund(input: unknown): Promise<ActionResult<undefined>> {
+  try {
+    const actor = await requirePermission("finance.approve_refunds")
+    const schoolId = await actorSchool(actor)
+    const data = z.object({ requestId: z.string().uuid(), reason: z.string().trim().min(3).max(500) }).parse(input)
+    const changed = await prisma.counterRefundRequest.updateMany({
+      where: { id: data.requestId, schoolId, status: "REQUESTED" },
+      data: { status: "REJECTED", decidedBy: actor.userId, decidedAt: new Date(), rejectionReason: data.reason },
+    })
+    if (changed.count !== 1) throw new Error("This refund request was already decided")
+    await recordAudit({ actor, action: "finance.payment.refund_reject", entityType: "CounterRefundRequest", entityId: data.requestId,
+      summary: `Declined a counter refund request — ${data.reason}` })
+    revalidateFinance("/receipts")
+    return { success: true, data: undefined }
+  } catch (error) {
+    return toError(error, "Failed to decline the refund")
+  }
+}
+
+/** The requester takes back a request nobody has decided yet. */
+export async function withdrawStudentPaymentRefund(input: unknown): Promise<ActionResult<undefined>> {
+  try {
+    const actor = await requirePaymentRecorder()
+    const schoolId = await actorSchool(actor)
+    const data = z.object({ requestId: z.string().uuid() }).parse(input)
+    const changed = await prisma.counterRefundRequest.updateMany({
+      where: { id: data.requestId, schoolId, status: "REQUESTED", requestedBy: actor.userId },
+      data: { status: "WITHDRAWN", decidedBy: actor.userId, decidedAt: new Date() },
+    })
+    if (changed.count !== 1) throw new Error("Only your own undecided refund request can be withdrawn")
+    await recordAudit({ actor, action: "finance.payment.refund_withdraw", entityType: "CounterRefundRequest", entityId: data.requestId,
+      summary: "Withdrew a counter refund request" })
+    revalidateFinance("/receipts")
+    return { success: true, data: undefined }
+  } catch (error) {
+    return toError(error, "Failed to withdraw the refund request")
+  }
+}
+
+/** Counter refunds waiting for a second person, for the approvers' list. */
+export async function getPendingStudentPaymentRefunds(): Promise<ActionResult<Array<{
+  id: string
+  paymentId: string
+  receiptNo: string
+  amount: string
+  studentName: string
+  reason: string
+  requestedByName: string
+  requestedAt: string
+}>>> {
+  try {
+    const actor = await requireFinanceViewer()
+    const schoolId = await actorSchool(actor)
+    const requests = await prisma.counterRefundRequest.findMany({
+      where: { schoolId, status: "REQUESTED" },
+      orderBy: { createdAt: "asc" },
+      take: 100,
+      include: { payment: { select: { receiptNo: true, amount: true, student: { select: { user: { select: { firstName: true, lastName: true } } } } } } },
+    })
+    const names = new Map((await prisma.user.findMany({
+      where: { id: { in: [...new Set(requests.map((request) => request.requestedBy))] } },
+      select: { id: true, firstName: true, lastName: true },
+    })).map((user) => [user.id, `${user.firstName} ${user.lastName}`]))
+    return {
+      success: true,
+      data: requests.map((request) => ({
+        id: request.id,
+        paymentId: request.paymentId,
+        receiptNo: request.payment.receiptNo,
+        amount: moneyString(request.payment.amount),
+        studentName: `${request.payment.student.user.firstName} ${request.payment.student.user.lastName}`,
+        reason: request.reason,
+        requestedByName: names.get(request.requestedBy) ?? "another user",
+        requestedAt: request.createdAt.toISOString(),
+      })),
+    }
+  } catch (error) {
+    return toError(error, "Failed to load refund requests")
   }
 }
 
@@ -2709,6 +2866,13 @@ export type ReceiptDocument = {
     /** The processing fee the payer covered, when the policy put it on them. */
     feePaidByPayer: string | null
   } | null
+  /**
+   * Made by applying a held dedicated-account transfer. It is transfer money, so it is never
+   * refunded at the counter; it goes back to held money instead.
+   */
+  fromHeldTransfer: boolean
+  /** A counter refund asked for and not yet decided: the receipt stands until it is. */
+  pendingRefund: { id: string; reason: string; requestedBy: string; requestedByName: string; requestedAt: string } | null
 }
 
 export async function getReceipt(paymentId: string): Promise<ActionResult<ReceiptDocument>> {
@@ -2776,10 +2940,16 @@ export async function loadReceipt(
             configurationSnapshot: true,
           },
         },
+        unappliedApplications: { select: { id: true }, take: 1 },
+        counterRefundRequests: { where: { status: "REQUESTED" }, take: 1, select: { id: true, reason: true, requestedBy: true, createdAt: true } },
       },
     })
 
     if (!payment) throw new Error("Receipt not found")
+    const refundRequest = payment.counterRefundRequests[0] ?? null
+    const refundRequester = refundRequest
+      ? await prisma.user.findUnique({ where: { id: refundRequest.requestedBy }, select: { firstName: true, lastName: true } })
+      : null
 
     const gateway = payment.gatewayTransaction
     const snapshot = gateway?.configurationSnapshot as { feePolicy?: unknown } | null
@@ -2826,6 +2996,16 @@ export async function loadReceipt(
               feePaidByPayer: feePaidByPayer && feePaidByPayer.greaterThan(0)
                 ? moneyString(feePaidByPayer)
                 : null,
+            }
+          : null,
+        fromHeldTransfer: payment.unappliedApplications.length > 0,
+        pendingRefund: refundRequest
+          ? {
+              id: refundRequest.id,
+              reason: refundRequest.reason,
+              requestedBy: refundRequest.requestedBy,
+              requestedByName: refundRequester ? `${refundRequester.firstName} ${refundRequester.lastName}` : "another user",
+              requestedAt: refundRequest.createdAt.toISOString(),
             }
           : null,
       },
@@ -2911,7 +3091,7 @@ export async function getFinanceOfficers(): Promise<ActionResult<FinanceOfficerR
       ? await Promise.all([
           prisma.payment.groupBy({
             by: ["receivedBy"],
-            where: { schoolId, receivedBy: { in: userIds } },
+            where: { schoolId, receivedBy: { in: userIds }, status: "COMPLETED", unappliedApplications: { none: {} } },
             _count: { _all: true },
             _sum: { amount: true },
             _max: { paymentDate: true },
@@ -3384,6 +3564,8 @@ export async function getReceiptRegister(filters?: {
     totalCount: number
     totalAmount: string
     completedAmount: string
+    /** Receipts later reversed: issued, but the money is no longer the school's. */
+    refundedAmount: string
     capped: boolean
     cashiers: Array<{ id: string; name: string }>
   }>
@@ -3436,7 +3618,7 @@ export async function getReceiptRegister(filters?: {
         : {}),
     }
 
-    const [payments, totals, completed, cashiers] = await Promise.all([
+    const [payments, totals, completed, refunded, cashiers] = await Promise.all([
       prisma.payment.findMany({
         where,
         orderBy: { paymentDate: "desc" },
@@ -3469,6 +3651,7 @@ export async function getReceiptRegister(filters?: {
       // filtering to "awaiting confirmation" reported every completed receipt in the school
       // as the confirmed part of eight pending ones, and the difference came out negative.
       prisma.payment.aggregate({ where: { AND: [where, { status: "COMPLETED" }] }, _sum: { amount: true } }),
+      prisma.payment.aggregate({ where: { AND: [where, { status: "REFUNDED" }] }, _sum: { amount: true } }),
       // Every cashier the school has, not only those matching the filter — a select that
       // empties itself once you use it cannot be used to change your mind.
       prisma.payment.findMany({
@@ -3499,6 +3682,7 @@ export async function getReceiptRegister(filters?: {
         totalCount: totals._count._all,
         totalAmount: moneyString(totals._sum.amount),
         completedAmount: moneyString(completed._sum.amount),
+        refundedAmount: moneyString(refunded._sum.amount),
         capped: payments.length === 500 && totals._count._all > 500,
         cashiers: cashiers
           .map((entry) => entry.receivedByUser)

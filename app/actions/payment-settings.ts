@@ -16,6 +16,7 @@ import { loadPlatformPaystackConfig } from "@/lib/payments/paystack-config.serve
 import { PaystackAdapter, PaystackApiError } from "@/lib/payments/paystack.server"
 import { gatewayActivationProblems } from "@/lib/payments/payment-settings-rules"
 
+import { checkoutEnvironment } from "@/lib/payments/checkout-environment"
 import { dedicatedSplitShare } from "@/lib/payments/dedicated-account-rules"
 import { platformChargeProblems, type PlatformChargeType } from "@/lib/payments/platform-charge"
 import {
@@ -68,6 +69,32 @@ export async function choosePaymentGatewayMode(input: unknown): Promise<ActionRe
   try {
     const { actor, schoolId } = await requireGatewayManager()
     const data = z.object({ environment: environmentSchema, mode: modeSchema }).parse(input)
+
+    // Parents keep paying into dedicated accounts whatever this screen says. Going offline, or
+    // switching between school-owned and platform-managed Paystack, changes which webhook and
+    // which key their transfers are recorded through: the school's webhook stops answering,
+    // or verification runs against a key that has never seen the transfer. The money still
+    // settles to the school while the student keeps showing the full debt, and nothing says
+    // so. The accounts are closed deliberately first, or the change does not happen.
+    //
+    // Live accounts always count: that is real money. Test accounts count only where this
+    // deployment collects in test, because the Dedicated Accounts screen lists (and can
+    // close) only that environment's accounts; elsewhere they would block the test
+    // connection for good with no way to clear them, and they never carry real money.
+    const current = await paystackConfigurationForSchool(schoolId, data.environment)
+    const guarded = data.environment === "LIVE" || data.environment === checkoutEnvironment()
+    if (guarded && (data.mode === "OFFLINE" || (current && current.accountMode !== data.mode))) {
+      const liveAccounts = await prisma.dedicatedAccount.count({
+        where: { schoolId, environment: data.environment, status: "ACTIVE" },
+      })
+      if (liveAccounts > 0) {
+        throw new Error(
+          `${liveAccounts} ${data.environment.toLowerCase()} dedicated account${liveAccounts === 1 ? " is" : "s are"} still active. ` +
+            "Deactivate them under Finance > Dedicated Accounts first; transfers into them would " +
+            "otherwise stop being recorded against the students.",
+        )
+      }
+    }
 
     if (data.mode === "OFFLINE") {
       await prisma.schoolPaymentConfiguration.updateMany({
@@ -267,7 +294,7 @@ export async function connectSchoolOwnedPaystack(
 
     const origin = new URL(process.env.NEXTAUTH_URL ?? "").origin
     const webhookToken = configuration.credential?.webhookToken ?? newGatewayWebhookToken()
-    const webhookUrl = `${origin}/api/webhooks/paystack/${webhookToken}/`
+    const webhookUrl = `${origin}/api/webhooks/paystack/${webhookToken}`
     const validated = loadPlatformPaystackConfig({
       PAYSTACK_SECRET_KEY: data.secretKey,
       PAYSTACK_PUBLIC_KEY: data.publicKey || undefined,

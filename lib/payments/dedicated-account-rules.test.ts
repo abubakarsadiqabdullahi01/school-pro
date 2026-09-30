@@ -6,7 +6,10 @@ import {
   dedicatedCustomerDomain,
   dedicatedCustomerEmail,
   dedicatedTransferProblems,
+  heldReturnConfirmationProblems,
+  isUnfinishedVerification,
   normalizeNigerianPhone,
+  pickDedicatedAccount,
   splitDedicatedTransfer,
   type DedicatedReadinessInput,
   type DedicatedTransferCheck,
@@ -93,6 +96,76 @@ describe("dedicated transfer verification", () => {
   it("quarantines wrong environment, currency, channel and failed status", () => {
     expect(dedicatedTransferProblems({ ...good, verified: { ...good.verified, environment: "live", currency: "USD", channel: "card", status: "failed" } }))
       .toHaveLength(4)
+  })
+
+  const named: DedicatedTransferCheck = { ...good, expectedCustomerCode: "CUS_ada", expectedAccountNumber: "1234567890" }
+
+  it("quarantines a transfer Paystack attributes to a different customer or account", () => {
+    expect(dedicatedTransferProblems({ ...named, verified: { ...named.verified, customerCode: "CUS_bola" } }))
+      .toEqual(["Paystack attributes the transfer to a different customer than this dedicated account"])
+    expect(dedicatedTransferProblems({ ...named, verified: { ...named.verified, receiverAccountNumber: "0987654321" } }))
+      .toEqual(["Paystack reports a different receiving account than this dedicated account"])
+  })
+
+  it("passes when Paystack confirms the same customer and account", () => {
+    expect(dedicatedTransferProblems({ ...named, verified: { ...named.verified, customerCode: "CUS_ada", receiverAccountNumber: "1234567890" } }))
+      .toEqual([])
+  })
+
+  it("treats a value Paystack did not return as no evidence either way", () => {
+    expect(dedicatedTransferProblems(named)).toEqual([])
+  })
+})
+
+describe("which dedicated account a transfer was paid into", () => {
+  const old = { id: "old", accountNumber: "1111111111", providerCustomerCode: "CUS_ada", status: "DEACTIVATED", createdAt: new Date("2026-01-01") }
+  const current = { id: "new", accountNumber: "2222222222", providerCustomerCode: "CUS_ada", status: "ACTIVE", createdAt: new Date("2026-06-01") }
+  const other = { id: "bola", accountNumber: "3333333333", providerCustomerCode: "CUS_bola", status: "ACTIVE", createdAt: new Date("2026-02-01") }
+
+  it("takes the account the money was paid into, even over the customer's other account", () => {
+    expect(pickDedicatedAccount([old, current], { receiverAccountNumber: "2222222222", customerCode: "CUS_ada" })?.id).toBe("new")
+    expect(pickDedicatedAccount([current, old], { receiverAccountNumber: "1111111111", customerCode: "CUS_ada" })?.id).toBe("old")
+  })
+
+  it("without an account number, prefers the customer's active account, then its newest", () => {
+    expect(pickDedicatedAccount([old, current], { receiverAccountNumber: null, customerCode: "CUS_ada" })?.id).toBe("new")
+    const older = { ...old, id: "older", createdAt: new Date("2025-01-01") }
+    expect(pickDedicatedAccount([older, old], { receiverAccountNumber: null, customerCode: "CUS_ada" })?.id).toBe("old")
+  })
+
+  it("never takes another customer's account on the customer code", () => {
+    expect(pickDedicatedAccount([other], { receiverAccountNumber: null, customerCode: "CUS_ada" })).toBeNull()
+    expect(pickDedicatedAccount([other, current], { receiverAccountNumber: "9999999999", customerCode: "CUS_ada" })?.id).toBe("new")
+  })
+
+  it("finds nothing with nothing to go on", () => {
+    expect(pickDedicatedAccount([old, current], { receiverAccountNumber: null, customerCode: null })).toBeNull()
+  })
+})
+
+describe("an unfinished verification", () => {
+  it("is retried rather than judged", () => {
+    for (const status of ["pending", "ongoing", "processing", "queued", " Pending "]) expect(isUnfinishedVerification(status)).toBe(true)
+  })
+
+  it("does not cover outcomes", () => {
+    for (const status of ["success", "failed", "reversed", "abandoned"]) expect(isUnfinishedVerification(status)).toBe(false)
+  })
+})
+
+describe("confirming held money was returned", () => {
+  it("needs a return to have been recorded first", () => {
+    expect(heldReturnConfirmationProblems({ returnRequestedBy: null, actorUserId: "u1" }))
+      .toEqual(["Record how the money was returned before it can be confirmed"])
+  })
+
+  it("refuses the person who recorded it", () => {
+    expect(heldReturnConfirmationProblems({ returnRequestedBy: "u1", actorUserId: "u1" }))
+      .toEqual(["A different person must confirm a return you recorded"])
+  })
+
+  it("allows anyone else", () => {
+    expect(heldReturnConfirmationProblems({ returnRequestedBy: "u1", actorUserId: "u2" })).toEqual([])
   })
 })
 
