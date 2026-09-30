@@ -2,6 +2,7 @@
 
 import { assertSchoolAccess, authActive, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
+import { canChangeSessionDates } from "@/lib/term-rules"
 import { revalidatePath } from "next/cache"
 
 function getWritableSessionSchoolId(actor: Actor, requestedSchoolId: string) {
@@ -121,12 +122,22 @@ export async function updateSession(data: {
       select: {
         id: true,
         isCurrent: true,
-        terms: { select: { id: true, isCurrent: true, startDate: true, endDate: true }, orderBy: { startDate: "asc" } },
+        startDate: true,
+        endDate: true,
+        terms: { select: { id: true, name: true, isCurrent: true, startDate: true, endDate: true }, orderBy: { startDate: "asc" } },
       },
     })
 
     if (!targetSession) {
       return { success: false, error: "Session not found for this school" }
+    }
+
+    // Only when the dates move: renaming a past session rewrites nothing filed against it.
+    const datesMoved = targetSession.startDate.getTime() !== data.startDate.getTime()
+      || targetSession.endDate.getTime() !== data.endDate.getTime()
+    if (datesMoved) {
+      const verdict = canChangeSessionDates(targetSession, { startDate: data.startDate, endDate: data.endDate }, targetSession.terms, actor.role)
+      if (!verdict.allowed) return { success: false, error: verdict.reason }
     }
 
     // Check if session name already exists for another session in this school

@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/db";
-import { requirePermission } from "@/lib/authz";
+import { requireAnyPermission, requirePermission } from "@/lib/authz";
 import { raiseEnrolmentCharges } from "@/lib/fee-charges.server";
 import { revalidatePath } from "next/cache";
 
@@ -22,6 +22,23 @@ import {
 // admin, no school filter", which is what every caller in this file expects.
 async function authorizeAndGetSchoolId(): Promise<string | undefined> {
   const actor = await requirePermission("students.manage");
+  return actor.schoolId ?? undefined;
+}
+
+/**
+ * The school's promotion rules. Setting them is policy, the Exams Officer's
+ * `compiler.configure_policy`, which is also what the page asks for; saving once asked
+ * for `students.manage` instead, so the officer the page let in could never save, and a
+ * registrar who could not open the page could change the rules. Reading them is open to
+ * both, because the transitions a registrar runs are judged by them.
+ */
+async function authorizePolicyReader(): Promise<string | undefined> {
+  const actor = await requireAnyPermission(["compiler.configure_policy", "students.manage"]);
+  return actor.schoolId ?? undefined;
+}
+
+async function authorizePolicyEditor(): Promise<string | undefined> {
+  const actor = await requirePermission("compiler.configure_policy");
   return actor.schoolId ?? undefined;
 }
 
@@ -923,7 +940,7 @@ export async function getTransitionPolicy(): Promise<{
   error?: string;
 }> {
   try {
-    const schoolId = await authorizeAndGetSchoolId();
+    const schoolId = await authorizePolicyReader();
     if (!schoolId) return { success: true, data: DEFAULT_PROMOTION_POLICY };
 
     const stored = await prisma.transitionPolicy.findUnique({ where: { schoolId } });
@@ -971,7 +988,7 @@ export async function saveTransitionPolicy(input: {
   creditMark?: number | null;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const schoolId = await authorizeAndGetSchoolId();
+    const schoolId = await authorizePolicyEditor();
     if (!schoolId) throw new Error("Select a school before setting a promotion policy");
 
     const minAverage =

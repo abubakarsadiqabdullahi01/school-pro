@@ -132,6 +132,34 @@ export function canEditTerm(
   return ALLOWED
 }
 
+/**
+ * Whether a session's dates may be moved to a new range.
+ *
+ * An ended session is a closed year, as an ended term is: results, fee charges and
+ * promotions are filed against its dates, so only a super admin may move them. And a
+ * session must still hold every one of its terms: shrinking it past a term left that term
+ * outside its own session, which every "which term is this date in" lookup then misreads.
+ */
+export function canChangeSessionDates(
+  session: SessionRuleSubject,
+  range: { startDate: Date; endDate: Date },
+  terms: ReadonlyArray<{ name: string; startDate: Date | string; endDate: Date | string }>,
+  role: string | null | undefined,
+  now: Date = new Date(),
+): TermRuleVerdict {
+  if (!(range.startDate <= range.endDate)) {
+    return { allowed: false, reason: "The session must start on or before the day it ends." }
+  }
+  if (hasSessionEnded(session, now) && role !== "SUPER_ADMIN") {
+    return { allowed: false, reason: "This session has ended — only a super admin can change its dates." }
+  }
+  const outside = terms.find((term) => new Date(term.startDate) < range.startDate || new Date(term.endDate) > range.endDate)
+  if (outside) {
+    return { allowed: false, reason: `${outside.name} would fall outside the session. Move the term first, or keep the session around it.` }
+  }
+  return ALLOWED
+}
+
 /** The three terms a Nigerian school session runs. A session has one of each, at most. */
 export const TERM_NAMES = ["First Term", "Second Term", "Third Term"] as const
 

@@ -350,3 +350,61 @@ describe("the promotion policy", () => {
     expect(result.success, result.success ? "" : result.error).toBe(true)
   })
 })
+
+describe("who may set the promotion rules", () => {
+  // Real staff accounts with only the permissions under test: a registrar who runs
+  // transitions, and an Exams Officer who sets policy. The admin above holds both.
+  const STAMP = `ZZPolicy${Date.now()}`
+  const made = { userIds: [] as string[], profileIds: [] as string[] }
+  let registrarId = ""
+  let examsOfficerId = ""
+  let adminId = ""
+
+  async function staffWith(name: string, permissions: string[]) {
+    const user = await prisma.user.create({ data: { firstName: `${STAMP}${name}`, lastName: "Staff", role: "TEACHER" }, select: { id: true } })
+    made.userIds.push(user.id)
+    await prisma.teacher.create({ data: { userId: user.id, schoolId, staffId: `${STAMP}-${name}` } })
+    const profile = await prisma.permissionProfile.create({
+      data: { schoolId, code: `${STAMP}_${name}`.toUpperCase(), name: `${STAMP} ${name}`, permissions },
+      select: { id: true },
+    })
+    made.profileIds.push(profile.id)
+    await prisma.userPermissionProfile.create({ data: { userId: user.id, schoolId, profileId: profile.id } })
+    return user.id
+  }
+
+  const actAs = (id: string) => vi.mocked(auth).mockResolvedValue({
+    user: { id, sessionRecordId: null },
+  } as unknown as Awaited<ReturnType<typeof auth>>)
+
+  beforeAll(async () => {
+    adminId = (await prisma.user.findFirstOrThrow({
+      where: { role: "ADMIN", isActive: true, admin: { schoolId } }, select: { id: true },
+    })).id
+    registrarId = await staffWith("Registrar", ["students.manage"])
+    examsOfficerId = await staffWith("Exams", ["academics.manage", "compiler.configure_policy"])
+  })
+
+  afterAll(async () => {
+    actAs(adminId)
+    await prisma.userPermissionProfile.deleteMany({ where: { userId: { in: made.userIds } } })
+    await prisma.permissionProfile.deleteMany({ where: { id: { in: made.profileIds } } })
+    await prisma.teacher.deleteMany({ where: { userId: { in: made.userIds } } })
+    await prisma.user.deleteMany({ where: { id: { in: made.userIds } } })
+  })
+
+  it("lets the Exams Officer read and save them", async () => {
+    actAs(examsOfficerId)
+    expect((await getTransitionPolicy()).success).toBe(true)
+    expect(await saveTransitionPolicy({ requireResultsPublished: true, usePromotionCriteria: false })).toEqual({ success: true })
+  })
+
+  it("lets a registrar read them, since transitions are judged by them, but not change them", async () => {
+    actAs(registrarId)
+    expect((await getTransitionPolicy()).success).toBe(true)
+    const saved = await saveTransitionPolicy({ requireResultsPublished: false, usePromotionCriteria: false })
+    expect(saved.success).toBe(false)
+    expect(saved.error).toMatch(/compiler\.configure_policy/)
+    expect((await prisma.transitionPolicy.findUniqueOrThrow({ where: { schoolId } })).requireResultsPublished).toBe(true)
+  })
+})

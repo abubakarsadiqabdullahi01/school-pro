@@ -30,7 +30,11 @@ export type PromotionPolicyValues = {
  *
  * Neither rule applies to transfers or withdrawals: those are not judgements on results.
  */
-export function PromotionPolicyForm({ policy }: { policy: PromotionPolicyValues }) {
+export function PromotionPolicyForm({ policy, readOnly = false }: {
+  policy: PromotionPolicyValues
+  /** Shown to those who run transitions but may not set the rules. */
+  readOnly?: boolean
+}) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [requirePublished, setRequirePublished] = useState(policy.requireResultsPublished)
@@ -75,7 +79,8 @@ export function PromotionPolicyForm({ policy }: { policy: PromotionPolicyValues 
           override a blocked promotion — the override is recorded against the transition.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent>
+        <fieldset disabled={readOnly} className="space-y-4">
         <div className="flex items-start justify-between gap-4 rounded-md border p-4">
           <div className="space-y-1">
             <Label htmlFor="requirePublished">Results must be published first</Label>
@@ -168,7 +173,14 @@ export function PromotionPolicyForm({ policy }: { policy: PromotionPolicyValues 
           )}
         </div>
 
-        <Button onClick={save} disabled={isPending || noBarSet}>Save Promotion Rules</Button>
+        {readOnly ? (
+          <p className="text-sm text-muted-foreground">
+            These rules are set by staff who configure promotion policy, such as the Exams Officer.
+          </p>
+        ) : (
+          <Button onClick={save} disabled={isPending || noBarSet}>Save Promotion Rules</Button>
+        )}
+        </fieldset>
       </CardContent>
     </Card>
   )

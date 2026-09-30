@@ -676,9 +676,8 @@ export function AppSidebar({
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
-                            {/* Its page needs the promotion-policy key; shown to everyone with
-                                students.manage, it bounced most of them straight back. */}
-                            {can("compiler.configure_policy") && (
+                            {/* Sits in the Students menu (students.manage); its page opens for
+                                that, and for compiler.configure_policy, which sets its rules. */}
                             <SidebarMenuSubButton
                               asChild
                               isActive={
@@ -690,7 +689,6 @@ export function AppSidebar({
                                 Class Configuration
                               </Link>
                             </SidebarMenuSubButton>
-                            )}
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/db"
 import { AuthorizationError, assertSchoolAccess, requirePermission } from "@/lib/authz"
+import { canChangeSessionDates, canEditTerm } from "@/lib/term-rules"
 
 interface CalendarData {
   sessions: Array<{
@@ -251,7 +252,7 @@ export async function updateSessionDates(sessionId: string, startDate: Date, end
 
     const existing = await prisma.session.findUnique({
       where: { id: sessionId },
-      select: { schoolId: true },
+      select: { schoolId: true, endDate: true, isCurrent: true, terms: { select: { name: true, startDate: true, endDate: true } } },
     })
 
     if (!existing) {
@@ -259,6 +260,11 @@ export async function updateSessionDates(sessionId: string, startDate: Date, end
     }
 
     assertSchoolAccess(actor, existing.schoolId)
+
+    // The same rules as the session form: an ended session is history, and the new dates
+    // must still hold every term in it.
+    const verdict = canChangeSessionDates(existing, { startDate, endDate }, existing.terms, actor.role)
+    if (!verdict.allowed) return { success: false, message: verdict.reason }
 
     await prisma.session.update({
       where: { id: sessionId },
@@ -286,7 +292,12 @@ export async function updateTermDates(termId: string, startDate: Date, endDate: 
     // A term's school is its session's school; there is no schoolId on Term itself.
     const existing = await prisma.term.findUnique({
       where: { id: termId },
-      select: { session: { select: { schoolId: true } } },
+      select: {
+        endDate: true,
+        isCurrent: true,
+        sessionId: true,
+        session: { select: { schoolId: true, startDate: true, endDate: true } },
+      },
     })
 
     if (!existing) {
@@ -294,6 +305,25 @@ export async function updateTermDates(termId: string, startDate: Date, endDate: 
     }
 
     assertSchoolAccess(actor, existing.session.schoolId)
+
+    // The rules the term form already applies. This quick editor on the calendar skipped
+    // them, so any admin could move the dates of a term whose results and fees are filed,
+    // stretch a term outside its session, or lay it over another term.
+    if (!(startDate instanceof Date) || !(endDate instanceof Date) || !(startDate <= endDate)) {
+      return { success: false, message: "Term start date must be on or before its end date" }
+    }
+    // Judged on the stored dates: whether the term is already history is not for the new
+    // dates to restate.
+    const editVerdict = canEditTerm(existing, actor.role)
+    if (!editVerdict.allowed) return { success: false, message: editVerdict.reason }
+    if (startDate < existing.session.startDate || endDate > existing.session.endDate) {
+      return { success: false, message: "Term dates must be within the session date range" }
+    }
+    const overlapping = await prisma.term.findFirst({
+      where: { sessionId: existing.sessionId, id: { not: termId }, startDate: { lte: endDate }, endDate: { gte: startDate } },
+      select: { name: true },
+    })
+    if (overlapping) return { success: false, message: `Term dates overlap ${overlapping.name}` }
 
     await prisma.term.update({
       where: { id: termId },

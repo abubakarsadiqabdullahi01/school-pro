@@ -4,6 +4,7 @@ import {
   canAddTermToSession,
   canAssignInTerm,
   canDeleteTerm,
+  canChangeSessionDates,
   canEditTerm,
   canSetTermCurrent,
   canUseTermName,
@@ -168,5 +169,34 @@ describe("canAssignInTerm", () => {
 
   it("lets a super admin correct the record", () => {
     expect(canAssignInTerm(ended, "SUPER_ADMIN", NOW).allowed).toBe(true)
+  })
+})
+
+describe("canChangeSessionDates", () => {
+  const now = new Date("2026-06-01")
+  const running = { endDate: new Date("2026-08-31"), isCurrent: true }
+  const ended = { endDate: new Date("2025-08-31"), isCurrent: false }
+  const terms = [
+    { name: "First Term", startDate: new Date("2025-09-08"), endDate: new Date("2025-12-12") },
+    { name: "Third Term", startDate: new Date("2026-04-20"), endDate: new Date("2026-07-24") },
+  ]
+  const range = (start: string, end: string) => ({ startDate: new Date(start), endDate: new Date(end) })
+
+  it("lets a running session move while it still holds its terms", () => {
+    expect(canChangeSessionDates(running, range("2025-09-01", "2026-08-31"), terms, "ADMIN", now)).toEqual({ allowed: true })
+  })
+
+  it("refuses dates that cut a term out of its session", () => {
+    const verdict = canChangeSessionDates(running, range("2025-09-01", "2026-07-01"), terms, "ADMIN", now)
+    expect(verdict).toEqual({ allowed: false, reason: expect.stringMatching(/^Third Term would fall outside the session/) })
+  })
+
+  it("leaves an ended session's dates to a super admin", () => {
+    expect(canChangeSessionDates(ended, range("2024-09-01", "2025-08-31"), [], "ADMIN", now).allowed).toBe(false)
+    expect(canChangeSessionDates(ended, range("2024-09-01", "2025-08-31"), [], "SUPER_ADMIN", now).allowed).toBe(true)
+  })
+
+  it("refuses a session that ends before it starts", () => {
+    expect(canChangeSessionDates(running, range("2026-08-31", "2025-09-01"), [], "SUPER_ADMIN", now).allowed).toBe(false)
   })
 })

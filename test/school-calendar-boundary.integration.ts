@@ -31,6 +31,18 @@ const ORIGINAL_END = new Date("2024-12-15T00:00:00.000Z")
 const ATTACKER_START = new Date("2030-01-01T00:00:00.000Z")
 const ATTACKER_END = new Date("2030-06-30T00:00:00.000Z")
 
+// The home school's calendar is a running year, anchored to today: an ended term may only
+// be moved by a super admin, so the ordinary case has to be a term that is still going.
+const DAY = 24 * 60 * 60 * 1000
+const TODAY = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z").getTime()
+const daysFromToday = (days: number) => new Date(TODAY + days * DAY)
+const HOME_SESSION_START = daysFromToday(-60)
+const HOME_SESSION_END = daysFromToday(300)
+const HOME_TERM_START = daysFromToday(-30)
+const HOME_TERM_END = daysFromToday(60)
+let nextTermId = ""
+let pastTermId = ""
+
 const created = {
   userIds: [] as string[],
   studentIds: [] as string[],
@@ -120,8 +132,8 @@ beforeAll(async () => {
     data: {
       schoolId,
       name: `${STAMP} Home Session`,
-      startDate: ORIGINAL_START,
-      endDate: ORIGINAL_END,
+      startDate: HOME_SESSION_START,
+      endDate: HOME_SESSION_END,
     },
     select: { id: true },
   })
@@ -132,13 +144,32 @@ beforeAll(async () => {
     data: {
       sessionId: homeSession.id,
       name: `${STAMP} Home Term`,
-      startDate: ORIGINAL_START,
-      endDate: ORIGINAL_END,
+      startDate: HOME_TERM_START,
+      endDate: HOME_TERM_END,
     },
     select: { id: true },
   })
   homeTermId = homeTerm.id
   created.termIds.push(homeTerm.id)
+
+  // The term after it, for the overlap rule.
+  nextTermId = (await prisma.term.create({
+    data: { sessionId: homeSession.id, name: `${STAMP} Next Term`, startDate: daysFromToday(90), endDate: daysFromToday(180) },
+    select: { id: true },
+  })).id
+  created.termIds.push(nextTermId)
+
+  // A finished year in the admin's own school, for the ended-term rule.
+  const pastSession = await prisma.session.create({
+    data: { schoolId, name: `${STAMP} Past Session`, startDate: ORIGINAL_START, endDate: new Date("2025-07-31T00:00:00.000Z") },
+    select: { id: true },
+  })
+  created.sessionIds.push(pastSession.id)
+  pastTermId = (await prisma.term.create({
+    data: { sessionId: pastSession.id, name: `${STAMP} Past Term`, startDate: ORIGINAL_START, endDate: ORIGINAL_END },
+    select: { id: true },
+  })).id
+  created.termIds.push(pastTermId)
 })
 
 afterAll(async () => {
@@ -234,8 +265,8 @@ describe("the ordinary case still works", () => {
   it("lets an admin move their own school's term", async () => {
     actAs(adminUserId, "ADMIN")
 
-    const newStart = new Date("2024-09-10T00:00:00.000Z")
-    const newEnd = new Date("2024-12-20T00:00:00.000Z")
+    const newStart = daysFromToday(-25)
+    const newEnd = daysFromToday(70)
     const result = await updateTermDates(homeTermId, newStart, newEnd)
     expect(result.success, `an admin was blocked from their own term: ${result.message}`).toBe(true)
 
@@ -250,8 +281,8 @@ describe("the ordinary case still works", () => {
   it("lets an admin move their own school's session", async () => {
     actAs(adminUserId, "ADMIN")
 
-    const newStart = new Date("2024-09-10T00:00:00.000Z")
-    const newEnd = new Date("2025-07-20T00:00:00.000Z")
+    const newStart = daysFromToday(-50)
+    const newEnd = daysFromToday(320)
     const result = await updateSessionDates(homeSessionId, newStart, newEnd)
     expect(result.success, `an admin was blocked from their own session: ${result.message}`).toBe(true)
 
@@ -260,5 +291,36 @@ describe("the ordinary case still works", () => {
       select: { startDate: true },
     })
     expect(session?.startDate.toISOString()).toBe(newStart.toISOString())
+  })
+})
+
+describe("the calendar editor keeps the term form's rules", () => {
+  const unchanged = async (termId: string) =>
+    prisma.term.findUniqueOrThrow({ where: { id: termId }, select: { startDate: true, endDate: true } })
+
+  it("leaves an ended term's dates to a super admin", async () => {
+    actAs(adminUserId, "ADMIN")
+    const before = await unchanged(pastTermId)
+    const result = await updateTermDates(pastTermId, new Date("2024-09-02T00:00:00.000Z"), new Date("2024-12-20T00:00:00.000Z"))
+    expect(result).toMatchObject({ success: false, message: expect.stringMatching(/already ended/) })
+    expect(await unchanged(pastTermId)).toEqual(before)
+  })
+
+  it("refuses a term laid over the next one, or out of its session, or ending before it starts", async () => {
+    actAs(adminUserId, "ADMIN")
+    const before = await unchanged(homeTermId)
+    expect(await updateTermDates(homeTermId, daysFromToday(-25), daysFromToday(120)))
+      .toMatchObject({ success: false, message: expect.stringMatching(/overlap .*Next Term/) })
+    expect(await updateTermDates(homeTermId, daysFromToday(-400), daysFromToday(60)))
+      .toMatchObject({ success: false, message: "Term dates must be within the session date range" })
+    expect(await updateTermDates(homeTermId, daysFromToday(60), daysFromToday(-25)))
+      .toMatchObject({ success: false, message: expect.stringMatching(/on or before its end date/) })
+    expect(await unchanged(homeTermId)).toEqual(before)
+  })
+
+  it("refuses to shrink a session past one of its terms", async () => {
+    actAs(adminUserId, "ADMIN")
+    const result = await updateSessionDates(homeSessionId, daysFromToday(-50), daysFromToday(120))
+    expect(result).toMatchObject({ success: false, message: expect.stringMatching(/Next Term would fall outside the session/) })
   })
 })
