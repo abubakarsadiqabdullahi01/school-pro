@@ -13,8 +13,6 @@ export const authConfig = {
       if (isOnDashboard) {
         if (isLoggedIn) return true
         return Response.redirect(new URL("/auth/login", request.nextUrl))
-      } else if (isLoggedIn && request.nextUrl.pathname === "/auth/login") {
-        return Response.redirect(new URL("/dashboard", request.nextUrl))
       }
 
       return true
