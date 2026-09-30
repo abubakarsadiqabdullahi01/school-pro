@@ -268,18 +268,28 @@ describe("completion is earned, not asserted", () => {
         jobTitle: "Mathematics Teacher",
       },
     })
-    await recordStaffDocument({
+    // Keys as the upload route writes them: this school's staff-documents folder.
+    const uploaded = (uuid: string) => `/api/files/staff-documents/${schoolId}/${uuid}.pdf`
+    // Anything else is refused: another school's document, or a stored expense receipt.
+    for (const foreign of [
+      "/api/files/staff-documents/another-school/00000000-0000-4000-8000-000000000001.pdf",
+      `/api/files/expense-receipts/${schoolId}/00000000-0000-4000-8000-000000000002.pdf`,
+    ]) {
+      expect(await recordStaffDocument({ staffId: staff.id, type: "OTHER", title: "Not ours", storageKey: foreign }))
+        .toMatchObject({ success: false, error: "Upload the document for this school first" })
+    }
+    expect(await recordStaffDocument({
       staffId: staff.id,
       type: "APPOINTMENT_LETTER",
       title: "Letter of appointment",
-      storageKey: "/api/files/staff-documents/test/appointment.pdf",
-    })
-    await recordStaffDocument({
+      storageKey: uploaded("00000000-0000-4000-8000-00000000000a"),
+    })).toMatchObject({ success: true })
+    expect(await recordStaffDocument({
       staffId: staff.id,
       type: "IDENTIFICATION",
       title: "National ID",
-      storageKey: "/api/files/staff-documents/test/id.pdf",
-    })
+      storageKey: uploaded("00000000-0000-4000-8000-00000000000b"),
+    })).toMatchObject({ success: true })
 
     const result = await completeStaffOnboarding(staff.id)
     expect(result.success).toBe(false)

@@ -27,6 +27,9 @@ import { localFileKey, readStoredFile, fileContentType } from "@/lib/local-stora
 /** Matches the 5MB ceiling on `app/api/upload/school-logo`. A logo cannot exceed its upload. */
 const MAX_BYTES = 5 * 1024 * 1024
 
+/** Stored files this route may hand back: images meant to be seen, never documents. */
+const PUBLIC_IMAGE_FOLDERS = ["school-logos/", "profile-avatars/"]
+
 /** Covers the whole operation, redirects and body read included. */
 const FETCH_TIMEOUT_MS = 8000
 
@@ -53,7 +56,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null)
     const localKey = typeof body?.imageUrl === "string" ? localFileKey(body.imageUrl) : null
     if (localKey) {
-      if (localKey.startsWith("expense-receipts/")) return NextResponse.json({ error: "Not a public image" }, { status: 403 })
+      // Only the folders that hold public images: letterhead logos and profile pictures.
+      // Refusing receipts alone left staff documents (appointment letters, ID scans) readable
+      // here by any signed-in account, parents included, bypassing the payroll check that
+      // /api/files applies to them.
+      if (!PUBLIC_IMAGE_FOLDERS.some((folder) => localKey.startsWith(folder))) {
+        return NextResponse.json({ error: "Not a public image" }, { status: 403 })
+      }
       const contentType = fileContentType(localKey)
       if (!ALLOWED_CONTENT_TYPES.includes(contentType)) return NextResponse.json({ error: "Not an image" }, { status: 400 })
       const bytes = await readStoredFile(localKey)

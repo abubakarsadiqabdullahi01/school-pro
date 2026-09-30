@@ -6,7 +6,7 @@ import { z } from "zod"
 
 import { getAccumulatedFundReport } from "@/app/actions/finance"
 import { recordAudit } from "@/lib/audit"
-import { AuthorizationError, requirePermission, type Actor } from "@/lib/authz"
+import { AuthorizationError, requireAnyPermission, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
 import {
   matchesCategoryUsage,
@@ -137,9 +137,13 @@ async function actorSchool(actor: Actor): Promise<string> {
   throw new AuthorizationError("Select a school before using expenditure")
 }
 
-/** Read any expenditure record or report. */
+/**
+ * Read any expenditure record or report. The approver reads too: an approve-only profile
+ * was shown the Expenditure menu and then refused by every page in it, the approval queue
+ * included - the one page that permission exists for.
+ */
 async function requireExpenditureViewer(): Promise<Actor> {
-  return requirePermission("expenditure.manage")
+  return requireAnyPermission(["expenditure.manage", "expenditure.approve"])
 }
 
 /** Configure categories and accounts, approve, reject, cancel. The admin's authority. */

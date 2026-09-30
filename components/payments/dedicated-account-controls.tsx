@@ -18,6 +18,7 @@ import {
   withdrawUnappliedReturn,
 } from "@/app/actions/dedicated-accounts"
 import {
+  checkRefundWithPaystack,
   confirmRefundBankDetails,
   provideRefundBankDetails,
   requestUnappliedRefund,
@@ -445,6 +446,33 @@ export function RefundBankDetailsForm({ refundId, environment, payout }: {
         })}>Check account</Button>
         <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
       </div>
+    </div>
+  )
+}
+
+/**
+ * For a refund whose submission got no answer from Paystack: asks Paystack whether it
+ * exists, and records what Paystack says. Sends nothing.
+ */
+export function CheckRefundButton({ refundId }: { refundId: string }) {
+  const router = useRouter()
+  const [error, setError] = useState("")
+  const [pending, start] = useTransition()
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">
+        Paystack did not answer when this refund was sent, so it is not known whether it was created.
+      </p>
+      <Button size="sm" variant="outline" disabled={pending} onClick={() => start(async () => {
+        setError("")
+        const result = await checkRefundWithPaystack({ refundId, confirmation: true })
+        if (!result.success) return setError(result.error)
+        toast.success(result.data.found
+          ? `Paystack has this refund (${result.data.status.toLowerCase().replaceAll("_", " ")}); recorded`
+          : "Paystack has no such refund; recorded as not sent, so it can be requested again")
+        router.refresh()
+      })}>{pending ? "Checking…" : "Check with Paystack"}</Button>
+      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
     </div>
   )
 }

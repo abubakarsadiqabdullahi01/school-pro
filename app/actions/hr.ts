@@ -2004,9 +2004,15 @@ async function payrollCandidates(schoolId: string, year: number, month: number):
   return prisma.staff.findMany({
     where: {
       schoolId,
-      employmentStatus: "ACTIVE",
       dateEmployed: { lte: end },
-      OR: [{ dateExited: null }, { dateExited: { gte: start } }],
+      OR: [
+        { employmentStatus: "ACTIVE", OR: [{ dateExited: null }, { dateExited: { gte: start } }] },
+        // Somebody who resigned or was let go on the 12th is owed the 12 days. Filtering on
+        // ACTIVE alone dropped them before the pro-rating below could pay those days, so a
+        // leaver's last part-month was never paid. Suspended staff stay out: suspension is
+        // decided outside payroll, and a school that pays through it adds it by hand.
+        { employmentStatus: { in: ["RESIGNED", "TERMINATED"] }, dateExited: { gte: start } },
+      ],
     },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     select: {
@@ -2537,17 +2543,35 @@ export async function payPayroll(input: unknown): Promise<ActionResult<{
     }
     const category = chosen ?? (await salaryCategoryFor(prisma, schoolId))
 
-    // Expense requires a term. The one containing the payroll month, else the current one.
+    // Expense requires a term. It is taken from the session the run was generated for: the
+    // budget counts an approved run as committed against that session, so the salary paid
+    // must land there too. Booking by the day it happened to be paid moved a run paid after
+    // the session rolled over into the next session's spending. Within the session, the term
+    // containing the payroll month, else the last one begun by then, else its first.
     const { end } = monthBounds(run.year, run.month)
-    const term =
-      (await prisma.term.findFirst({
-        where: { session: { schoolId }, startDate: { lte: end }, endDate: { gte: end } },
-        select: { id: true, sessionId: true },
-      })) ??
-      (await prisma.term.findFirst({
-        where: { session: { schoolId }, isCurrent: true },
-        select: { id: true, sessionId: true },
-      }))
+    const term = run.sessionId
+      ? (await prisma.term.findFirst({
+          where: { sessionId: run.sessionId, session: { schoolId }, startDate: { lte: end }, endDate: { gte: end } },
+          select: { id: true, sessionId: true },
+        })) ??
+        (await prisma.term.findFirst({
+          where: { sessionId: run.sessionId, session: { schoolId }, startDate: { lte: end } },
+          orderBy: { startDate: "desc" },
+          select: { id: true, sessionId: true },
+        })) ??
+        (await prisma.term.findFirst({
+          where: { sessionId: run.sessionId, session: { schoolId } },
+          orderBy: { startDate: "asc" },
+          select: { id: true, sessionId: true },
+        }))
+      : (await prisma.term.findFirst({
+          where: { session: { schoolId }, startDate: { lte: end }, endDate: { gte: end } },
+          select: { id: true, sessionId: true },
+        })) ??
+        (await prisma.term.findFirst({
+          where: { session: { schoolId }, isCurrent: true },
+          select: { id: true, sessionId: true },
+        }))
     if (!term) throw new Error("No term covers that payroll month, and no term is marked current")
 
     const paidOut = await prisma.expense.aggregate({

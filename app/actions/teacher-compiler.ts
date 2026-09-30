@@ -561,7 +561,7 @@ function calculateTotalScore(
 // Delegates to the single grading implementation in lib/grading.ts. This used to be a
 // local copy of the bands and the fallback, one of three that agreed with each other but
 // not with the class-term aggregation.
-export async function calculateGradeFromScore(
+async function calculateGradeFromScore(
   totalScore: number | null,
   schoolId: string,
 ): Promise<{ grade: string; remark: string } | null> {

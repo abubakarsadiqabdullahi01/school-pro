@@ -132,7 +132,7 @@ function overrideFromRow(row: {
 }
 
 /** The rules that actually apply to one class. */
-export async function resolvedPolicyFor(schoolId: string, classId: string) {
+async function resolvedPolicyFor(schoolId: string, classId: string) {
   const [school, override] = await Promise.all([
     schoolPolicy(schoolId),
     prisma.classPromotionPolicy.findUnique({ where: { classId } }),

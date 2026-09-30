@@ -28,7 +28,7 @@ const { prisma } = await import("@/lib/db")
 const { createTeacher, deleteTeacher, getTeachers } = await import("@/app/actions/teacher-management")
 const { assignTeacherToSubject } = await import("@/app/actions/teacher-assignment")
 const { createStaff, setStaffEmploymentStatus } = await import("@/app/actions/hr")
-const { createFinanceOfficer } = await import("@/app/actions/finance")
+const { createFinanceOfficer, setFinanceOfficerActive } = await import("@/app/actions/finance")
 const { SYSTEM_PERMISSION_PROFILES } = await import("@/lib/permissions")
 
 const STAMP = "ZZFunnel"
@@ -165,6 +165,28 @@ describe("finance officers reach HR", () => {
       autoProvisioned: true,
       department: "Finance",
     })
+  })
+
+  it("cannot switch back on, from the Finance Staff screen, a bursar HR has let go", async () => {
+    const created = await createFinanceOfficer({
+      firstName: `${STAMP}Gone`,
+      lastName: "Bursar",
+      email: `zzfunnel.gone.${Date.now()}@example.test`,
+    })
+    if (!created.success) throw new Error(created.error)
+    createdUserIds.push(created.data.userId)
+    const staff = await prisma.staff.findUniqueOrThrow({ where: { userId: created.data.userId }, select: { id: true } })
+    expect(await setStaffEmploymentStatus({ staffId: staff.id, employmentStatus: "TERMINATED", reason: "Test" })).toMatchObject({ success: true })
+
+    expect(await setFinanceOfficerActive({ userId: created.data.userId, isActive: true }))
+      .toMatchObject({ success: false, error: expect.stringMatching(/HR records this person .* as terminated/) })
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: created.data.userId }, select: { isActive: true } }))
+      .toEqual({ isActive: false })
+
+    // Reinstating in HR is the way back, and it switches the login on by itself.
+    expect(await setStaffEmploymentStatus({ staffId: staff.id, employmentStatus: "ACTIVE" })).toMatchObject({ success: true })
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: created.data.userId }, select: { isActive: true } }))
+      .toEqual({ isActive: true })
   })
 })
 

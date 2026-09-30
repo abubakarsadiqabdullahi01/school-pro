@@ -24,6 +24,9 @@ import { adapterForPaymentConfiguration } from "@/lib/payments/payment-settings.
 type Result<T> = { success: true; data: T } | { success: false; error: string }
 const message = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback
 
+/** How long a payer identification may wait for Paystack's answer before it can be sent again. */
+const IDENTIFICATION_ANSWER_HOURS = 24
+
 /** Students assigned per click. Each costs two Paystack writes; this keeps well under limits. */
 const ASSIGN_BATCH_SIZE = 25
 
@@ -93,7 +96,7 @@ export async function getDedicatedAccountOverview(input: unknown = {}) {
         id: true, admissionNo: true,
         user: { select: { firstName: true, lastName: true, isActive: true } },
         dedicatedAccounts: { where: { status: "ACTIVE", environment }, select: { id: true, accountNumber: true, accountName: true, bankName: true, createdAt: true } },
-        dedicatedIdentifications: { where: { environment }, select: { status: true, failureReason: true } },
+        dedicatedIdentifications: { where: { environment }, select: { status: true, failureReason: true, updatedAt: true } },
       },
     })
     const [withAccount, totalStudents] = await Promise.all([
@@ -116,7 +119,15 @@ export async function getDedicatedAccountOverview(input: unknown = {}) {
           admissionNo: student.admissionNo,
           name: `${student.user.firstName} ${student.user.lastName}`,
           archived: !student.user.isActive,
-          identification: student.dedicatedIdentifications[0] ?? null,
+          identification: student.dedicatedIdentifications[0]
+            ? (({ updatedAt, ...identification }) => ({
+                ...identification,
+                // Paystack answers identification by webhook, usually within minutes. One that
+                // has heard nothing for a day was lost on the way, and may be sent again.
+                overdue: identification.status === "PENDING" && Date.now() - updatedAt.getTime() > IDENTIFICATION_ANSWER_HOURS * 3_600_000,
+                sentAt: updatedAt.toISOString(),
+              }))(student.dedicatedIdentifications[0])
+            : null,
           account: student.dedicatedAccounts[0]
             ? { ...student.dedicatedAccounts[0], createdAt: student.dedicatedAccounts[0].createdAt.toISOString() }
             : null,

@@ -123,14 +123,42 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
       : event.eventType === "refund.needs-attention" ? "NEEDS_ATTENTION"
         : event.eventType === "refund.processing" ? "PROCESSING" : "PENDING"
 
-  const matched = refund
+  await applyRefundOutcome({
+    refundId: refund.id, status, providerRefundId, failureReason: textValue(data.reason), reference: event.reference, eventId: event.id,
+  })
+  return "processed" as const
+}
+
+export type RefundOutcomeStatus = "PENDING" | "PROCESSING" | "NEEDS_ATTENTION" | "PROCESSED" | "FAILED"
+
+/**
+ * Applies what Paystack says happened to one refund: the status, and when it was processed
+ * the ledger's side of it - held money closed as returned, or the receipt reversed and the
+ * family told. Shared by the refund webhook and by asking Paystack directly, so there is
+ * one place a refund can move money in the books. With `eventId`, that webhook event is
+ * marked done in the same transaction.
+ */
+export async function applyRefundOutcome(input: {
+  refundId: string
+  status: RefundOutcomeStatus
+  providerRefundId: string | null
+  failureReason?: string | null
+  reference?: string | null
+  eventId?: string
+}): Promise<"applied" | "unchanged"> {
+  const { status, providerRefundId } = input
+  let outcome: "applied" | "unchanged" = "applied"
+  const finishEventInTx = async (tx: Prisma.TransactionClient, lastError: string | null) => {
+    if (!input.eventId) return
+    await tx.gatewayEvent.update({ where: { id: input.eventId }, data: { status: "PROCESSED", processedAt: new Date(), nextAttemptAt: null, lastError } })
+  }
   await prisma.$transaction(async (tx) => {
-    const current = await tx.gatewayRefund.findUniqueOrThrow({ where: { id: matched.id } })
+    const current = await tx.gatewayRefund.findUniqueOrThrow({ where: { id: input.refundId } })
     // A late or replayed event (a parked one retried by hand, say) never walks a finished
     // refund back: a processed refund shown as pending invites someone to pay it again.
     if (!refundStatusMayChange(current.status, status)) {
-      await tx.gatewayEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), nextAttemptAt: null,
-        lastError: `Arrived after the refund was already ${current.status.toLowerCase()}; nothing changed` } })
+      outcome = "unchanged"
+      await finishEventInTx(tx, `Arrived after the refund was already ${current.status.toLowerCase()}; nothing changed`)
       return
     }
     if (status === "PROCESSED" && current.status !== "PROCESSED") {
@@ -141,7 +169,7 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
         const returned = await tx.unappliedPayment.updateMany({
           where: { id: current.unappliedPaymentId, status: "OPEN" },
           data: { status: "RETURNED", resolvedBy: current.approvedBy ?? current.requestedBy, resolvedAt: new Date(),
-            resolutionNote: `Refunded through Paystack (${providerRefundId ?? current.providerRefundId ?? event.reference ?? "refund"})` },
+            resolutionNote: `Refunded through Paystack (${providerRefundId ?? current.providerRefundId ?? input.reference ?? "refund"})` },
         })
         if (returned.count !== 1) {
           await raiseGatewayIssue(tx, {
@@ -154,7 +182,7 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
       } else if (current.paymentId) {
         await reverseStudentPaymentInTransaction(tx, {
           schoolId: current.schoolId, paymentId: current.paymentId,
-          reason: current.reason, referenceNo: current.providerRefundId ?? event.reference,
+          reason: current.reason, referenceNo: providerRefundId ?? current.providerRefundId ?? input.reference ?? null,
           createdBy: current.requestedBy,
         })
         // A family whose fees reopen finds out from the school, not from a balance that
@@ -173,7 +201,7 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
       data: { status, providerRefundId: providerRefundId ?? current.providerRefundId,
         processedAt: status === "PROCESSED" ? new Date() : current.processedAt,
         failedAt: status === "FAILED" ? new Date() : null,
-        providerMessage: status === "FAILED" ? textValue(data.reason) ?? "Provider reported refund failure"
+        providerMessage: status === "FAILED" ? input.failureReason ?? "Provider reported refund failure"
           : status === "NEEDS_ATTENTION" ? "Paystack needs the payer's bank account to complete this refund" : null,
         // Asked again for an account: the one sent before did not work, so it is entered afresh.
         ...(status === "NEEDS_ATTENTION" && current.status !== "NEEDS_ATTENTION"
@@ -181,9 +209,9 @@ async function processRefundEvent(event: NonNullable<Awaited<ReturnType<typeof p
               payoutEnteredBy: null, payoutEnteredAt: null, payoutConfirmedBy: null }
           : {}) },
     })
-    await tx.gatewayEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), nextAttemptAt: null, lastError: null } })
+    await finishEventInTx(tx, null)
   }, { isolationLevel: "Serializable" })
-  return "processed" as const
+  return outcome
 }
 
 async function processDisputeEvent(event: NonNullable<Awaited<ReturnType<typeof prisma.gatewayEvent.findUnique>>>) {

@@ -80,7 +80,7 @@ function calculateTotalScore(
 // Delegates to the single grading implementation in lib/grading.ts. This used to be a
 // local copy of the bands and the fallback, one of three that agreed with each other but
 // not with the class-term aggregation.
-export async function calculateGradeFromScore(
+async function calculateGradeFromScore(
   totalScore: number | null,
   schoolId: string,
 ): Promise<{ grade: string; remark: string } | null> {
@@ -1037,70 +1037,3 @@ export async function getAssessmentsForSubject(
   }
 }
 
-// Bulk operations for better performance (teacher version)
-export async function bulkUpdateAssessments(
-  updates: Array<{ id: string; data: Partial<AssessmentData> }>,
-  termId: string,
-  subjectId: string,
-) {
-  try {
-    const { teacher } = await authorizeTeacherAndGetUser();
-
-    // Verify teacher teaches this subject
-    const teacherSubject = await prisma.teacherSubject.findFirst({
-      where: {
-        teacherId: teacher.id,
-        subjectId: subjectId,
-      },
-    });
-
-    if (!teacherSubject) {
-      return {
-        success: false,
-        error: "You are not assigned to teach this subject",
-      };
-    }
-
-    // Verify all assessments belong to this teacher
-    const assessmentIds = updates.map((u) => u.id);
-    const existingAssessments = await prisma.assessment.findMany({
-      where: {
-        id: { in: assessmentIds },
-        teacherId: teacher.id,
-      },
-      select: { id: true },
-    });
-
-    if (existingAssessments.length !== assessmentIds.length) {
-      return {
-        success: false,
-        error: "Some assessments do not belong to you",
-      };
-    }
-
-    const results = await prisma.$transaction(
-      updates.map(({ id, data }) =>
-        prisma.assessment.update({
-          where: { id },
-          data: {
-            ...data,
-            editedBy: teacher.userId,
-            updatedBy: teacher.userId,
-          },
-        }),
-      ),
-    );
-
-    // Revalidate cache
-    revalidateTag(`assessments-${termId}-${subjectId}`, "max");
-
-    return { success: true, data: results };
-  } catch (error) {
-    console.error("Failed to bulk update assessments:", error);
-    return {
-      success: false,
-      error:
-        error instanceof Error ? error.message : "Failed to update assessments",
-    };
-  }
-}

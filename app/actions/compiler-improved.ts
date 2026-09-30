@@ -195,7 +195,7 @@ function calculateTotalScore(
 // Delegates to the single grading implementation in lib/grading.ts. This used to be a
 // local copy of the bands and the fallback, one of three that agreed with each other but
 // not with the class-term aggregation.
-export async function calculateGradeFromScore(
+async function calculateGradeFromScore(
   totalScore: number | null,
   schoolId: string,
 ): Promise<{ grade: string; remark: string } | null> {
@@ -939,37 +939,3 @@ export async function getAssessmentsForSubject(
   }
 }
 
-// Bulk operations for better performance
-export async function bulkUpdateAssessments(
-  updates: Array<{ id: string; data: Partial<AssessmentData> }>,
-  termId: string,
-  subjectId: string,
-) {
-  try {
-    const { user } = await authorizeAndGetUser();
-
-    const results = await prisma.$transaction(
-      updates.map(({ id, data }) =>
-        prisma.assessment.update({
-          where: { id },
-          data: {
-            ...data,
-            editedBy: user.id,
-          },
-        }),
-      ),
-    );
-
-    // Revalidate cache
-    revalidateTag(`assessments-${termId}-${subjectId}`, "max");
-
-    return { success: true, data: results };
-  } catch (error) {
-    console.error("Failed to bulk update assessments:", error);
-    return {
-      success: false,
-      error:
-        error instanceof Error ? error.message : "Failed to update assessments",
-    };
-  }
-}

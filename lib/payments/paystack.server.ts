@@ -14,6 +14,7 @@ import type {
   GatewayDisputeEvidenceInput,
   GatewayRefund,
   GatewaySettlement,
+  GatewayRefundRecord,
   GatewaySettlementTransaction,
   InitializeGatewayPaymentInput,
   InitializedGatewayPayment,
@@ -118,6 +119,16 @@ const settlementSchema = z.object({
     z.string(),
     z.object({ subaccount_code: z.string().optional().catch(undefined) }).passthrough(),
   ]).nullable().optional().catch(undefined),
+}).passthrough()
+
+// Read for one question only (does this refund exist?), so anything unexpected in a field
+// reads as absent rather than failing the whole list.
+const refundRecordSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  status: z.string(),
+  amount: z.number().int().nonnegative(),
+  transaction_reference: z.string().nullable().optional().catch(undefined),
+  transaction: z.union([z.number(), z.string(), z.object({ reference: z.string().optional() }).passthrough()]).nullable().optional().catch(undefined),
 }).passthrough()
 
 const settlementTransactionSchema = z.object({
@@ -479,6 +490,26 @@ export class PaystackAdapter implements PaymentGatewayAdapter {
       subaccountCode: typeof row.subaccount === "string"
         ? row.subaccount || undefined
         : row.subaccount?.subaccount_code || undefined,
+    }))
+  }
+
+  async listRefunds(from: Date, to: Date): Promise<GatewayRefundRecord[]> {
+    const params = new URLSearchParams({ perPage: "100", page: "1", from: from.toISOString(), to: to.toISOString() })
+    const rows: z.infer<typeof refundRecordSchema>[] = []
+    // Bounded: this answers one question about one refund, not an export.
+    for (let pages = 0; pages < 20; pages += 1) {
+      const page = await this.requestEnvelope("GET", `/refund?${params}`)
+      const chunk = z.array(refundRecordSchema).parse(page.data); rows.push(...chunk)
+      const pageNumber = Number(page.meta?.page ?? params.get("page")); const pageCount = Number(page.meta?.pageCount ?? pageNumber)
+      if (chunk.length === 0 || !Number.isFinite(pageCount) || pageNumber >= pageCount) break
+      params.set("page", String(pageNumber + 1))
+    }
+    return rows.map((row) => ({
+      providerRefundId: safeProviderId(row.id) ?? String(row.id),
+      transactionReference: row.transaction_reference
+        ?? (row.transaction && typeof row.transaction === "object" ? row.transaction.reference ?? null : null),
+      amountKobo: row.amount,
+      status: row.status,
     }))
   }
 

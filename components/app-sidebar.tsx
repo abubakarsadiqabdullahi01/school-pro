@@ -152,11 +152,13 @@ export function AppSidebar({
   // used to open this group and reveal Students, Compiler and Terms — every one
   // of which bounces them straight back to their own dashboard, because the
   // pages behind them need permissions a teacher does not have.
+  // An accountant works Finance, Expenditure and HR & Payroll from their own menus. The
+  // same three again under School Management pointed at the admin pages: two routes to one
+  // job, one of them showing the admin's configuration links.
+  const moneyInSchoolManagement = roleString !== "accountant";
   const canSeeSchoolManagement =
     canManageSchool ||
-    canUseFinance ||
-    canUseExpenditure ||
-    canUsePayroll ||
+    (moneyInSchoolManagement && (canUseFinance || canUseExpenditure || canUsePayroll)) ||
     can("compiler.review_results");
 
   const toggleGroup = (group: string) => {
@@ -674,6 +676,9 @@ export function AppSidebar({
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
+                            {/* Its page needs the promotion-policy key; shown to everyone with
+                                students.manage, it bounced most of them straight back. */}
+                            {can("compiler.configure_policy") && (
                             <SidebarMenuSubButton
                               asChild
                               isActive={
@@ -685,6 +690,7 @@ export function AppSidebar({
                                 Class Configuration
                               </Link>
                             </SidebarMenuSubButton>
+                            )}
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
@@ -1035,7 +1041,7 @@ export function AppSidebar({
                     </NavGroup>
                     )}
 
-                    {canUseFinance && (
+                    {canUseFinance && moneyInSchoolManagement && (
                     <MoneyNavGroup
                       pathname={pathname}
                       label="Finance"
@@ -1044,16 +1050,16 @@ export function AppSidebar({
                     />
                     )}
 
-                    {canUseExpenditure && (
+                    {canUseExpenditure && moneyInSchoolManagement && (
                     <MoneyNavGroup
                       pathname={pathname}
                       label="Expenditure"
                       icon={Banknote}
-                      links={expenditureLinks("/dashboard/admin/expenditure", can("expenditure.manage"))}
+                      links={expenditureLinks("/dashboard/admin/expenditure", can("expenditure.approve"))}
                     />
                     )}
 
-                    {canUsePayroll && (
+                    {canUsePayroll && moneyInSchoolManagement && (
                     <MoneyNavGroup
                       pathname={pathname}
                       label="HR & Payroll"
@@ -1567,7 +1573,8 @@ function financeLinks(basePath: string, canManageFees: boolean): FinanceLink[] {
  * record a payment, work the approval queue, then report on it.
  *
  * `canManage` drops the payment chart and category setup, which are the admin's to
- * configure. The actions behind those pages require a manager whatever link is shown.
+ * configure. It is `expenditure.approve`, the permission that saves them; offering the
+ * links on `expenditure.manage` showed a bursar forms that refused every save.
  */
 function expenditureLinks(basePath: string, canManage: boolean): FinanceLink[] {
   return [

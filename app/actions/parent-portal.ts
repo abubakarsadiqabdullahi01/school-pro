@@ -1,6 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/db"
+import { termResultsWithheldReason } from "@/lib/results/withholding.server"
 import { requireActor } from "@/lib/authz"
 import { PUBLISHED_ONLY, averageScore, subjectTotal } from "@/lib/results-visibility"
 import {
@@ -69,6 +70,8 @@ export type ChildOverview = {
   results: {
     termName: string | null
     released: boolean
+    /** Set when the school holds this term's results until its fees are paid. */
+    withheldReason: string | null
     average: number | null
     subjects: Array<{
       subject: string
@@ -134,8 +137,9 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
           ca2: true,
           ca3: true,
           exam: true,
+          termId: true,
           subject: { select: { name: true } },
-          term: { select: { name: true } },
+          term: { select: { name: true, session: { select: { name: true } } } },
         },
         orderBy: { subject: { name: "asc" } },
       }),
@@ -176,6 +180,12 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
         select: { isEnabled: true, status: true, allowPartialPayments: true },
       }),
     ])
+
+    const releasedTerm = assessments[0]
+    const withheldReason = releasedTerm
+      ? await termResultsWithheldReason(student.schoolId, releasedTerm.termId, charges,
+          `${releasedTerm.term.name}, ${releasedTerm.term.session.name}`)
+      : null
 
     // Grades come from the school's own grading system, not a hardcoded band, so what a
     // parent reads matches what the report card prints.
@@ -225,8 +235,9 @@ export async function getChildOverview(studentId: string): Promise<ActionResult<
           // No published rows is not the same as no marks: it means the school has not
           // released this term yet, and the page says so rather than showing an empty table.
           released: assessments.length > 0,
-          average: averageScore(assessments),
-          subjects: subjectRows,
+          withheldReason,
+          average: withheldReason ? null : averageScore(assessments),
+          subjects: withheldReason ? [] : subjectRows,
         },
         fees: {
           billed: naira(billed),

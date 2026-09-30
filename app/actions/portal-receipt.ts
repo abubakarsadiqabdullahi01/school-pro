@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/db"
 import { requireActor } from "@/lib/authz"
-import { loadReceipt, type ReceiptDocument } from "@/app/actions/finance"
+import { loadReceipt, type ReceiptDocument } from "@/lib/finance/receipt-document.server"
 
 /**
  * A receipt, for the family it belongs to.

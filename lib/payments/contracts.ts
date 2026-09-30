@@ -115,6 +115,14 @@ export type GatewaySettlement = {
   subaccountCode?: string
 }
 
+/** A refund as Paystack's own list reports it. */
+export type GatewayRefundRecord = {
+  providerRefundId: string
+  transactionReference: string | null
+  amountKobo: number
+  status: string
+}
+
 export type GatewaySettlementTransaction = {
   providerTransactionId: string
   reference: string
@@ -195,4 +203,6 @@ export interface PaymentGatewayAdapter {
   updateSplitShare(splitId: string, subaccountCode: string, share: number): Promise<void>
   validateCustomer(customerCode: string, input: CustomerIdentificationInput): Promise<void>
   retryRefundWithCustomerDetails(providerRefundId: string, accountNumber: string, bankId: string): Promise<void>
+  /** Refunds created on this connection between two dates, newest pages included. */
+  listRefunds(from: Date, to: Date): Promise<GatewayRefundRecord[]>
 }

@@ -70,8 +70,17 @@ export default async function AdminAssignTeachersPage({ params }: { params: Prom
   }
 
   const [teachers, assigned, marked] = await Promise.all([
+    // Teachers who can still sign in, and anyone already on the subject this term so they
+    // can be taken off. A former teacher offered here could be put on a subject they will
+    // never open.
     prisma.teacher.findMany({
-      where: { schoolId },
+      where: {
+        schoolId,
+        OR: [
+          { user: { isActive: true } },
+          { teacherSubjects: { some: { subjectId: id, termId: currentTerm.id } } },
+        ],
+      },
       select: {
         id: true,
         staffId: true,

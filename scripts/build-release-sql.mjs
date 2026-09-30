@@ -22,6 +22,10 @@
 // Usage:
 //   npm run build:release-sql -- digisof1_schoolpro
 //   npm run build:release-sql -- digisof1_schoolpro --reset   (drops first — deletes data)
+//   npm run build:release-sql -- digisof1_schoolpro --upgrade-from <last applied migration>
+//
+// `--upgrade-from` is for a database that already holds real data. It writes only the
+// migrations after the named one, each guarded (see upgradeFile below), and drops nothing.
 
 import { execSync } from "node:child_process"
 import crypto from "node:crypto"
@@ -39,7 +43,12 @@ const backtick = "`"
 // "#1046 - No database selected", which reads like a problem with the file. A
 // `USE` line at the top makes the file work from either tab.
 const args = process.argv.slice(2)
-const requested = args.find((arg) => arg && !arg.startsWith("-"))
+const upgradeFlag = args.indexOf("--upgrade-from")
+const upgradeFrom = upgradeFlag >= 0 ? args[upgradeFlag + 1] : null
+if (upgradeFlag >= 0 && (!upgradeFrom || upgradeFrom.startsWith("-"))) {
+  throw new Error("--upgrade-from needs the name of the last migration the database has, e.g. 20260930100000_two_person_counter_refunds_and_payouts")
+}
+const requested = args.find((arg, index) => arg && !arg.startsWith("-") && index !== upgradeFlag + 1)
 if (requested && !/^[A-Za-z0-9_$]+$/.test(requested)) {
   throw new Error(`"${requested}" is not a valid MySQL database name`)
 }
@@ -94,6 +103,87 @@ function quote(value) {
 
 const applied = migrations()
 if (applied.length === 0) throw new Error("No migrations found — refusing to write an empty history")
+
+if (upgradeFrom) {
+  upgradeFile(upgradeFrom)
+  process.exit(0)
+}
+
+/**
+ * An upgrade for a database in use: only the migrations after `from`, and nothing dropped.
+ *
+ * phpMyAdmin stops at the first failing statement, and MySQL has no IF outside a stored
+ * procedure, so the guards are statements that fail on purpose. A single-row INSERT of NULL
+ * into a NOT NULL column fails with #1048 in every sql_mode, strict or not:
+ *
+ *   - before anything else: the database must have `from` applied and finished, or the
+ *     file is for a different database, or one further behind (#1048, nothing changed);
+ *   - before each migration: it must not be applied already, so importing the file twice
+ *     stops at the first one (#1048, nothing changed).
+ *
+ * Each migration is then recorded as started, run, and marked finished - the way Prisma
+ * records one - so a failure part-way leaves a visibly failed migration, not a silent one.
+ */
+function upgradeFile(from) {
+  const start = applied.findIndex((migration) => migration.name === from)
+  if (start < 0) throw new Error(`${from} is not a migration in prisma/migrations`)
+  const pending = applied.slice(start + 1)
+  if (pending.length === 0) throw new Error(`Nothing to upgrade: ${from} is the newest migration`)
+
+  const guardTable = `${backtick}_upgrade_guard${backtick}`
+  const history = `${backtick}_prisma_migrations${backtick}`
+  const blocks = pending.map(({ name, checksum }) => {
+    const id = crypto.createHash("sha256").update(`upgrade:${name}`).digest("hex")
+    const uuid = `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20, 32)}`
+    const sql = fs.readFileSync(path.join(migrationsDir, name, "migration.sql"), "utf8").trim()
+    return [
+      `-- ${name} ${"-".repeat(Math.max(0, 76 - name.length))}`,
+      "",
+      "-- Stops here (#1048) if this migration is already applied.",
+      `INSERT INTO ${guardTable} (${backtick}step${backtick}) VALUES ((SELECT IF(COUNT(*) = 0, ${quote(name)}, NULL) FROM ${history} WHERE ${backtick}migration_name${backtick} = ${quote(name)}));`,
+      `INSERT INTO ${history} (${backtick}id${backtick}, ${backtick}checksum${backtick}, ${backtick}finished_at${backtick}, ${backtick}migration_name${backtick}, ${backtick}logs${backtick}, ${backtick}rolled_back_at${backtick}, ${backtick}started_at${backtick}, ${backtick}applied_steps_count${backtick})`,
+      `VALUES (${quote(uuid)}, ${quote(checksum)}, NULL, ${quote(name)}, NULL, NULL, NOW(3), 0);`,
+      "",
+      sql,
+      "",
+      `UPDATE ${history} SET ${backtick}finished_at${backtick} = NOW(3), ${backtick}applied_steps_count${backtick} = 1 WHERE ${backtick}id${backtick} = ${quote(uuid)};`,
+      "",
+    ].join("\n")
+  })
+
+  const header = [
+    "-- DigiSchool-Pro database upgrade",
+    "--",
+    `-- Generated ${new Date().toISOString()}. For a database whose newest migration is`,
+    `--   ${from}`,
+    `-- It applies ${pending.length} migration(s) after it, in order, and records each in`,
+    "-- _prisma_migrations. It drops nothing and deletes no data.",
+    "--",
+    "-- Take a backup first (phpMyAdmin > Export). If it stops with #1048 before its first",
+    "-- migration, the database is not at the migration above: check with",
+    "--   SELECT migration_name FROM _prisma_migrations ORDER BY migration_name DESC LIMIT 1;",
+    "-- If it stops with #1048 at a migration, that one is already applied; nothing after",
+    "-- it ran. Any other error part-way leaves that migration recorded as not finished.",
+    "",
+    ...(requested ? [`USE ${backtick}${requested}${backtick};`, ""] : [
+      "-- No target database: select it in phpMyAdmin's sidebar and import from its own Import tab.",
+      "",
+    ]),
+    `CREATE TEMPORARY TABLE ${guardTable} (${backtick}step${backtick} VARCHAR(255) NOT NULL);`,
+    "",
+    "-- Stops here (#1048) unless the database is at the migration named above.",
+    `INSERT INTO ${guardTable} (${backtick}step${backtick}) VALUES ((SELECT ${backtick}migration_name${backtick} FROM ${history} WHERE ${backtick}migration_name${backtick} = ${quote(from)} AND ${backtick}finished_at${backtick} IS NOT NULL AND ${backtick}rolled_back_at${backtick} IS NULL));`,
+    "",
+  ].join("\n")
+
+  fs.mkdirSync(outDir, { recursive: true })
+  const outFile = path.join(outDir, `release-upgrade-${requested ?? "db"}-${stamp()}.sql`)
+  fs.writeFileSync(outFile, header + blocks.join("\n") + `DROP TEMPORARY TABLE ${guardTable};\n`, "utf8")
+  console.log(`\nWrote ${path.relative(root, outFile)}`)
+  console.log(`  from ${from}`)
+  console.log(`  applies ${pending.length} migration(s): ${pending.map((migration) => migration.name).join(", ")}`)
+  console.log("  drops nothing; take a backup first, then import it through phpMyAdmin.")
+}
 
 const ddl = schemaSql()
 if (!/CREATE TABLE/i.test(ddl)) throw new Error("Prisma produced no CREATE TABLE — refusing to write it")

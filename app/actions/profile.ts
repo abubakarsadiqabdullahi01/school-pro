@@ -156,14 +156,10 @@ export async function updateContactInfo(input: z.input<typeof contactSchema>) {
 
     await saveCredential("EMAIL", data.email)
     await saveCredential("PHONE", data.phone)
-    await saveCredential("REGISTRATION_NUMBER", data.registrationNumber)
-
-    if (data.registrationNumber && user.student) {
-      await tx.student.update({
-        where: { id: user.student.id },
-        data: { admissionNo: data.registrationNumber },
-      })
-    }
+    // The registration number is not the student's to change. It is the school's record of
+    // them - on every receipt, report card and dedicated-account payment - and the login it
+    // backs is issued by the school. Self-service let a student rewrite their own admission
+    // number; a change now comes from the school's student record instead.
     if (data.phone) {
       await tx.user.update({ where: { id: data.userId }, data: { phone: data.phone } })
     }

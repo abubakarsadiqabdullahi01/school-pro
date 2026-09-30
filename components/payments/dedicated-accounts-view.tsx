@@ -125,11 +125,16 @@ export async function DedicatedAccountsView({ basePath, searchParams }: {
                     ? <DeactivateAccountButton accountId={student.account.id} accountNumber={student.account.accountNumber} />
                     : ready && (!data.requiresIdentification || student.identification?.status === "SUCCEEDED"
                       ? <AssignOneButton studentId={student.id} />
-                      : student.identification?.status === "PENDING"
+                      : student.identification?.status === "PENDING" && !student.identification.overdue
                         ? <span className="text-xs text-muted-foreground">Paystack is checking the payer</span>
                         : (
                           <div className="flex flex-col items-end gap-1">
                             {student.identification?.status === "FAILED" && <span className="text-xs text-destructive">{student.identification.failureReason ?? "Identification failed"}</span>}
+                            {student.identification?.status === "PENDING" && (
+                              <span className="text-xs text-amber-700 dark:text-amber-400">
+                                No answer from Paystack since {new Date(student.identification.sentAt).toLocaleDateString("en-NG")}; send it again
+                              </span>
+                            )}
                             <IdentifyPayerButton studentId={student.id} environment={data.environment} />
                           </div>
                         )))}

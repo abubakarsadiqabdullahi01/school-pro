@@ -21,6 +21,7 @@ const provider = vi.hoisted(() => ({
   listBanks: vi.fn(async () => [{ id: 9, code: "058", name: "Guaranty Trust Bank" }]),
   resolveBankAccount: vi.fn(async (accountNumber: string, bankCode: string) => ({ accountNumber, accountName: "ADEBAYO OKONKWO", bankCode })),
   listSettlements: vi.fn(async () => []),
+  listRefunds: vi.fn(async () => [] as Array<{ providerRefundId: string; transactionReference: string | null; amountKobo: number; status: string }>),
   listSettlementTransactions: vi.fn(async () => []),
 }))
 
@@ -50,7 +51,7 @@ const {
   requestUnappliedReturn,
   withdrawUnappliedReturn,
 } = await import("@/app/actions/dedicated-accounts")
-const { approveGatewayRefund, confirmRefundBankDetails, provideRefundBankDetails, requestUnappliedRefund } = await import("@/app/actions/gateway-operations-slice7")
+const { approveGatewayRefund, checkRefundWithPaystack, confirmRefundBankDetails, provideRefundBankDetails, requestUnappliedRefund } = await import("@/app/actions/gateway-operations-slice7")
 const { choosePaymentGatewayMode, setPlatformCharge } = await import("@/app/actions/payment-settings")
 const { requestStudentPaymentRefund: refundStudentPayment } = await import("@/app/actions/finance")
 const { retryParkedGatewayEvent, settleParkedGatewayEvent } = await import("@/app/actions/payment-pilot")
@@ -789,5 +790,64 @@ describe("chargebacks on dedicated-account transfers", () => {
     expect(await prisma.gatewayTransaction.findUniqueOrThrow({ where: { provider_reference: { provider: "PAYSTACK", reference } } }))
       .toMatchObject({ status: "REQUIRES_REVIEW", failureMessage: expect.stringMatching(/chargeback of ₦900\.00 of the ₦1,800\.00/) })
     expect(await prisma.unappliedPayment.findFirstOrThrow({ where: { gatewayTransaction: { reference } } })).toMatchObject({ status: "OPEN" })
+  })
+})
+
+describe("a refund whose submission got no answer from Paystack", () => {
+  let approver = ""
+  beforeAll(async () => { approver = await secondPerson() })
+  afterAll(async () => { await prisma.user.deleteMany({ where: { id: approver } }) })
+
+  async function approveIntoTheVoid(heldId: string) {
+    const requested = await requestUnappliedRefund({ unappliedId: heldId, reason: "Parent asked for it back", confirmation: true })
+    if (!requested.success) throw new Error(requested.error)
+    const requester = context.userId
+    context.userId = approver
+    try {
+      provider.createRefund.mockRejectedValueOnce(new Error("socket hang up"))
+      expect(await approveGatewayRefund({ refundId: requested.data.refundId, confirmation: true }))
+        .toMatchObject({ success: false, error: expect.stringMatching(/outcome is uncertain/) })
+    } finally {
+      context.userId = requester
+    }
+    expect(await prisma.gatewayRefund.findUniqueOrThrow({ where: { id: requested.data.refundId } }))
+      .toMatchObject({ status: "NEEDS_ATTENTION", providerRefundId: null })
+    return requested.data.refundId
+  }
+
+  // As if the approval happened an hour ago, when Paystack's webhook would long have come.
+  async function anHourAgo(refundId: string) {
+    await prisma.gatewayRefund.update({ where: { id: refundId }, data: { approvedAt: new Date(Date.now() - 60 * 60 * 1000) } })
+  }
+
+  it("records a refund Paystack never created as not sent, so the money can be asked for again", async () => {
+    const { reference } = await transfer(3000)
+    const held = await prisma.unappliedPayment.findFirstOrThrow({ where: { gatewayTransaction: { reference } } })
+    const refundId = await approveIntoTheVoid(held.id)
+
+    // Too soon: the webhook may still be on its way.
+    expect(await checkRefundWithPaystack({ refundId, confirmation: true }))
+      .toMatchObject({ success: false, error: expect.stringMatching(/10 minutes/) })
+    await anHourAgo(refundId)
+    provider.listRefunds.mockResolvedValueOnce([])
+    expect(await checkRefundWithPaystack({ refundId, confirmation: true })).toEqual({ success: true, data: { found: false, status: "FAILED" } })
+    expect(await prisma.gatewayRefund.findUniqueOrThrow({ where: { id: refundId } }))
+      .toMatchObject({ status: "FAILED", providerMessage: expect.stringMatching(/no record of this refund/) })
+    expect(await prisma.unappliedPayment.findUniqueOrThrow({ where: { id: held.id } })).toMatchObject({ status: "OPEN" })
+
+    // Not stuck any more: it can be asked for again, and this time Paystack has it, processed.
+    const again = await approveIntoTheVoid(held.id)
+    expect(again).toBe(refundId)
+    await anHourAgo(refundId)
+    provider.listRefunds.mockResolvedValueOnce([
+      { providerRefundId: "770001", transactionReference: "someone-elses-payment", amountKobo: held.amount.toNumber() * 100, status: "processed" },
+      { providerRefundId: "770002", transactionReference: reference, amountKobo: held.amount.toNumber() * 100, status: "processed" },
+    ])
+    expect(await checkRefundWithPaystack({ refundId, confirmation: true })).toEqual({ success: true, data: { found: true, status: "PROCESSED" } })
+    expect(await prisma.gatewayRefund.findUniqueOrThrow({ where: { id: refundId } }))
+      .toMatchObject({ status: "PROCESSED", providerRefundId: "770002" })
+    // Through the same step as the webhook: the held money is closed as returned.
+    expect(await prisma.unappliedPayment.findUniqueOrThrow({ where: { id: held.id } }))
+      .toMatchObject({ status: "RETURNED", resolutionNote: "Refunded through Paystack (770002)" })
   })
 })

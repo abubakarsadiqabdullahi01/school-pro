@@ -2,6 +2,7 @@
 
 import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
+import { loginBlockedByEmployment } from "@/lib/hr/staff-provisioning"
 import { revokeAllSessionsForUser } from "@/lib/sessions.server"
 import { generateTemporaryPassword } from "@/lib/temporary-password"
 import { revalidatePath } from "next/cache"
@@ -202,6 +203,10 @@ export async function toggleUserStatus(userId: string, userType: string) {
     }
 
     const nowActive = !user.isActive
+    if (nowActive) {
+      const blocked = await loginBlockedByEmployment(prisma, userId)
+      if (blocked) return { success: false, error: blocked }
+    }
 
     await prisma.user.update({
       where: { id: userId },

@@ -347,6 +347,41 @@ describe("payroll generation", () => {
     const detail = ok(await getPayrollRun(run.id), "getPayrollRun")
     expect(detail.items.some((item) => item.staffId === leaver.id)).toBe(false)
   })
+
+  it("pays somebody who leaves mid-month for the days they worked", async () => {
+    const leaver = await addStaff("Efe")
+    ok(await assignStaffSalary({ staffId: leaver.id, baseSalary: 90_000, effectiveFrom: "2015-01-01" }), "salary")
+    ok(
+      await setStaffEmploymentStatus({
+        staffId: leaver.id,
+        employmentStatus: "RESIGNED",
+        effectiveOn: `${YEAR}-${String(MONTH + 4).padStart(2, "0")}-15`,
+      }),
+      "resign mid-month",
+    )
+
+    const hrConfig = (prorateFirstMonth: boolean) => saveHrConfig({
+      staffNoPrefix: "ZZS",
+      payrollClosingDay: 25,
+      defaultPaymentMethod: "BANK_TRANSFER",
+      requirePayrollApproval: true,
+      allowNegativeNet: false,
+      prorateFirstMonth,
+    })
+    ok(await hrConfig(true), "enable proration")
+    try {
+      const run = ok(await generatePayroll({ year: YEAR, month: MONTH + 4 }), "generatePayroll")
+      created.runIds.push(run.id)
+
+      const detail = ok(await getPayrollRun(run.id), "getPayrollRun")
+      const item = detail.items.find((row) => row.staffId === leaver.id)
+      // On the run, and paid for the 15 days of November they worked: 90,000 x 15/30.
+      expect(item).toBeDefined()
+      expect(Number(item!.grossPay)).toBe(45_000)
+    } finally {
+      ok(await hrConfig(false), "restore proration setting")
+    }
+  })
 })
 
 describe("the payslip is frozen", () => {

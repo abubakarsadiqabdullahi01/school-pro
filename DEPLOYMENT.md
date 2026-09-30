@@ -300,7 +300,33 @@ database used for testing* below. `npm run build:release-sql` writes a single fi
 that phpMyAdmin can import, including the migration history, so the schema and its
 record arrive together with no CLI on either end. That path is for a database you
 are starting fresh; it does not migrate a database that already holds data you
-want to keep.
+want to keep. For that, use the upgrade file below.
+
+#### A release that changes the database, once it holds real data
+
+Most releases change no tables: upload the bundle and restart, nothing else. When a
+release adds a migration, build an **upgrade** file instead of a reset:
+
+1. In phpMyAdmin, on the live database, find where it is:
+   ```sql
+   SELECT migration_name FROM _prisma_migrations ORDER BY migration_name DESC LIMIT 1;
+   ```
+2. On your machine, build the upgrade from that name:
+   ```bash
+   npm run build:release-sql -- digisof1_schoolpro --upgrade-from <that migration_name>
+   ```
+   It writes `outputs/release-upgrade-digisof1_schoolpro-<stamp>.sql` holding only
+   the newer migrations. It drops nothing.
+3. **Export** the live database in phpMyAdmin first, as a backup.
+4. Import the upgrade file. Its guards stop it before it changes anything if the
+   database is not at the migration you named, or if a migration in it is already
+   applied (importing it twice): both show as `#1048 - Column 'step' cannot be
+   null`. Any other error part-way leaves that migration recorded as not finished,
+   which `check:cpanel` and Prisma both show; restore the backup and ask.
+5. Upload the bundle, restart, and run **check:cpanel**.
+
+Upload the bundle only after the upgrade: new code on the old tables fails on the
+first query that touches a new column.
 
 Either way, run **check:cpanel** again afterwards and confirm the migration table
 is present before seeding.

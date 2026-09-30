@@ -39,8 +39,8 @@ export default async function StudentDashboardPage() {
           <SummaryTile label="Class" value={enrolment?.className ?? "Not assigned"} />
           <SummaryTile
             label="Average"
-            value={results.average === null ? "Not released" : `${results.average}%`}
-            note={results.released ? results.termName : "Awaiting release"}
+            value={results.withheldReason ? "Withheld" : results.average === null ? "Not released" : `${results.average}%`}
+            note={results.withheldReason ? "Until the term's fees are settled" : results.released ? results.termName : "Awaiting release"}
           />
           <SummaryTile
             label="Attendance"
@@ -81,9 +81,11 @@ export default async function StudentDashboardPage() {
                 <div>
                   <CardTitle>My Results</CardTitle>
                   <CardDescription>
-                    {results.released
-                      ? `${results.termName ?? "This term"} — released by the school.`
-                      : "Nothing released yet."}
+                    {results.withheldReason
+                      ? `${results.termName ?? "This term"} — held until the term's fees are settled.`
+                      : results.released
+                        ? `${results.termName ?? "This term"} — released by the school.`
+                        : "Nothing released yet."}
                   </CardDescription>
                 </div>
                 {results.released && results.average !== null && (
@@ -92,7 +94,9 @@ export default async function StudentDashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {!results.released ? (
+              {results.withheldReason ? (
+                <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{results.withheldReason}</p>
+              ) : !results.released ? (
                 <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                   Your results appear here once the school publishes them for the term. Marks a
                   teacher is still entering are not shown.

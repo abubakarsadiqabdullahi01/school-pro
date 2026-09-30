@@ -263,7 +263,7 @@ export async function assignTeachersToSubject({
     if (teachersToAdd.length > 0) {
       const teachers = await prisma.teacher.findMany({
         where: { id: { in: teachersToAdd } },
-        select: { id: true, schoolId: true },
+        select: { id: true, schoolId: true, user: { select: { isActive: true, firstName: true, lastName: true } } },
       })
 
       if (teachers.length !== teachersToAdd.length) {
@@ -272,6 +272,11 @@ export async function assignTeachersToSubject({
 
       if (teachers.some((teacher) => teacher.schoolId !== subjectData.schoolId)) {
         throw new Error("A selected teacher does not belong to this school.")
+      }
+
+      const departed = teachers.find((teacher) => !teacher.user.isActive)
+      if (departed) {
+        throw new Error(`${departed.user.firstName} ${departed.user.lastName} can no longer sign in, so cannot be given a subject.`)
       }
     }
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Bell, LogOut, Moon, Search, Settings, Sun, User } from "lucide-react"
+import { Bell, LogOut, Moon, Search, Sun, User } from "lucide-react"
 import { signOut } from "next-auth/react"
 import type { Role } from "@prisma/client"
 
@@ -159,12 +159,6 @@ export function DashboardHeader({
                 <Link href="/dashboard/profile">
                   <User className="mr-2 h-4 w-4" />
                   Profile
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

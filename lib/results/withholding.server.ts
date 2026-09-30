@@ -1,4 +1,7 @@
+import { Prisma } from "@prisma/client"
+
 import { prisma } from "@/lib/db"
+import { canViewResults } from "./withholding-rules"
 import { WITHHOLD_RESULTS_KEY } from "@/lib/system-config"
 
 /**
@@ -20,4 +23,23 @@ export async function schoolWithholdsResults(schoolId: string): Promise<boolean>
     console.error("Could not read the results-withholding setting:", error)
     return false
   }
+}
+
+/**
+ * Whether a family may see one term's released results on an overview page: the same
+ * question the history page and the report card ask. The overviews once skipped it, so a
+ * school holding results against unpaid fees still showed every score on the dashboard.
+ * Returns the reason to show instead, or null when the results may be shown.
+ */
+export async function termResultsWithheldReason(
+  schoolId: string,
+  termId: string,
+  charges: ReadonlyArray<{ termId: string | null; balance: Prisma.Decimal.Value }>,
+  periodLabel?: string,
+): Promise<string | null> {
+  const owing = charges
+    .filter((charge) => charge.termId === termId)
+    .reduce((sum, charge) => sum.plus(charge.balance), new Prisma.Decimal(0))
+  const access = canViewResults({ withholdEnabled: await schoolWithholdsResults(schoolId), balanceOwing: owing.toNumber(), periodLabel })
+  return access.allowed ? null : access.reason
 }

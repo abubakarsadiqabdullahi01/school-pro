@@ -6,6 +6,7 @@ import { z } from "zod"
 import { recordAudit } from "@/lib/audit"
 import { AuthorizationError, assertSchoolAccess, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
+import { localFileKey } from "@/lib/local-storage"
 import {
   onboardingSummary,
   staffOnboardingProgress,
@@ -608,6 +609,13 @@ export async function recordStaffDocument(input: unknown): Promise<ActionResult<
     })
     if (!staff) throw new Error("Staff record not found")
     assertSchoolAccess(actor, staff.schoolId)
+    // Only a file uploaded as this school's staff document. Any other stored key - another
+    // school's document, or an expense receipt - would otherwise be served back under this
+    // staff record to whoever may read it.
+    const key = localFileKey(data.storageKey)
+    if (!key?.startsWith(`staff-documents/${staff.schoolId}/`)) {
+      throw new Error("Upload the document for this school first")
+    }
 
     const document = await prisma.staffDocument.create({
       data: {

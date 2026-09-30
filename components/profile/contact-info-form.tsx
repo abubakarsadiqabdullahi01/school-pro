@@ -137,8 +137,9 @@ export function ContactInfoForm({ user, credentials }: { user: any; credentials:
                           {regNumberCredential?.isPrimary && <Badge variant="outline">Primary</Badge>}
                         </div>
                         <FormControl>
-                          <Input placeholder="Enter your registration number" {...field} value={field.value || ""} />
+                          <Input {...field} value={field.value || ""} readOnly disabled />
                         </FormControl>
+                        <p className="text-xs text-muted-foreground">Issued by your school. Ask the school office if it is wrong.</p>
                         <FormMessage />
                       </FormItem>
                     )}

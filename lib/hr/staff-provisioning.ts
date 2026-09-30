@@ -156,8 +156,17 @@ export async function provisionStaffForLogin(
     if (preferred) {
       const hired = await client.staff.findFirst({
         where: { schoolId: input.schoolId, staffNo: preferred, userId: null },
-        select: { id: true, staffNo: true, firstName: true, lastName: true },
+        select: { id: true, staffNo: true, firstName: true, lastName: true, employmentStatus: true },
       })
+      // A former employee's record is not handed a new working login. The login is still
+      // created (rule 1) and waits in HR's queue for HR to reinstate or re-hire them.
+      if (hired && sameName(hired, input) && hired.employmentStatus !== "ACTIVE") {
+        return {
+          created: false,
+          reason: "FAILED",
+          error: `HR record ${hired.staffNo} is ${hired.employmentStatus.toLowerCase()}; reinstate it in HR to link this login`,
+        }
+      }
       if (hired && sameName(hired, input)) {
         await client.staff.update({
           where: { id: hired.id },
@@ -275,7 +284,7 @@ async function resolveStaffNo(
 export async function unlinkedTeachers(client: StaffWriteClient, schoolId: string) {
   const [teachers, staffUserIds] = await Promise.all([
     client.teacher.findMany({
-      where: { schoolId },
+      where: { schoolId, user: { isActive: true } },
       select: {
         id: true,
         userId: true,
@@ -318,6 +327,7 @@ export async function unlinkedFinanceOfficers(client: StaffWriteClient, schoolId
       role: "ACCOUNTANT",
       admin: { schoolId },
       staffRecord: { is: null },
+      isActive: true,
     },
     select: {
       id: true,
@@ -333,4 +343,19 @@ export async function unlinkedFinanceOfficers(client: StaffWriteClient, schoolId
     },
     orderBy: { createdAt: "desc" },
   })
+}
+
+/**
+ * Why a staff member's login may not be switched back on, or null when it may.
+ *
+ * Employment belongs to HR: suspending or ending it switches the login off, and only
+ * reinstating it in HR switches it back on. The Finance Staff screen and the platform's
+ * user list could each switch a login on directly, which gave a dismissed bursar their
+ * access back while HR still recorded them as gone.
+ */
+export async function loginBlockedByEmployment(client: StaffWriteClient, userId: string): Promise<string | null> {
+  const staff = await client.staff.findUnique({ where: { userId }, select: { staffNo: true, employmentStatus: true } })
+  if (!staff || staff.employmentStatus === "ACTIVE") return null
+  return `HR records this person (${staff.staffNo}) as ${staff.employmentStatus.toLowerCase()}. `
+    + "Reinstate them in HR, which switches their login back on."
 }

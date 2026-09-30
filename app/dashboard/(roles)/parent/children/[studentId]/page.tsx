@@ -82,9 +82,11 @@ export default async function ParentChildPage({ params }: ChildPageProps) {
                 <div>
                   <CardTitle>Results</CardTitle>
                   <CardDescription>
-                    {results.released
-                      ? `${results.termName ?? "This term"} — released by the school.`
-                      : "Nothing released yet."}
+                    {results.withheldReason
+                      ? `${results.termName ?? "This term"} — held until the term's fees are settled.`
+                      : results.released
+                        ? `${results.termName ?? "This term"} — released by the school.`
+                        : "Nothing released yet."}
                   </CardDescription>
                 </div>
                 {results.released && results.average !== null && (
@@ -93,7 +95,9 @@ export default async function ParentChildPage({ params }: ChildPageProps) {
               </div>
             </CardHeader>
             <CardContent>
-              {!results.released ? (
+              {results.withheldReason ? (
+                <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{results.withheldReason}</p>
+              ) : !results.released ? (
                 <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                   Results appear here once the school publishes them for the term. Marks a teacher
                   is still entering are not shown.

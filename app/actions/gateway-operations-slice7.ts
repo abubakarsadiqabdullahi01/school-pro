@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db"
 import { decimalNairaToKobo } from "@/lib/payments/checkout-rules"
 import { heldTransferProblem } from "@/lib/payments/dedicated-account-rules"
 import { lockHeldMoney } from "@/lib/payments/dedicated-accounts.server"
+import { applyRefundOutcome, type RefundOutcomeStatus } from "@/lib/payments/gateway-event-processor.server"
 import { adapterForPaymentConfiguration } from "@/lib/payments/payment-settings.server"
 import { refundPayoutViews } from "@/lib/payments/refund-payout.server"
 import { refundDecisionProblems } from "@/lib/payments/pilot-rules"
@@ -212,6 +213,77 @@ export async function confirmRefundBankDetails(input: unknown): Promise<Result<{
     return { success: true, data: { status: "PENDING" } }
   } catch (error) {
     return { success: false, error: message(error, "Could not send the bank details to Paystack") }
+  }
+}
+
+/** Paystack's refund statuses, as the refund record holds them. */
+function refundStatusFromPaystack(status: string): RefundOutcomeStatus {
+  const value = status.trim().toLowerCase()
+  if (value === "processed") return "PROCESSED"
+  if (value === "failed") return "FAILED"
+  if (value === "needs-attention") return "NEEDS_ATTENTION"
+  if (value === "processing") return "PROCESSING"
+  return "PENDING"
+}
+
+/** Paystack's webhook normally settles this within minutes; asking sooner only races it. */
+const REFUND_CHECK_AFTER_MINUTES = 10
+
+/**
+ * Settles a refund whose submission got no clear answer from Paystack (the network failed
+ * after the approval). Until now its money stayed locked: nothing could be applied, returned
+ * or refunded again while it waited for a webhook that might never come. This asks Paystack
+ * whether the refund exists. If it does, it is recorded with Paystack's status - through the
+ * same step as the webhook, so a processed refund returns held money or reverses the receipt.
+ * If it does not, it is recorded as failed, and the money can be asked for again by two
+ * people as before. Nothing is sent to Paystack here.
+ */
+export async function checkRefundWithPaystack(input: unknown): Promise<Result<{ found: boolean; status: string }>> {
+  try {
+    const actor = await requirePermission("finance.approve_refunds")
+    if (!actor.schoolId) throw new Error("Select a school before managing refunds")
+    const data = z.object({ refundId: z.string().uuid(), confirmation: z.literal(true) }).parse(input)
+    const refund = await prisma.gatewayRefund.findFirst({
+      where: { id: data.refundId, schoolId: actor.schoolId },
+      include: { gatewayTransaction: { select: { reference: true, configurationId: true } } },
+    })
+    if (!refund) throw new Error("Refund was not found")
+    if (!refund.approvedAt || refund.providerRefundId || !["REQUESTED", "PENDING", "PROCESSING", "NEEDS_ATTENTION"].includes(refund.status)) {
+      throw new Error("Only an approved refund that Paystack has not yet given an id can be checked")
+    }
+    if (Date.now() - refund.approvedAt.getTime() < REFUND_CHECK_AFTER_MINUTES * 60_000) {
+      throw new Error(`Give Paystack ${REFUND_CHECK_AFTER_MINUTES} minutes from the approval to answer before checking`)
+    }
+    if (!refund.gatewayTransaction.configurationId) throw new Error("The payment configuration is no longer available")
+
+    const records = await (await adapterForPaymentConfiguration(refund.gatewayTransaction.configurationId))
+      .listRefunds(new Date(refund.approvedAt.getTime() - 24 * 60 * 60 * 1000), new Date())
+    const known = new Set((await prisma.gatewayRefund.findMany({
+      where: { provider: refund.provider, environment: refund.environment, providerRefundId: { not: null } },
+      select: { providerRefundId: true },
+    })).map((row) => row.providerRefundId))
+    const amountKobo = decimalNairaToKobo(refund.amount)
+    const matches = records.filter((record) => record.transactionReference === refund.gatewayTransaction.reference
+      && record.amountKobo === amountKobo && !known.has(record.providerRefundId))
+    if (matches.length > 1) {
+      throw new Error("Paystack shows more than one refund of this amount for this payment. Settle it in the Paystack dashboard.")
+    }
+
+    const found = matches[0]
+    const status: RefundOutcomeStatus = found ? refundStatusFromPaystack(found.status) : "FAILED"
+    await applyRefundOutcome({
+      refundId: refund.id, status, providerRefundId: found?.providerRefundId ?? null, reference: refund.gatewayTransaction.reference,
+      failureReason: found ? null : "Paystack has no record of this refund, so it was never sent. It can be requested again.",
+    })
+    await recordAudit({ actor, action: "payment_gateway.refund_check", entityType: "GatewayRefund", entityId: refund.id,
+      summary: found
+        ? `Paystack has the refund of ${refund.gatewayTransaction.reference} (${found.providerRefundId}, ${found.status}); recorded it`
+        : `Paystack has no refund of ${refund.gatewayTransaction.reference}; recorded it as failed so it can be asked for again`,
+      after: { found: Boolean(found), status, providerRefundId: found?.providerRefundId ?? null } })
+    refreshRefundViews(refund.gatewayTransactionId)
+    return { success: true, data: { found: Boolean(found), status } }
+  } catch (error) {
+    return { success: false, error: message(error, "Could not check the refund with Paystack") }
   }
 }
 
