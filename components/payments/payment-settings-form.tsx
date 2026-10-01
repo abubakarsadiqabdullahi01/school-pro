@@ -432,7 +432,7 @@ export function PaymentSettingsForm({ initialData }: { initialData: PaymentSetti
                   <AlertDialogDescription>
                     {enabled
                       ? "New parent checkouts will stop. Existing confirmed payments and receipts remain intact."
-                      : "This records an explicit activation. Parent checkout is added in a later slice and will use only this verified configuration."}
+                      : "Parents will see Pay online on their child's fees and can pay through Paystack using this verified configuration. You can switch it off again at any time."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
