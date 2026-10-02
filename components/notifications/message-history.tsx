@@ -4,32 +4,12 @@ import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
-import { cancelNotification, retryNotification, saveNotificationControls } from "@/app/actions/communications"
+import { saveNotificationControls } from "@/app/actions/communications"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-
-export function MessageRowActions({ id, status }: { id: string; status: string }) {
-  const router = useRouter()
-  const [pending, start] = useTransition()
-  if (status === "FAILED") {
-    return <Button size="sm" variant="outline" disabled={pending} onClick={() => start(async () => {
-      const result = await retryNotification({ id })
-      if (!result.success) return void toast.error(result.error)
-      toast.success("Queued to try again"); router.refresh()
-    })}>Retry</Button>
-  }
-  if (status === "QUEUED") {
-    return <Button size="sm" variant="ghost" disabled={pending} onClick={() => start(async () => {
-      const result = await cancelNotification({ id })
-      if (!result.success) return void toast.error(result.error)
-      toast.success("Cancelled"); router.refresh()
-    })}>Cancel</Button>
-  }
-  return null
-}
 
 type Category = { key: string; label: string; channels: Array<{ channel: "SMS" | "EMAIL"; enabled: boolean; essential: boolean }> }
 

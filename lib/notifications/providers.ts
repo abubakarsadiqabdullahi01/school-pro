@@ -14,8 +14,11 @@
  * retrying it three times turns one wasted message into three.
  */
 
+import { providerScheduledFor, scheduledNote } from "./delivery-notes"
+
 export type SendOutcome =
-  | { ok: true; providerMessageId: string | null }
+  /** `note`: something the provider said about an accepted message, such as a later delivery time. */
+  | { ok: true; providerMessageId: string | null; note?: string }
   | { ok: false; error: string; retryable: boolean }
 
 export interface SmsProvider {
@@ -135,10 +138,20 @@ export class SmartSmsSolutionsSmsProvider implements SmsProvider {
     }, "multipart")
     if ("networkError" in result) return { ok: false, error: result.networkError, retryable: true }
     const record = typeof result.body === "object" && result.body !== null ? result.body as Record<string, unknown> : null
+    const listed = (key: string) => typeof record?.[key] === "string" && (record[key] as string).length > 0
+    // Accepted, but held: a number on Do-Not-Disturb goes through the corporate route, which
+    // does not deliver at night, so SmartSMS schedules it ("Your message has been scheduled
+    // to deliver at the following time(s): …") and leaves it out of `successful`. That is a
+    // sent message. Read as a refusal, it showed as failed beside a Retry button, and a
+    // retry sent and charged it twice.
+    const scheduledFor = providerScheduledFor(readError(result.body, ""))
+    if (result.status >= 200 && result.status < 300 && scheduledFor
+      && !listed("insufficient_unit") && !listed("invalid") && !listed("failed")) {
+      return { ok: true, providerMessageId: readMessageId(result.body, "message_id", "ref_id") ?? reference, note: scheduledNote(scheduledFor) }
+    }
     if (result.status >= 200 && result.status < 300 && Number(record?.code) === 1000) {
       // A completed request can still leave this number out: SmartSMS lists it under the
       // reason instead of `successful`. That is a failed message, not a sent one.
-      const listed = (key: string) => typeof record?.[key] === "string" && (record[key] as string).length > 0
       if (!listed("successful")) {
         const reason = listed("insufficient_unit") ? "Insufficient SMS units in the SmartSMS wallet"
           : listed("invalid") ? "SmartSMS rejected the phone number as invalid"

@@ -6,6 +6,7 @@ import { z } from "zod"
 import { recordAudit } from "@/lib/audit"
 import { AuthorizationError, requireAnyPermission, requirePermission, type Actor } from "@/lib/authz"
 import { prisma } from "@/lib/db"
+import { providerScheduledFor } from "@/lib/notifications/delivery-notes"
 import { formatNaira } from "@/lib/money"
 import {
   applyGovernance,
@@ -447,7 +448,8 @@ export async function getNotificationHistory(input: unknown = {}) {
       prisma.notificationOutbox.findMany({
         where, orderBy: { createdAt: "desc" }, skip: (filters.page - 1) * PAGE_SIZE, take: PAGE_SIZE,
         select: { id: true, channel: true, recipient: true, subject: true, body: true, templateKey: true, status: true, attempts: true,
-          units: true, lastError: true, createdAt: true, sentAt: true, deliveredAt: true, availableAt: true },
+          maxAttempts: true, units: true, lastError: true, provider: true, providerMessageId: true,
+          createdAt: true, sentAt: true, deliveredAt: true, failedAt: true, availableAt: true },
       }),
       prisma.notificationOutbox.count({ where }),
       prisma.notificationOutbox.groupBy({ by: ["channel", "status"], where: { schoolId, createdAt: { gte: monthStart } }, _count: { _all: true }, _sum: { units: true } }),
@@ -458,7 +460,8 @@ export async function getNotificationHistory(input: unknown = {}) {
       success: true as const,
       data: {
         rows: rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString(), sentAt: row.sentAt?.toISOString() ?? null,
-          deliveredAt: row.deliveredAt?.toISOString() ?? null, availableAt: row.availableAt.toISOString() })),
+          deliveredAt: row.deliveredAt?.toISOString() ?? null, failedAt: row.failedAt?.toISOString() ?? null,
+          availableAt: row.availableAt.toISOString() })),
         total, page: filters.page, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
         month: {
           smsSent: sum("SMS", ["SENT", "DELIVERED"]), smsFailed: sum("SMS", ["FAILED"]),
@@ -480,8 +483,14 @@ export async function retryNotification(input: unknown): Promise<ActionResult<un
     const actor = await requirePermission("school.manage")
     const schoolId = await schoolOf(actor)
     const { id } = z.object({ id: z.string().uuid() }).parse(input)
-    const row = await prisma.notificationOutbox.findFirst({ where: { id, schoolId, status: "FAILED" }, select: { attempts: true } })
+    const row = await prisma.notificationOutbox.findFirst({ where: { id, schoolId, status: "FAILED" }, select: { attempts: true, lastError: true } })
     if (!row) throw new Error("Only a failed message can be retried")
+    // Recorded as failed by an earlier version, though SmartSMS had accepted it for later
+    // delivery. Retrying would send, and charge for, the message twice.
+    const scheduledFor = providerScheduledFor(row.lastError)
+    if (scheduledFor) {
+      throw new Error(`SmartSMS already accepted this message and will deliver it at ${scheduledFor}. Retrying would send it twice.`)
+    }
     await prisma.notificationOutbox.update({
       where: { id },
       data: { status: "QUEUED", availableAt: new Date(), failedAt: null, maxAttempts: row.attempts + 3 },

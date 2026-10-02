@@ -27,6 +27,26 @@ describe("SmartSMSSolutions providers", () => {
       .resolves.toEqual({ ok: false, error: "Insufficient SMS units in the SmartSMS wallet", retryable: false })
   })
 
+  it("counts an SMS SmartSMS scheduled for later as sent, and keeps when it will go", async () => {
+    const comment = "Your message has been scheduled to deliver at the following time(s): 2026-10-02 08:15:00. This is due to the time restriction on the route"
+    for (const body of [
+      { code: 1000, successful: "", corp_successful: "", comment, message_id: "msg-9" },
+      { code: 1009, comment },
+    ]) {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })))
+      const outcome = await new SmartSmsSolutionsSmsProvider("t", "Digisoft").send("2348012345678", "Receipt")
+      expect(outcome).toMatchObject({ ok: true, note: "SmartSMS accepted this message. It has been scheduled to deliver at the following time(s): 2026-10-02 08:15" })
+    }
+  })
+
+  it("still fails an SMS SmartSMS refused for an unapproved link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      code: 1000, successful: "", comment: "The link (schoolpro.digisoft.com.ng) is not approved for your account. Kindly submit it for approval on the Approved Links page",
+    }), { status: 200, headers: { "Content-Type": "application/json" } })))
+    await expect(new SmartSmsSolutionsSmsProvider("t", "Digisoft").send("2348012345678", "Pay at https://schoolpro.digisoft.com.ng"))
+      .resolves.toMatchObject({ ok: false, retryable: false, error: expect.stringMatching(/not approved/) })
+  })
+
   it("sends transactional email and HTML-escapes the plain outbox body", async () => {
     const fetcher = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ status: "success", data: { message_id: 5842 } }), { status: 200, headers: { "Content-Type": "application/json" } }))
     vi.stubGlobal("fetch", fetcher)

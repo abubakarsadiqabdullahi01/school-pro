@@ -307,3 +307,27 @@ describe("two people at once", () => {
     }
   })
 })
+
+describe("a message SmartSMS scheduled for the morning", () => {
+  it("cannot be retried, because it would be sent and charged twice", async () => {
+    const scheduled = await prisma.notificationOutbox.create({
+      data: {
+        schoolId, channel: "SMS", recipient: "+2348012345678", body: `${stamp} receipt`, templateKey: "payment.received",
+        status: "FAILED", attempts: 1, failedAt: new Date(), dedupeKey: `${stamp}:scheduled`,
+        // What an earlier version stored, taking SmartSMS's "scheduled" reply for a refusal.
+        lastError: "Your message has been scheduled to deliver at the following time(s): 2026-10-02 08:15:00. This is due to the time restriction",
+      },
+    })
+    try {
+      expect(await comms.retryNotification({ id: scheduled.id }))
+        .toMatchObject({ success: false, error: expect.stringMatching(/will deliver it at 2026-10-02 08:15\. Retrying would send it twice/) })
+      expect(await prisma.notificationOutbox.findUniqueOrThrow({ where: { id: scheduled.id } })).toMatchObject({ status: "FAILED" })
+
+      // An ordinary refusal can still be retried.
+      await prisma.notificationOutbox.update({ where: { id: scheduled.id }, data: { lastError: "Insufficient SMS units in the SmartSMS wallet" } })
+      expect(await comms.retryNotification({ id: scheduled.id })).toMatchObject({ success: true })
+    } finally {
+      await prisma.notificationOutbox.deleteMany({ where: { id: scheduled.id } })
+    }
+  })
+})

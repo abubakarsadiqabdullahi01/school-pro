@@ -217,7 +217,8 @@ export async function drainOutbox(
           sentAt: new Date(),
           provider: message.channel === "SMS" ? providers.sms.name : providers.email.name,
           providerMessageId: outcome.providerMessageId,
-          lastError: null,
+          // On a sent message this is the provider's note, such as a later delivery time.
+          lastError: outcome.note ?? null,
         },
       })
       sent += 1
