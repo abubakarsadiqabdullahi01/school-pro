@@ -1,5 +1,6 @@
 import { StaffDetailView } from "@/components/hr/views/staff-detail-view"
 import { getEffectivePermissionsForCurrentUser } from "@/lib/authz"
+import { loginStaffTypesFor } from "@/lib/hr/staff-logins"
 
 export default async function AdminStaffDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -9,8 +10,7 @@ export default async function AdminStaffDetailPage({ params }: { params: Promise
       basePath="/dashboard/admin/hr"
       staffId={id}
       canManage
-      canCreateTeacherLogin={permissions.includes("teachers.manage")}
-      canCreateAccountantLogin={permissions.includes("finance.setup")}
+      loginTypes={loginStaffTypesFor(permissions)}
     />
   )
 }

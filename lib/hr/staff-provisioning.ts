@@ -238,6 +238,9 @@ function sameName(
   return normalName(a.firstName) === normalName(b.firstName) && normalName(a.lastName) === normalName(b.lastName)
 }
 
+/** What a school administrator is called on HR's record and their payslip. */
+export const SCHOOL_ADMIN_JOB_TITLE = "School Administrator"
+
 const JOB_TITLES: Partial<Record<StaffType, string>> = {
   TEACHER: "Teacher",
   ACCOUNTANT: "Accountant",
@@ -322,9 +325,26 @@ export async function unlinkedTeachers(client: StaffWriteClient, schoolId: strin
  * invisible to HR until now.
  */
 export async function unlinkedFinanceOfficers(client: StaffWriteClient, schoolId: string) {
+  return unlinkedSchoolLogins(client, schoolId, "ACCOUNTANT")
+}
+
+/**
+ * School administrators with no HR record at all.
+ *
+ * An administrator was created by the platform's super admin and nothing else, so the
+ * person running the school was the one member of staff HR had never heard of: no staff
+ * number, no payslip, and an employment HR could not end. Everyone created since gets the
+ * record at once; this finds the ones from before.
+ */
+export async function unlinkedSchoolAdmins(client: StaffWriteClient, schoolId: string) {
+  return unlinkedSchoolLogins(client, schoolId, "ADMIN")
+}
+
+/** Active logins of one role tied to this school through an admin record, with no HR record. */
+async function unlinkedSchoolLogins(client: StaffWriteClient, schoolId: string, role: "ACCOUNTANT" | "ADMIN") {
   return client.user.findMany({
     where: {
-      role: "ACCOUNTANT",
+      role,
       admin: { schoolId },
       staffRecord: { is: null },
       isActive: true,

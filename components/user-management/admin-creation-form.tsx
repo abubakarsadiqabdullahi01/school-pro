@@ -75,7 +75,7 @@ export function AdminCreationForm({ schools }: AdminCreationFormProps) {
         toast.success("Admin Created", {
           description: `${data.firstName} ${data.lastName} has been created successfully. Default password: ${
             result.data?.defaultPassword ?? "generated"
-          }`,
+          }${result.data?.staffNo ? `. HR staff number: ${result.data.staffNo}` : ""}`,
         })
         router.push("/dashboard/super-admin/users/admins")
       } else {

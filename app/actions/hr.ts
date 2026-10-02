@@ -16,6 +16,7 @@ import {
   canUseComponentName,
 } from "@/lib/hr/pay-component-rules"
 import { canGeneratePayroll } from "@/lib/hr/payroll-period-rules"
+import { LOGINS_THAT_FOLLOW_EMPLOYMENT, STAFF_LOGINS, isLoginStaffType, type LoginStaffType } from "@/lib/hr/staff-logins"
 import { nextStaffNo as nextStaffNoFor } from "@/lib/hr/staff-provisioning"
 import { getActiveSchool } from "@/lib/school-context.server"
 import { revokeAllSessionsForUser } from "@/lib/sessions.server"
@@ -633,15 +634,16 @@ export async function getStaffMember(staffId: string): Promise<ActionResult<{
 }
 
 /**
- * The login for a teacher or an accountant, made inside the transaction that records them,
- * so a staff record and its login are created together or not at all. A teacher also gets
- * the Teacher record the Teachers screen manages classes and subjects through; an accountant
- * gets the school-scoped admin record the finance screens are opened by.
+ * The login for a teacher, an accountant or an administrator, made inside the transaction
+ * that records them, so a staff record and its login are created together or not at all.
+ * A teacher also gets the Teacher record the Teachers screen manages classes and subjects
+ * through; an accountant and an administrator get the school-scoped admin record that ties
+ * their login to this school.
  */
 async function createStaffLoginInTransaction(tx: Prisma.TransactionClient, input: {
   schoolId: string
   staffNo: string
-  staffType: "TEACHER" | "ACCOUNTANT"
+  staffType: LoginStaffType
   email: string
   passwordHash: string
   firstName: string
@@ -655,7 +657,7 @@ async function createStaffLoginInTransaction(tx: Prisma.TransactionClient, input
 }): Promise<string> {
   const user = await tx.user.create({
     data: {
-      firstName: input.firstName, lastName: input.lastName, role: input.staffType,
+      firstName: input.firstName, lastName: input.lastName, role: STAFF_LOGINS[input.staffType].role,
       phone: input.phone || null, gender: input.gender || null,
       address: input.address || null, dateOfBirth: input.dateOfBirth || null,
       credentials: { create: { type: "EMAIL", value: input.email.toLowerCase(), passwordHash: input.passwordHash, isPrimary: true } },
@@ -664,23 +666,29 @@ async function createStaffLoginInTransaction(tx: Prisma.TransactionClient, input
   if (input.staffType === "TEACHER") {
     await tx.teacher.create({ data: { userId: user.id, schoolId: input.schoolId, staffId: input.staffNo, department: input.department, qualification: input.qualification } })
   } else {
-    await tx.admin.create({ data: { userId: user.id, schoolId: input.schoolId, permissions: JSON.stringify(["FINANCE"]) } })
+    const profile = input.staffType === "ADMIN_STAFF" ? "MANAGER" : "FINANCE"
+    await tx.admin.create({ data: { userId: user.id, schoolId: input.schoolId, permissions: JSON.stringify([profile]) } })
   }
   return user.id
 }
 
-/** Who may give each kind of staff a login: hiring is HR's, the access it opens is not. */
-async function requireLoginCreator(staffType: string) {
-  if (staffType === "TEACHER") return requirePermission("teachers.manage")
-  if (staffType === "ACCOUNTANT") return requirePermission("finance.setup")
-  throw new Error("Logins are created for teachers and accountants only")
+/**
+ * Who may give each kind of staff a login: hiring is HR's, the access it opens is not.
+ * See STAFF_LOGINS for the permission each one needs.
+ */
+async function requireLoginCreator(staffType: StaffType): Promise<LoginStaffType> {
+  if (!isLoginStaffType(staffType)) {
+    throw new Error("Logins are created for teachers, accountants and administrative staff only")
+  }
+  await requirePermission(STAFF_LOGINS[staffType].permission)
+  return staffType
 }
 
 /**
- * Gives a login to someone HR has already hired: a teacher or accountant whose record was
- * saved without one, or hired before logins were made here. The only other way to a staff
- * login is creating the record with one, so every login still starts from an HR record.
- * The temporary password is returned once, to show the person creating it.
+ * Gives a login to someone HR has already hired: a teacher, accountant or administrator
+ * whose record was saved without one, or hired before logins were made here. The only
+ * other way to a staff login is creating the record with one, so every login still starts
+ * from an HR record. The temporary password is returned once, to show the person creating it.
  */
 export async function createLoginForStaff(input: unknown): Promise<ActionResult<{ loginEmail: string; temporaryPassword: string }>> {
   try {
@@ -695,7 +703,7 @@ export async function createLoginForStaff(input: unknown): Promise<ActionResult<
     if (!staff) throw new Error("Staff record not found")
     if (staff.userId) throw new Error("This staff member already has a login")
     if (staff.employmentStatus !== "ACTIVE") throw new Error("Reinstate this staff member in HR before giving them a login")
-    await requireLoginCreator(staff.staffType)
+    const loginType = await requireLoginCreator(staff.staffType)
     const email = data.email.toLowerCase()
     if (await prisma.credential.findUnique({ where: { value: email }, select: { id: true } })) {
       throw new Error("That email address is already used by another login")
@@ -709,7 +717,7 @@ export async function createLoginForStaff(input: unknown): Promise<ActionResult<
     const passwordHash = await bcrypt.hash(temporaryPassword, 12)
     await prisma.$transaction(async (tx) => {
       const userId = await createStaffLoginInTransaction(tx, {
-        schoolId, staffNo: staff.staffNo, staffType: staff.staffType === "TEACHER" ? "TEACHER" : "ACCOUNTANT", email, passwordHash,
+        schoolId, staffNo: staff.staffNo, staffType: loginType, email, passwordHash,
         firstName: staff.firstName, lastName: staff.lastName, phone: staff.phone, gender: staff.gender, address: staff.address,
         dateOfBirth: staff.dateOfBirth, department: staff.department, qualification: staff.qualification,
       })
@@ -726,12 +734,13 @@ export async function createLoginForStaff(input: unknown): Promise<ActionResult<
       action: "staff.login_create",
       entityType: "Staff",
       entityId: staff.id,
-      summary: `Created a ${staff.staffType === "TEACHER" ? "teacher" : "finance"} login for ${staff.firstName} ${staff.lastName} (${staff.staffNo})`,
+      summary: `Created ${loginType === "ADMIN_STAFF" ? "an" : "a"} ${STAFF_LOGINS[loginType].label} login for ${staff.firstName} ${staff.lastName} (${staff.staffNo})`,
       after: { email },
     })
     revalidateHr("/staff", `/staff/${staff.id}`, "/onboarding")
     revalidatePath("/dashboard/admin/teachers")
     revalidatePath("/dashboard/admin/finance/staff")
+    revalidatePath("/dashboard/admin/permissions")
     return { success: true, data: { loginEmail: email, temporaryPassword } }
   } catch (error) {
     return toError(error, "Failed to create the login")
@@ -744,10 +753,11 @@ export async function createStaff(input: unknown): Promise<ActionResult<{ id: st
     const schoolId = await actorSchool(actor)
     const data = staffSchema.parse(input)
     const config = await hrConfig(schoolId)
+    let loginType: LoginStaffType | null = null
     if (data.createLogin) {
       if (data.userId) throw new Error("Choose an existing login or create a new one, not both")
       if (!data.email) throw new Error("Email is required when creating a login")
-      await requireLoginCreator(data.staffType)
+      loginType = await requireLoginCreator(data.staffType)
       const existingCredential = await prisma.credential.findUnique({
         where: { value: data.email.toLowerCase() },
         select: { id: true },
@@ -813,9 +823,9 @@ export async function createStaff(input: unknown): Promise<ActionResult<{ id: st
     const staff = await prisma.$transaction(async (tx) => {
       let userId = data.userId || null
       const staffNo = await nextStaffNoFor(tx, schoolId, config.staffNoPrefix)
-      if (passwordHash && data.email) {
+      if (passwordHash && data.email && loginType) {
         userId = await createStaffLoginInTransaction(tx, {
-          schoolId, staffNo, staffType: data.staffType === "TEACHER" ? "TEACHER" : "ACCOUNTANT", email: data.email, passwordHash,
+          schoolId, staffNo, staffType: loginType, email: data.email, passwordHash,
           firstName: data.firstName, lastName: data.lastName, phone: data.phone, gender: data.gender, address: data.address,
           dateOfBirth: data.dateOfBirth, department: data.department, qualification: data.qualification,
         })
@@ -945,17 +955,6 @@ export async function updateStaff(input: unknown): Promise<ActionResult<{ id: st
 }
 
 /**
- * Logins HR switches off and on with employment.
- *
- * A teacher or accountant who has resigned, been terminated or been suspended kept a working
- * sign-in: HR's status stopped their pay and nothing else, so a dismissed teacher could still
- * open the compiler and change marks. Only these two roles follow HR automatically. A school
- * admin's login is the platform's to revoke, and switching it off from an HR screen could
- * lock a school out of itself.
- */
-const LOGINS_THAT_FOLLOW_EMPLOYMENT = new Set(["TEACHER", "ACCOUNTANT"])
-
-/**
  * Changes someone's employment status.
  *
  * Exiting sets `dateExited`, which is what stops payroll including them, so a resignation
@@ -998,6 +997,10 @@ export async function setStaffEmploymentStatus(input: unknown): Promise<ActionRe
     if (!active && member.userId === actor.userId) {
       throw new Error("You cannot suspend or end your own employment. Ask another HR officer or the school admin.")
     }
+    // An administrator's login follows HR as well, and opens the whole school. Deciding their
+    // employment is for someone who could grant or remove that access anyway.
+    const administrator = member.user?.role === "ADMIN"
+    if (administrator) await requirePermission("users.manage")
 
     const followsHr = Boolean(member.userId && member.user && LOGINS_THAT_FOLLOW_EMPLOYMENT.has(member.user.role))
     const login: "DEACTIVATED" | "REACTIVATED" | null = !followsHr
@@ -1007,6 +1010,21 @@ export async function setStaffEmploymentStatus(input: unknown): Promise<ActionRe
         : (member.user?.isActive ? "DEACTIVATED" : null)
 
     await prisma.$transaction(async (tx) => {
+      // A school with no working administrator can only be recovered by the platform. The
+      // school's administrator logins are locked before counting, so two administrators let
+      // go at the same moment cannot each see the other as the one who remains.
+      if (administrator && login === "DEACTIVATED") {
+        const admins = await tx.$queryRaw<Array<{ id: string; isActive: unknown }>>(
+          Prisma.sql`SELECT u.id, u.isActive FROM users u JOIN Admin a ON a.userId = u.id
+            WHERE a.schoolId = ${schoolId} AND u.role = 'ADMIN' FOR UPDATE`,
+        )
+        if (!admins.some((row) => row.id !== member.userId && Boolean(Number(row.isActive)))) {
+          throw new Error(
+            "This is the school's only active administrator. Give another member of staff an administrator "
+              + "login first, so the school is not left without one.",
+          )
+        }
+      }
       await tx.staff.update({
         where: { id: member.id },
         data: {

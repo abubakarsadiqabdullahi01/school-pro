@@ -2,7 +2,12 @@
 
 import { authActive } from "@/lib/authz"
 import { prisma } from "@/lib/db"
-import { loginBlockedByEmployment } from "@/lib/hr/staff-provisioning"
+import {
+  SCHOOL_ADMIN_JOB_TITLE,
+  loginBlockedByEmployment,
+  provisionStaffForLogin,
+  provisionedStaffNo,
+} from "@/lib/hr/staff-provisioning"
 import { revokeAllSessionsForUser } from "@/lib/sessions.server"
 import { generateTemporaryPassword } from "@/lib/temporary-password"
 import { revalidatePath } from "next/cache"
@@ -321,7 +326,22 @@ export async function createAdminUser(data: {
         },
       })
 
-      return { user, admin, defaultPassword }
+      // The school's administrator is its staff too, and HR is where staff are known:
+      // employed, paid, and let go. Never fails the login (see provisionStaffForLogin);
+      // a record it could not open waits in HR's onboarding queue instead.
+      const hr = await provisionStaffForLogin(tx, {
+        schoolId: data.schoolId,
+        userId: user.id,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone || null,
+        email: data.email,
+        staffType: "ADMIN_STAFF",
+        department: "Administration",
+        jobTitle: SCHOOL_ADMIN_JOB_TITLE,
+      })
+
+      return { user, admin, defaultPassword, staffNo: provisionedStaffNo(hr) }
     })
 
     revalidatePath("/dashboard/super-admin/users/admins")
@@ -334,6 +354,7 @@ export async function createAdminUser(data: {
         name: `${result.user.firstName} ${result.user.lastName}`,
         email: data.email,
         defaultPassword: result.defaultPassword,
+        staffNo: result.staffNo,
       },
     }
   } catch (error) {

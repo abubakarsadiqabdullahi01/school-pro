@@ -11,6 +11,7 @@ import {
   getStaffOnboarding,
   linkAllUnlinkedTeachers,
   linkFinanceOfficerToHr,
+  linkSchoolAdminToHr,
   linkTeacherToHr,
   verifyStaffDocument,
   type OnboardingQueue as QueueData,
@@ -29,9 +30,9 @@ import { Progress } from "@/components/ui/progress"
  * Two lists, because there are two distinct problems and conflating them would hide the
  * worse one:
  *
- *  - **Not in HR at all.** A teacher or finance officer with no `Staff` record — created
- *    before provisioning existed, or during a failure. They cannot be paid and nothing else
- *    would say so.
+ *  - **Not in HR at all.** A teacher, finance officer or school administrator with no `Staff`
+ *    record — created before provisioning existed, or during a failure. They cannot be paid
+ *    and nothing else would say so.
  *  - **In HR but incomplete.** A record with a name and little else. Payroll would happily
  *    treat it as finished, which is exactly why `onboardingStatus` exists.
  */
@@ -75,6 +76,10 @@ export function OnboardingQueue() {
 
   function linkFinance(userId: string, name: string) {
     linkWith(userId, name, () => linkFinanceOfficerToHr({ userId }))
+  }
+
+  function linkAdmin(userId: string, name: string) {
+    linkWith(userId, name, () => linkSchoolAdminToHr({ userId }))
   }
 
   function linkWith(
@@ -171,13 +176,18 @@ export function OnboardingQueue() {
     )
   }, [data, needle])
 
-  const matchingFinance = useMemo(() => {
-    const list = data?.unlinkedFinance ?? []
+  /** Finance officers and administrators: logins without a record, told apart by a badge. */
+  const matchingLogins = useMemo(() => {
+    const list = [
+      ...(data?.unlinkedFinance ?? []).map((login) => ({ ...login, kind: "FINANCE" as const })),
+      ...(data?.unlinkedAdmins ?? []).map((login) => ({ ...login, kind: "ADMIN" as const })),
+    ]
     if (!needle) return list
     return list.filter(
-      (officer) =>
-        officer.name.toLowerCase().includes(needle) ||
-        (officer.email ?? "").toLowerCase().includes(needle),
+      (login) =>
+        login.name.toLowerCase().includes(needle) ||
+        (login.email ?? "").toLowerCase().includes(needle) ||
+        (login.kind === "ADMIN" ? "administrator" : "finance officer").includes(needle),
     )
   }, [data, needle])
 
@@ -201,9 +211,9 @@ export function OnboardingQueue() {
   }
 
   const unlinked = data?.unlinked ?? []
-  const unlinkedFinance = data?.unlinkedFinance ?? []
-  const unlinkedTotal = unlinked.length + unlinkedFinance.length
-  const matchingUnlinkedTotal = matchingUnlinked.length + matchingFinance.length
+  const unlinkedLogins = (data?.unlinkedFinance.length ?? 0) + (data?.unlinkedAdmins.length ?? 0)
+  const unlinkedTotal = unlinked.length + unlinkedLogins
+  const matchingUnlinkedTotal = matchingUnlinked.length + matchingLogins.length
   const incomplete = data?.incomplete ?? []
   const showing = search.trim().length > 0
 
@@ -236,8 +246,8 @@ export function OnboardingQueue() {
                 )
               </CardTitle>
               <CardDescription>
-                Teachers and finance officers with no staff record. They have no staff number
-                and cannot be put on payroll until one exists.
+                Teachers, finance officers and school administrators with no staff record. They
+                have no staff number and cannot be put on payroll until one exists.
               </CardDescription>
             </div>
             {unlinkedTotal > 0 && (
@@ -256,7 +266,7 @@ export function OnboardingQueue() {
           {unlinkedTotal === 0 ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              Every teacher and finance officer has a staff record.
+              Every teacher, finance officer and administrator has a staff record.
             </p>
           ) : (
             <ul className="divide-y rounded-md border">
@@ -295,28 +305,34 @@ export function OnboardingQueue() {
                   </Button>
                 </li>
               ))}
-              {matchingFinance.map((officer) => (
+              {matchingLogins.map((login) => (
                 <li
-                  key={officer.userId}
+                  key={login.userId}
                   className="flex flex-wrap items-center justify-between gap-3 p-3"
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{officer.name}</span>
-                      <Badge variant="secondary">Finance officer</Badge>
-                      {!officer.isActive && <Badge variant="outline">Inactive login</Badge>}
+                      <span className="font-medium">{login.name}</span>
+                      <Badge variant="secondary">
+                        {login.kind === "ADMIN" ? "Administrator" : "Finance officer"}
+                      </Badge>
+                      {!login.isActive && <Badge variant="outline">Inactive login</Badge>}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {officer.email ?? "No sign-in address"}
+                      {login.email ?? "No sign-in address"}
                     </p>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={pending}
-                    onClick={() => linkFinance(officer.userId, officer.name)}
+                    onClick={() =>
+                      login.kind === "ADMIN"
+                        ? linkAdmin(login.userId, login.name)
+                        : linkFinance(login.userId, login.name)
+                    }
                   >
-                    {busy === officer.userId ? (
+                    {busy === login.userId ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Link2 className="mr-2 h-4 w-4" />
@@ -365,7 +381,7 @@ export function OnboardingQueue() {
                         <span className="font-medium">{staff.name}</span>
                         <Badge variant="outline">{staff.staffNo}</Badge>
                         {staff.autoProvisioned && (
-                          <Badge variant="secondary">Added from teachers</Badge>
+                          <Badge variant="secondary">Added from a login</Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">{staff.summary}</p>

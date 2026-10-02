@@ -13,9 +13,11 @@ import {
   type OnboardingProgress,
 } from "@/lib/hr/staff-onboarding"
 import {
+  SCHOOL_ADMIN_JOB_TITLE,
   provisionStaffForLogin,
   provisionStaffForTeacher,
   unlinkedFinanceOfficers,
+  unlinkedSchoolAdmins,
   unlinkedTeachers,
 } from "@/lib/hr/staff-provisioning"
 import { getActiveSchool } from "@/lib/school-context.server"
@@ -108,6 +110,24 @@ async function progressFor(staffId: string): Promise<OnboardingProgress | null> 
 // The queue
 // ---------------------------------------------------------------------------
 
+type UnlinkedLogin = {
+  userId: string
+  name: string
+  email: string | null
+  createdAt: string
+  isActive: boolean
+}
+
+function unlinkedLoginView(user: Awaited<ReturnType<typeof unlinkedFinanceOfficers>>[number]): UnlinkedLogin {
+  return {
+    userId: user.id,
+    name: `${user.firstName} ${user.lastName}`,
+    email: user.credentials[0]?.value ?? null,
+    createdAt: user.createdAt.toISOString(),
+    isActive: user.isActive,
+  }
+}
+
 export type OnboardingQueue = {
   /** Teachers with no HR record at all. */
   unlinked: Array<{
@@ -119,13 +139,9 @@ export type OnboardingQueue = {
     isActive: boolean
   }>
   /** Finance officers with no HR record - accountants created before they were provisioned. */
-  unlinkedFinance: Array<{
-    userId: string
-    name: string
-    email: string | null
-    createdAt: string
-    isActive: boolean
-  }>
+  unlinkedFinance: UnlinkedLogin[]
+  /** School administrators with no HR record - created by the platform before it opened one. */
+  unlinkedAdmins: UnlinkedLogin[]
   /** Staff records that exist but are not finished. */
   incomplete: Array<{
     staffId: string
@@ -145,9 +161,10 @@ export async function getOnboardingQueue(): Promise<ActionResult<OnboardingQueue
     const actor = await requireHr()
     const schoolId = await actorSchool(actor)
 
-    const [teachers, financeOfficers, staff] = await Promise.all([
+    const [teachers, financeOfficers, admins, staff] = await Promise.all([
       unlinkedTeachers(prisma, schoolId),
       unlinkedFinanceOfficers(prisma, schoolId),
+      unlinkedSchoolAdmins(prisma, schoolId),
       prisma.staff.findMany({
         where: {
           schoolId,
@@ -196,13 +213,8 @@ export async function getOnboardingQueue(): Promise<ActionResult<OnboardingQueue
           createdAt: teacher.createdAt.toISOString(),
           isActive: teacher.user.isActive,
         })),
-        unlinkedFinance: financeOfficers.map((officer) => ({
-          userId: officer.id,
-          name: `${officer.firstName} ${officer.lastName}`,
-          email: officer.credentials[0]?.value ?? null,
-          createdAt: officer.createdAt.toISOString(),
-          isActive: officer.isActive,
-        })),
+        unlinkedFinance: financeOfficers.map(unlinkedLoginView),
+        unlinkedAdmins: admins.map(unlinkedLoginView),
         incomplete,
       },
     }
@@ -287,25 +299,27 @@ export async function linkTeacherToHr(input: unknown): Promise<ActionResult<{ st
 
 const linkFinanceSchema = z.object({ userId: z.string().min(1) })
 
-/** One finance officer's HR record, created from their login. */
-async function provisionFinanceOfficer(
+/** One finance officer's or administrator's HR record, created from their login. */
+async function provisionLoginHolder(
   schoolId: string,
-  officer: Awaited<ReturnType<typeof unlinkedFinanceOfficers>>[number],
+  holder: Awaited<ReturnType<typeof unlinkedFinanceOfficers>>[number],
+  kind: "FINANCE" | "ADMIN",
 ) {
   return provisionStaffForLogin(prisma, {
     schoolId,
-    userId: officer.id,
-    firstName: officer.firstName,
-    lastName: officer.lastName,
-    phone: officer.phone,
-    email: officer.credentials[0]?.value ?? null,
-    gender: officer.gender,
-    dateOfBirth: officer.dateOfBirth,
-    address: officer.address,
-    department: "Finance",
-    staffType: "ACCOUNTANT",
+    userId: holder.id,
+    firstName: holder.firstName,
+    lastName: holder.lastName,
+    phone: holder.phone,
+    email: holder.credentials[0]?.value ?? null,
+    gender: holder.gender,
+    dateOfBirth: holder.dateOfBirth,
+    address: holder.address,
+    ...(kind === "FINANCE"
+      ? { department: "Finance", staffType: "ACCOUNTANT" as const }
+      : { department: "Administration", staffType: "ADMIN_STAFF" as const, jobTitle: SCHOOL_ADMIN_JOB_TITLE }),
     // Their real start date, for the same proration reason as a teacher backfill.
-    dateEmployed: officer.createdAt,
+    dateEmployed: holder.createdAt,
   })
 }
 
@@ -320,7 +334,7 @@ export async function linkFinanceOfficerToHr(input: unknown): Promise<ActionResu
     const officer = (await unlinkedFinanceOfficers(prisma, schoolId)).find((row) => row.id === userId)
     if (!officer) throw new Error("That finance officer is not in this school, or is already in HR")
 
-    const outcome = await provisionFinanceOfficer(schoolId, officer)
+    const outcome = await provisionLoginHolder(schoolId, officer, "FINANCE")
     if (!outcome.created && outcome.reason === "FAILED") {
       throw new Error(`Could not create the staff record: ${outcome.error}`)
     }
@@ -340,16 +354,54 @@ export async function linkFinanceOfficerToHr(input: unknown): Promise<ActionResu
   }
 }
 
-/** Every unlinked teacher and finance officer, in one go. */
+/**
+ * A school administrator's HR record, created from their login.
+ *
+ * Only the record: it opens no access and changes none. From then on the administrator's
+ * employment is HR's like everyone else's, and changing it needs `users.manage` (see
+ * `setStaffEmploymentStatus`).
+ */
+export async function linkSchoolAdminToHr(input: unknown): Promise<ActionResult<{ staffNo: string }>> {
+  try {
+    const actor = await requireHr()
+    const schoolId = await actorSchool(actor)
+    const { userId } = linkFinanceSchema.parse(input)
+
+    // Through the unlinked list, for the same reason as linkFinanceOfficerToHr.
+    const admin = (await unlinkedSchoolAdmins(prisma, schoolId)).find((row) => row.id === userId)
+    if (!admin) throw new Error("That administrator is not in this school, or is already in HR")
+
+    const outcome = await provisionLoginHolder(schoolId, admin, "ADMIN")
+    if (!outcome.created && outcome.reason === "FAILED") {
+      throw new Error(`Could not create the staff record: ${outcome.error}`)
+    }
+
+    await recordAudit({
+      actor,
+      action: "staff.link_school_admin",
+      entityType: "Staff",
+      entityId: outcome.staffId,
+      summary: `Linked administrator ${admin.firstName} ${admin.lastName} to HR as ${outcome.staffNo}`,
+    })
+
+    revalidateHr()
+    return { success: true, data: { staffNo: outcome.staffNo } }
+  } catch (error) {
+    return toError(error, "Failed to link that administrator to HR")
+  }
+}
+
+/** Every unlinked teacher, finance officer and administrator, in one go. */
 export async function linkAllUnlinkedTeachers(): Promise<
   ActionResult<{ linked: number; failed: number }>
 > {
   try {
     const actor = await requireHr()
     const schoolId = await actorSchool(actor)
-    const [teachers, financeOfficers] = await Promise.all([
+    const [teachers, financeOfficers, admins] = await Promise.all([
       unlinkedTeachers(prisma, schoolId),
       unlinkedFinanceOfficers(prisma, schoolId),
+      unlinkedSchoolAdmins(prisma, schoolId),
     ])
 
     let linked = 0
@@ -375,7 +427,12 @@ export async function linkAllUnlinkedTeachers(): Promise<
       else if (outcome.reason === "FAILED") failed += 1
     }
     for (const officer of financeOfficers) {
-      const outcome = await provisionFinanceOfficer(schoolId, officer)
+      const outcome = await provisionLoginHolder(schoolId, officer, "FINANCE")
+      if (outcome.created) linked += 1
+      else if (outcome.reason === "FAILED") failed += 1
+    }
+    for (const admin of admins) {
+      const outcome = await provisionLoginHolder(schoolId, admin, "ADMIN")
       if (outcome.created) linked += 1
       else if (outcome.reason === "FAILED") failed += 1
     }

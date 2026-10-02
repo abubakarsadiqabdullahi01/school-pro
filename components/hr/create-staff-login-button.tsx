@@ -12,8 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 /**
- * Gives a hired teacher or accountant a login, from their HR record. The temporary password
- * is shown once, here, for HR to pass on privately.
+ * Gives a hired teacher, accountant or administrator a login, from their HR record. The
+ * temporary password is shown once, here, for HR to pass on privately.
  */
 export function CreateStaffLoginButton({ staffId, staffName, roleLabel, defaultEmail }: {
   staffId: string
@@ -60,11 +60,13 @@ export function CreateStaffLoginButton({ staffId, staffName, roleLabel, defaultE
           ) : (
             <>
               <DialogHeader>
-                <DialogTitle>Create a {roleLabel} login</DialogTitle>
+                <DialogTitle>Create {roleLabel === "administrator" ? "an" : "a"} {roleLabel} login</DialogTitle>
                 <DialogDescription>
                   {staffName} signs in with this email. {roleLabel === "teacher"
                     ? "Once they can sign in, they appear under Teachers for class and subject assignments."
-                    : "Once they can sign in, they appear under Finance staff."}
+                    : roleLabel === "administrator"
+                      ? "An administrator manages every part of this school. Their login follows their employment here in HR."
+                      : "Once they can sign in, they appear under Finance staff."}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-2">

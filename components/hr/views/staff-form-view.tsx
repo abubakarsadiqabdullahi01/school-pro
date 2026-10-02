@@ -4,11 +4,14 @@ import { notFound } from "next/navigation"
 import { getHrSetupData, getStaffMember } from "@/app/actions/hr"
 import { StaffForm } from "@/components/hr/staff-form"
 import { InfoGuide } from "@/components/ui/info-guide"
+import { getEffectivePermissionsForCurrentUser } from "@/lib/authz"
+import { loginStaffTypesFor } from "@/lib/hr/staff-logins"
 
 export async function StaffFormView({ basePath, staffId }: { basePath: string; staffId?: string }) {
-  const [setup, existing] = await Promise.all([
+  const [setup, existing, permissions] = await Promise.all([
     getHrSetupData(),
     staffId ? getStaffMember(staffId) : Promise.resolve(null),
+    getEffectivePermissionsForCurrentUser(),
   ])
 
   if (!setup.success) {
@@ -32,7 +35,12 @@ export async function StaffFormView({ basePath, staffId }: { basePath: string; s
             : "Salary, allowances and deductions are assigned afterwards, on the staff record."}
         </p>
       </div>
-      <StaffForm basePath={basePath} linkableUsers={setup.data.linkableUsers} staff={staff} />
+      <StaffForm
+        basePath={basePath}
+        linkableUsers={setup.data.linkableUsers}
+        loginTypes={loginStaffTypesFor(permissions)}
+        staff={staff}
+      />
     </div>
   )
 }

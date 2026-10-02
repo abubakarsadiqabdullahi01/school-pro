@@ -9,6 +9,7 @@ import { AssignmentPanel, DisciplinePanel, SalaryPanel } from "@/components/hr/s
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { STAFF_LOGINS, isLoginStaffType } from "@/lib/hr/staff-logins"
 import { formatNaira } from "@/lib/money"
 import { InfoGuide } from "@/components/ui/info-guide"
 
@@ -18,19 +19,17 @@ export async function StaffDetailView({
   basePath,
   staffId,
   canManage,
-  canCreateTeacherLogin = false,
-  canCreateAccountantLogin = false,
+  loginTypes = [],
 }: {
   basePath: string
   staffId: string
   canManage: boolean
   /**
-   * Whether to offer the teacher login for a teacher HR hired first. `teachers.manage`,
-   * which the HR officer holds: hiring is employment, so the login starts here.
+   * The staff types this person may create a login for, from `loginStaffTypesFor`. Hiring
+   * is employment, so a login starts from the HR record; the access it opens needs its own
+   * permission (see STAFF_LOGINS).
    */
-  canCreateTeacherLogin?: boolean
-  /** The same for an accountant, which opens the finance screens: `finance.setup`. */
-  canCreateAccountantLogin?: boolean
+  loginTypes?: string[]
 }) {
   const [result, setup] = await Promise.all([getStaffMember(staffId), getHrSetupData()])
   if (!result.success) notFound()
@@ -40,11 +39,17 @@ export async function StaffDetailView({
 
   const staff = result.data
   const exited = staff.employmentStatus === "RESIGNED" || staff.employmentStatus === "TERMINATED"
-  // A teacher HR has hired but who cannot sign in, and so cannot be given a class or a
-  // subject: the Exams Officer only ever sees teachers with a login.
-  const needsLogin = canManage && !staff.userId && staff.employmentStatus === "ACTIVE" && (
-    (staff.staffType === "TEACHER" && canCreateTeacherLogin) || (staff.staffType === "ACCOUNTANT" && canCreateAccountantLogin)
-  )
+  // Someone HR has hired for a job done signed in, who cannot sign in yet. A teacher in
+  // particular cannot be given a class or a subject: the Exams Officer only ever sees
+  // teachers with a login.
+  const loginType = isLoginStaffType(staff.staffType) ? staff.staffType : null
+  const needsLogin = canManage && !staff.userId && staff.employmentStatus === "ACTIVE"
+    && loginType !== null && loginTypes.includes(loginType)
+  const withoutLogin: Record<string, string> = {
+    TEACHER: "they cannot be assigned a class or subject and cannot enter scores",
+    ACCOUNTANT: "they cannot record payments",
+    ADMIN_STAFF: "they cannot sign in. Create one only if they are to manage the school; other administrative staff need none",
+  }
 
   const payslipColumns: DataTableColumn[] = [
     { label: "Period" },
@@ -92,11 +97,11 @@ export async function StaffDetailView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {needsLogin && (
+          {needsLogin && loginType && (
             <CreateStaffLoginButton
               staffId={staff.id}
               staffName={staff.name}
-              roleLabel={staff.staffType === "TEACHER" ? "teacher" : "finance"}
+              roleLabel={STAFF_LOGINS[loginType].label}
               defaultEmail={staff.email}
             />
           )}
@@ -108,12 +113,12 @@ export async function StaffDetailView({
         </div>
       </div>
 
-      {needsLogin && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
-          {staff.staffType === "TEACHER"
-            ? `${staff.name} is employed as a teacher but has no login, so they cannot be assigned a class or subject and cannot enter scores.`
-            : `${staff.name} is employed as an accountant but has no login, so they cannot record payments.`}{" "}
-          Use Create login; it is attached to this record as {staff.staffNo}.
+      {needsLogin && loginType && (
+        <div className={loginType === "ADMIN_STAFF"
+          ? "rounded-md border border-dashed p-4 text-sm text-muted-foreground"
+          : "rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm"}>
+          {staff.name} has no login, so {withoutLogin[loginType]}.{" "}
+          Create login attaches it to this record as {staff.staffNo}.
         </div>
       )}
 

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { SearchableSelect } from "@/components/ui/searchable-select"
+import { STAFF_LOGINS, isLoginStaffType, type LoginStaffType } from "@/lib/hr/staff-logins"
 
 const NONE = "NONE"
 
@@ -64,14 +65,24 @@ function dateValue(iso?: string | null): string {
   return iso ? new Date(iso).toISOString().slice(0, 10) : ""
 }
 
+/** What each kind of login opens, said where HR decides whether to create one. */
+const LOGIN_HELP: Record<LoginStaffType, string> = {
+  TEACHER: "A teacher login lets them enter scores. Teachers with a login appear under Teachers for class and subject assignments.",
+  ACCOUNTANT: "An accountant login opens the finance screens: taking payments and issuing receipts.",
+  ADMIN_STAFF: "An administrator login is a school manager: it opens every module of this school. Give it only to someone who runs the school.",
+}
+
 export function StaffForm({
   basePath,
   linkableUsers,
+  loginTypes = [],
   staff,
 }: {
   basePath: string
   /** Logins in this school not already claimed by another staff record. */
   linkableUsers: Array<{ id: string; name: string; role: string }>
+  /** The staff types this person may create a login for (see STAFF_LOGINS). */
+  loginTypes?: string[]
   staff?: StaffFormValues
 }) {
   const router = useRouter()
@@ -257,10 +268,10 @@ export function StaffForm({
               ...linkableUsers.map((user) => ({ value: user.id, label: `${user.name} (${user.role.toLowerCase().replace(/_/g, " ")})` })),
             ]} />
           </Field>
-          {!isEditing && ["TEACHER", "ACCOUNTANT"].includes(staffType) && <div className="space-y-2 sm:col-span-2">
+          {!isEditing && isLoginStaffType(staffType) && loginTypes.includes(staffType) && <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="createLogin">System access</Label>
-            <SearchableSelect id="createLogin" value={createLogin ? "CREATE" : "LATER"} onChange={(value) => { setCreateLogin(value === "CREATE"); if (value === "CREATE") setUserId(NONE) }} options={[{ value: "LATER", label: "No new login / link an existing login" }, { value: "CREATE", label: "Create login with this staff record (email required)" }]} />
-            <p className="text-sm text-muted-foreground">Teachers with a login appear in Teachers for class and subject assignments. Creating accountant access requires finance setup permission.</p>
+            <SearchableSelect id="createLogin" value={createLogin ? "CREATE" : "LATER"} onChange={(value) => { setCreateLogin(value === "CREATE"); if (value === "CREATE") setUserId(NONE) }} options={[{ value: "LATER", label: "No new login / link an existing login" }, { value: "CREATE", label: `Create ${STAFF_LOGINS[staffType].label} login with this staff record (email required)` }]} />
+            <p className="text-sm text-muted-foreground">{LOGIN_HELP[staffType]}</p>
           </div>}
         </CardContent>
       </Card>
@@ -322,7 +333,7 @@ export function StaffForm({
           <p><strong>Employment:</strong> {EMPLOYMENT_TYPES.find((item) => item.value === employmentType)?.label} · {review.dateEmployed}</p>
           <p><strong>Department / job:</strong> {review.department || "Not provided"} / {review.jobTitle || "Not provided"}</p>
           <p><strong>Email:</strong> {review.email || "Not provided"}</p>
-          <p><strong>Access:</strong> {createLogin ? "Create a new login" : userId !== NONE ? "Link existing login" : "No login"}</p>
+          <p><strong>Access:</strong> {createLogin && isLoginStaffType(staffType) ? `Create a new ${STAFF_LOGINS[staffType].label} login` : userId !== NONE ? "Link existing login" : "No login"}</p>
           <p><strong>Bank:</strong> {review.bankName || "Not provided"} {review.accountNumber ? `· ending ${review.accountNumber.slice(-4)}` : ""}</p>
           <p className="text-sm text-muted-foreground">New staff remain in the onboarding queue until required details, salary and documents are completed. Creating a record does not approve it for payroll.</p>
         </CardContent></Card>}

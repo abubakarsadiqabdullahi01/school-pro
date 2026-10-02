@@ -770,7 +770,7 @@ export const MODULE_GUIDES = {
   "hr.staffForm": {
     title: "Staff Record",
     location: ["HR & Payroll", "Staff", "Add or Edit"],
-    purpose: "The one place anybody joins the school's staff: teachers, accountants and support staff alike, with their login when they need one.",
+    purpose: "The one place anybody joins the school's staff: teachers, accountants, administrators and support staff alike, with their login when they need one. Apart from students and parents, everyone who signs in is a member of staff on HR's books.",
     example: {
       doing: "Onboard a new Mathematics teacher, and give them a login in the same step.",
       then: "Four steps: personal details, the job and system access, pay and emergency contact, then a review. Saving creates the staff record and the teacher login together, and shows the temporary password once. They then appear under Teachers, where they are given classes and subjects.",
@@ -778,13 +778,15 @@ export const MODULE_GUIDES = {
     onSave: [
       "The staff record and, when chosen, the login are created together in one step, or neither is.",
       "New staff stay in HR's onboarding queue until salary and documents are completed; creating the record does not put them on payroll.",
-      "A teacher or accountant saved without a login gets one later from their record, with Create login.",
+      "A teacher, accountant or administrator saved without a login gets one later from their record, with Create login.",
     ],
     rules: [
       "Fields marked * are required. Phone numbers, dates and a 10-digit account number are checked before the next step opens.",
       "Department, job title, qualification and bank are searchable lists, so the same value is not typed five ways. Choosing Other asks for the actual value.",
       "A staff member does not need a login. Support staff are paid without ever signing in.",
-      "A teacher login needs teachers.manage; an accountant login needs finance.setup, because it opens the finance screens.",
+      "A teacher login needs teachers.manage; an accountant login needs finance.setup, because it opens the finance screens; an administrator login needs users.manage, because it opens every module of the school.",
+      "Administrative staff need no login unless they are to manage the school. A secretary or clerk is paid through HR without one.",
+      "Suspending or ending anyone's employment switches their login off and signs them out. For an administrator that needs users.manage, and the school's last active administrator cannot be let go until another one exists.",
       "Teachers are no longer added from the Teachers screen: hiring is HR's, and Teachers is where their classes and subjects are managed.",
     ],
     permissions: ["payroll.manage"],
@@ -1109,10 +1111,11 @@ export const MODULE_GUIDES = {
       "Everyone who has joined but whose file is not finished \u2014 including teachers added on the academic side, who used to be invisible to HR entirely.",
     example: {
       doing: "Check who is not ready for this month\u2019s payroll.",
-      then: "Two lists: teachers with no staff record at all, and staff records still missing something payroll needs. Each row says what is outstanding rather than just that something is.",
+      then: "Two lists: teachers, finance officers and administrators with no staff record at all, and staff records still missing something payroll needs. Each row says what is outstanding rather than just that something is.",
     },
     rules: [
       "Adding a teacher now creates their staff record in the same transaction, starting as Not started \u2014 a record with only a name must not look finished to payroll.",
+      "A school administrator created by the platform gets an HR record at once too. Administrators from before that appear in the first list; adding them to HR changes no access.",
       "Provisioning never blocks teacher creation. If it fails, the teacher is still created and appears in the first list here.",
       "Completeness is read from the fields themselves, never from a stored flag: a file cannot be marked complete while the bank details are empty.",
       "Required items are what payroll would get wrong without; recommended items are what a complete personnel file has. A casual worker with no pension PIN is not blocked.",
@@ -1684,6 +1687,8 @@ export const MODULE_GUIDES = {
     rules: [
       "A login is separate from the person's record, so one person can have more than one way to sign in: email for everyone, admission number for students.",
       "Deactivating an account takes effect on its next request rather than when its session expires.",
+      "Creating a school administrator also opens their HR staff record, so the school's HR knows them like any other member of staff.",
+      "A staff member HR records as suspended or gone cannot be switched back on here. The school reinstates them in HR, which switches the login back on.",
     ],
     permissions: ["users.manage"],
     sourceOfTruth: "app/actions/user-management.ts",
