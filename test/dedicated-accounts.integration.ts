@@ -59,6 +59,10 @@ const { collectPaymentHealth } = await import("@/lib/payments/payment-health.ser
 
 const SECRET = "sk_test_dedicated_account_integration"
 const stamp = `ZZDva-${Date.now()}`
+// Paystack customer codes unique to this run. Identification webhooks carry no reference,
+// so an event a failed earlier run left behind (with no school to clean it up by) has the
+// same bytes as this run's, and the inbox drops this run's as a repeat of it.
+const RUN = String(Date.now())
 const ACCOUNT_NUMBER = String(Date.now()).slice(-10).padStart(10, "7")
 let schoolId = ""
 let studentId = ""
@@ -451,7 +455,7 @@ describe("closing the dedicated-account gaps", () => {
     expect(await assignDedicatedAccount({ studentId: secondStudentId }))
       .toMatchObject({ success: false, error: expect.stringMatching(/Verify the payer's identity/) })
 
-    const customerCode = "CUS_bolaidentified"
+    const customerCode = `CUS_bolaidentified${RUN}`
     provider.createCustomer.mockResolvedValueOnce({ customerCode, email: "x@students.digischool.test" })
     const identify = { studentId: secondStudentId, firstName: "Transfer", lastName: "Parent", bvn: "22212345678", bankCode: "058", accountNumber: "0123456789", consent: true }
     expect(await requestDedicatedIdentification(identify)).toEqual({ success: true, data: { status: "PENDING" } })
@@ -477,9 +481,9 @@ describe("closing the dedicated-account gaps", () => {
     const third = await makeStudent("Chidi")
     const parent = await prisma.parent.findFirstOrThrow({ where: { userId: parentUserId } })
     await prisma.studentParent.create({ data: { parentId: parent.id, studentId: third.id, relationship: "Parent" } })
-    provider.createCustomer.mockResolvedValueOnce({ customerCode: "CUS_chidifails", email: "y@students.digischool.test" })
+    provider.createCustomer.mockResolvedValueOnce({ customerCode: `CUS_chidifails${RUN}`, email: "y@students.digischool.test" })
     await requestDedicatedIdentification({ studentId: third.id, firstName: "Transfer", lastName: "Parent", bvn: "22212345679", bankCode: "058", accountNumber: "0123456780", consent: true })
-    await signedEvent({ event: "customeridentification.failed", data: { customer_id: 2, customer_code: "CUS_chidifails", email: "y@students.digischool.test", reason: "Account number or BVN is incorrect" } })
+    await signedEvent({ event: "customeridentification.failed", data: { customer_id: 2, customer_code: `CUS_chidifails${RUN}`, email: "y@students.digischool.test", reason: "Account number or BVN is incorrect" } })
     expect(await prisma.dedicatedCustomerIdentification.findFirstOrThrow({ where: { studentId: third.id } }))
       .toMatchObject({ status: "FAILED", failureReason: "Account number or BVN is incorrect" })
     expect(await prisma.dedicatedAccount.count({ where: { studentId: third.id } })).toBe(0)

@@ -3229,6 +3229,12 @@ export async function createFinanceOfficer(input: unknown): Promise<ActionResult
     const actor = await requireFinanceManager()
     const schoolId = await actorSchool(actor)
     const data = financeOfficerSchema.parse(input)
+    await requirePermission("payroll.manage")
+    const hiredStaff = await prisma.staff.findFirst({
+      where: { schoolId, email: data.email, firstName: data.firstName, lastName: data.lastName, staffType: "ACCOUNTANT", employmentStatus: "ACTIVE", userId: null },
+      select: { id: true, staffNo: true },
+    })
+    if (!hiredStaff) throw new Error("Create the accountant's staff record in HR first, or use HR staff onboarding to create their login together.")
 
     // Credential.value is unique platform-wide, not per school, so this has to be checked
     // before the transaction rather than relying on a scoped uniqueness constraint.
@@ -3286,7 +3292,11 @@ export async function createFinanceOfficer(input: unknown): Promise<ActionResult
         email: data.email,
         department: "Finance",
         staffType: "ACCOUNTANT",
+        preferredStaffNo: hiredStaff.staffNo,
       })
+      if (provisioned.created || provisioned.reason !== "LINKED_EXISTING" || provisioned.staffId !== hiredStaff.id) {
+        throw new Error("The HR record could not be linked. No login was created; refresh and try again.")
+      }
 
       return { user: created, staffNo: provisionedStaffNo(provisioned) }
     })

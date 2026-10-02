@@ -120,7 +120,7 @@ export async function FinanceStaffView({
           </p>
         </div>
         <Button asChild>
-          <Link href={`${basePath}/staff/new`}>Add finance officer</Link>
+          <Link href="/dashboard/admin/hr/staff/new">Onboard staff in HR</Link>
         </Button>
       </div>
 

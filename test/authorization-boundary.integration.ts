@@ -22,7 +22,7 @@ vi.mock("@/auth", () => ({ auth: vi.fn() }))
 
 const { auth } = await import("@/auth")
 const { prisma } = await import("@/lib/db")
-const { createFinanceOfficer } = await import("@/app/actions/finance")
+const { createFinanceOfficer } = await import("./hr-test-fixtures")
 const {
   createStudent,
   deleteStudent,

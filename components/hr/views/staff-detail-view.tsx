@@ -4,6 +4,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { getHrSetupData, getStaffMember } from "@/app/actions/hr"
+import { CreateStaffLoginButton } from "@/components/hr/create-staff-login-button"
 import { AssignmentPanel, DisciplinePanel, SalaryPanel } from "@/components/hr/staff-panels"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,6 +19,7 @@ export async function StaffDetailView({
   staffId,
   canManage,
   canCreateTeacherLogin = false,
+  canCreateAccountantLogin = false,
 }: {
   basePath: string
   staffId: string
@@ -27,6 +29,8 @@ export async function StaffDetailView({
    * which the HR officer holds: hiring is employment, so the login starts here.
    */
   canCreateTeacherLogin?: boolean
+  /** The same for an accountant, which opens the finance screens: `finance.setup`. */
+  canCreateAccountantLogin?: boolean
 }) {
   const [result, setup] = await Promise.all([getStaffMember(staffId), getHrSetupData()])
   if (!result.success) notFound()
@@ -38,11 +42,9 @@ export async function StaffDetailView({
   const exited = staff.employmentStatus === "RESIGNED" || staff.employmentStatus === "TERMINATED"
   // A teacher HR has hired but who cannot sign in, and so cannot be given a class or a
   // subject: the Exams Officer only ever sees teachers with a login.
-  const needsTeacherLogin =
-    canCreateTeacherLogin &&
-    staff.staffType === "TEACHER" &&
-    !staff.userId &&
-    staff.employmentStatus === "ACTIVE"
+  const needsLogin = canManage && !staff.userId && staff.employmentStatus === "ACTIVE" && (
+    (staff.staffType === "TEACHER" && canCreateTeacherLogin) || (staff.staffType === "ACCOUNTANT" && canCreateAccountantLogin)
+  )
 
   const payslipColumns: DataTableColumn[] = [
     { label: "Period" },
@@ -90,10 +92,13 @@ export async function StaffDetailView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {needsTeacherLogin && (
-            <Button size="sm" asChild>
-              <Link href={`/dashboard/admin/teachers/new?fromStaff=${staff.id}`}>Create teacher login</Link>
-            </Button>
+          {needsLogin && (
+            <CreateStaffLoginButton
+              staffId={staff.id}
+              staffName={staff.name}
+              roleLabel={staff.staffType === "TEACHER" ? "teacher" : "finance"}
+              defaultEmail={staff.email}
+            />
           )}
           {canManage && (
             <Button variant="outline" size="sm" asChild>
@@ -103,11 +108,12 @@ export async function StaffDetailView({
         </div>
       </div>
 
-      {needsTeacherLogin && (
+      {needsLogin && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
-          {staff.name} is employed as a teacher but has no login, so they cannot be assigned a
-          class or subject and cannot enter scores. Create their teacher login; it is attached to
-          this record as {staff.staffNo}.
+          {staff.staffType === "TEACHER"
+            ? `${staff.name} is employed as a teacher but has no login, so they cannot be assigned a class or subject and cannot enter scores.`
+            : `${staff.name} is employed as an accountant but has no login, so they cannot record payments.`}{" "}
+          Use Create login; it is attached to this record as {staff.staffNo}.
         </div>
       )}
 

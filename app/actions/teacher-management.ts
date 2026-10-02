@@ -181,6 +181,14 @@ export async function createTeacher(data: {
       return { success: false, error: "School is required to create a teacher" };
     }
 
+    // Legacy login provisioning is allowed only for a person already hired in HR.
+    await requirePermission("payroll.manage");
+    const hiredStaff = await prisma.staff.findFirst({
+      where: { schoolId, staffNo: data.staffId, userId: null, staffType: "TEACHER", employmentStatus: "ACTIVE", firstName: data.firstName.trim(), lastName: data.lastName.trim() },
+      select: { id: true },
+    });
+    if (!hiredStaff) return { success: false, error: "Create the staff record in HR first, then create its teacher login from that record." };
+
     // Check if staffId already exists
     const existingTeacher = await prisma.teacher.findFirst({
       where: {
@@ -318,6 +326,9 @@ export async function createTeacher(data: {
         department: data.department,
         qualification: data.qualification,
       });
+      if (provisioned.created || provisioned.reason !== "LINKED_EXISTING" || provisioned.staffId !== hiredStaff.id) {
+        throw new Error("The HR record could not be linked. No login was created; refresh and try again.");
+      }
 
       return {
         id: teacher.id,

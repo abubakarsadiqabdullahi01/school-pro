@@ -44,7 +44,7 @@ const {
 const { createExpenseCategory, createPaymentAccount, getExpenseTransactions } = await import(
   "@/app/actions/expenditure"
 )
-const { createFinanceOfficer } = await import("@/app/actions/finance")
+const { createFinanceOfficer } = await import("./hr-test-fixtures")
 
 const STAMP = "ZZ HR"
 const BASE_SALARY = 200_000

@@ -28,7 +28,7 @@ vi.mock("@/auth", () => ({ auth: vi.fn() }))
 
 const { auth } = await import("@/auth")
 const { prisma } = await import("@/lib/db")
-const { createTeacher } = await import("@/app/actions/teacher-management")
+const { createStaff } = await import("@/app/actions/hr")
 const {
   getOnboardingQueue,
   linkTeacherToHr,
@@ -56,11 +56,14 @@ async function cleanUp() {
 
 /** Adds a teacher the way the admin screen does, and remembers it for clean-up. */
 async function addTeacher(suffix: string, staffId: string) {
-  const result = await createTeacher({
-    schoolId,
+  const result = await createStaff({
     firstName: `${STAMP}${suffix}`,
     lastName: "Tester",
-    staffId,
+    notes: `Legacy test identifier: ${staffId}`,
+    staffType: "TEACHER",
+    dateEmployed: new Date(),
+    createLogin: true,
+    email: `${STAMP.toLowerCase()}.${suffix.toLowerCase()}@example.test`,
     department: "Sciences",
     qualification: "B.Sc Mathematics",
     phone: "08031234567",
@@ -74,8 +77,11 @@ async function addTeacher(suffix: string, staffId: string) {
     ],
   })
 
-  if (result.success && result.data) createdUserIds.push(result.data.userId)
-  return result
+  if (!result.success) throw new Error(result.error)
+  createdStaffIds.push(result.data.id)
+  const staff = await prisma.staff.findUniqueOrThrow({ where: { id: result.data.id } })
+  createdUserIds.push(staff.userId!)
+  return { success: true as const, data: { userId: staff.userId! } }
 }
 
 beforeAll(async () => {
@@ -123,21 +129,21 @@ describe("adding a teacher tells HR", () => {
     expect(staff!.qualification).toBe("B.Sc Mathematics")
   })
 
-  it("marks the record as not started, so payroll cannot mistake it for finished", async () => {
+  it("marks the HR record in progress, so payroll cannot mistake it for finished", async () => {
     const staff = await prisma.staff.findFirst({
       where: { firstName: `${STAMP}Alpha` },
       select: { onboardingStatus: true, autoProvisioned: true },
     })
-    expect(staff!.onboardingStatus).toBe("NOT_STARTED")
-    expect(staff!.autoProvisioned).toBe(true)
+    expect(staff!.onboardingStatus).toBe("IN_PROGRESS")
+    expect(staff!.autoProvisioned).toBe(false)
   })
 
-  it("uses the staff ID the admin typed, so one person does not get two numbers", async () => {
+  it("uses the HR-issued staff number for the teacher", async () => {
     const staff = await prisma.staff.findFirst({
       where: { firstName: `${STAMP}Alpha` },
-      select: { staffNo: true },
+      select: { staffNo: true, user: { select: { teacher: { select: { staffId: true } } } } },
     })
-    expect(staff!.staffNo).toBe(`${STAMP}-A1`)
+    expect(staff!.staffNo).toBe(staff!.user!.teacher!.staffId)
   })
 
   it("generates a number instead when that one is already taken in HR", async () => {
@@ -219,7 +225,7 @@ describe("the queue", () => {
       : undefined
 
     expect(row).toBeDefined()
-    expect(row!.autoProvisioned).toBe(true)
+    expect(row!.autoProvisioned).toBe(false)
     expect(row!.percentComplete).toBeLessThan(100)
     // Named, not merely counted — an HR officer needs to know what to go and get.
     expect(row!.outstanding).toEqual(
@@ -247,7 +253,7 @@ describe("completion is earned, not asserted", () => {
       where: { id: staff.id },
       select: { onboardingStatus: true },
     })
-    expect(after.onboardingStatus).toBe("NOT_STARTED")
+    expect(after.onboardingStatus).toBe("IN_PROGRESS")
   })
 
   it("still refuses when only one required item is missing", async () => {

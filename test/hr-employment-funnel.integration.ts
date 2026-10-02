@@ -28,7 +28,8 @@ const { prisma } = await import("@/lib/db")
 const { createTeacher, deleteTeacher, getTeachers } = await import("@/app/actions/teacher-management")
 const { assignTeacherToSubject } = await import("@/app/actions/teacher-assignment")
 const { createStaff, setStaffEmploymentStatus } = await import("@/app/actions/hr")
-const { createFinanceOfficer, setFinanceOfficerActive } = await import("@/app/actions/finance")
+const { setFinanceOfficerActive } = await import("@/app/actions/finance")
+const { createFinanceOfficer } = await import("./hr-test-fixtures")
 const { SYSTEM_PERMISSION_PROFILES } = await import("@/lib/permissions")
 
 const STAMP = "ZZFunnel"
@@ -60,6 +61,11 @@ async function cleanUp() {
 }
 
 async function addTeacher(firstName: string, lastName: string, staffId: string) {
+  const existing = await prisma.staff.findFirst({ where: { schoolId, staffNo: staffId } })
+  if (!existing) {
+    const hired = await hire(firstName, lastName)
+    staffId = hired.staffNo
+  }
   const result = await createTeacher({
     schoolId,
     firstName,
@@ -131,15 +137,10 @@ describe("HR hires first, the login follows", () => {
     const hired = await hire(`${STAMP}Owner`, "Record")
 
     const result = await addTeacher(`${STAMP}Stranger`, "Other", hired.staffNo)
-    expect(result.success).toBe(true)
-    if (!result.success || !result.data) return
-    expect(result.data.linkedToExistingHrRecord).toBe(false)
+    expect(result.success).toBe(false)
 
     const original = await prisma.staff.findUniqueOrThrow({ where: { id: hired.id }, select: { userId: true } })
     expect(original.userId).toBeNull()
-    const own = await prisma.staff.findUnique({ where: { userId: result.data.userId }, select: { id: true } })
-    expect(own?.id).toBeTruthy()
-    expect(own?.id).not.toBe(hired.id)
   })
 })
 
@@ -161,8 +162,8 @@ describe("finance officers reach HR", () => {
     })
     expect(staff).toEqual({
       staffType: "ACCOUNTANT",
-      onboardingStatus: "NOT_STARTED",
-      autoProvisioned: true,
+      onboardingStatus: "IN_PROGRESS",
+      autoProvisioned: false,
       department: "Finance",
     })
   })

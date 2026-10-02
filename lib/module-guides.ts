@@ -770,17 +770,22 @@ export const MODULE_GUIDES = {
   "hr.staffForm": {
     title: "Staff Record",
     location: ["HR & Payroll", "Staff", "Add or Edit"],
-    purpose: "Creates or updates the record the school pays somebody from.",
+    purpose: "The one place anybody joins the school's staff: teachers, accountants and support staff alike, with their login when they need one.",
     example: {
-      doing: "Add a cleaner who has no system login, on a ₦45,000 scale.",
-      then: "A staff record is created and they appear in the next payroll run. Leaving them without a login is normal and fully supported — they are paid without ever signing in.",
+      doing: "Onboard a new Mathematics teacher, and give them a login in the same step.",
+      then: "Four steps: personal details, the job and system access, pay and emergency contact, then a review. Saving creates the staff record and the teacher login together, and shows the temporary password once. They then appear under Teachers, where they are given classes and subjects.",
     },
     onSave: [
-      "The record applies to payroll runs generated from now on; payslips already issued keep their figures.",
+      "The staff record and, when chosen, the login are created together in one step, or neither is.",
+      "New staff stay in HR's onboarding queue until salary and documents are completed; creating the record does not put them on payroll.",
+      "A teacher or accountant saved without a login gets one later from their record, with Create login.",
     ],
     rules: [
-      "A staff member does not need a system login. Support staff are paid without ever signing in, which is why this is separate from creating a teacher.",
-      "Salary, allowances and deductions attached here are what the next run computes from.",
+      "Fields marked * are required. Phone numbers, dates and a 10-digit account number are checked before the next step opens.",
+      "Department, job title, qualification and bank are searchable lists, so the same value is not typed five ways. Choosing Other asks for the actual value.",
+      "A staff member does not need a login. Support staff are paid without ever signing in.",
+      "A teacher login needs teachers.manage; an accountant login needs finance.setup, because it opens the finance screens.",
+      "Teachers are no longer added from the Teachers screen: hiring is HR's, and Teachers is where their classes and subjects are managed.",
     ],
     permissions: ["payroll.manage"],
     sourceOfTruth: "app/actions/hr.ts",
@@ -1616,26 +1621,6 @@ export const MODULE_GUIDES = {
     ],
     permissions: ["students.manage"],
     sourceOfTruth: "app/actions/student-management.ts · lib/fee-charges.server.ts",
-  },
-
-  "admin.teacherCreate": {
-    title: "Create New Teacher",
-    location: ["Teachers", "Create Teacher"],
-    purpose: "Creates a teaching staff member and the login they will use.",
-    example: {
-      doing: "Create a teacher who will take JSS 1A Mathematics.",
-      then: "A login, a classroom record and an HR staff record, linked. They still cannot enter Mathematics marks until the subject is assigned for this term, and they are not paid until HR completes their onboarding and sets a salary.",
-    },
-    onSave: [
-      "A login account and a classroom record are created and linked together.",
-      "Their HR staff record is opened in the same step and appears in HR's onboarding queue, marked not started. Payroll pays them once HR completes it and assigns a salary.",
-    ],
-    rules: [
-      "Teaching them a subject is a separate step, and it is per term. Until a subject is assigned for the current term, they cannot enter its marks.",
-      "What they can reach beyond their own classroom is decided by their permission profile, not by being a teacher.",
-    ],
-    permissions: ["teachers.manage"],
-    sourceOfTruth: "app/actions/teacher-management.ts",
   },
 
   "student.dashboard": {

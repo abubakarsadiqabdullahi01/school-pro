@@ -589,8 +589,8 @@ export function AppSidebar({
                     </SidebarMenuItem>
                     )}
 
-                    {/* The Exams Officer (academics.manage) comes here to assign subjects; only
-                        HR's teachers.manage is offered Add Teacher, because hiring is employment. */}
+                    {/* Teacher creation belongs to HR onboarding. This section is for managing
+                        existing teachers and their academic assignments. */}
                     {canAny("teachers.manage", "academics.manage") && (
                     <NavGroup active={isInsideGroup(pathname, ["/dashboard/admin/teachers", "/dashboard/admin/teachers/new"])}>
                       <SidebarMenuItem>
@@ -617,20 +617,6 @@ export function AppSidebar({
                                 </Link>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
-                            {can("teachers.manage") && (
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={
-                                  pathname === "/dashboard/admin/teachers/new"
-                                }
-                              >
-                                <Link href="/dashboard/admin/teachers/new">
-                                  Add Teacher
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                            )}
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>

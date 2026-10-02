@@ -39,7 +39,7 @@ const {
   rejectExpense,
   updateExpense,
 } = await import("@/app/actions/expenditure")
-const { createFinanceOfficer } = await import("@/app/actions/finance")
+const { createFinanceOfficer } = await import("./hr-test-fixtures")
 
 const STAMP = "ZZ Expenditure"
 const OPENING_BALANCE = 500_000

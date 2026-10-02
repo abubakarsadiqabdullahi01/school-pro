@@ -1,8 +1,10 @@
 "use server"
 
-import { Prisma, type EmploymentStatus, type PayrollStatus, type StaffType } from "@prisma/client"
+import { Prisma, type EmploymentStatus, type Gender, type PayrollStatus, type StaffType } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import bcrypt from "bcryptjs"
+import { generateTemporaryPassword } from "@/lib/temporary-password"
 
 import { recordAudit } from "@/lib/audit"
 import { AuthorizationError, requireAnyPermission, requirePermission, type Actor } from "@/lib/authz"
@@ -47,8 +49,8 @@ const staffSchema = z.object({
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
   gender: z.enum(["MALE", "FEMALE"]).optional().nullable(),
-  dateOfBirth: z.coerce.date().optional().nullable(),
-  phone: z.string().trim().max(40).optional().nullable(),
+  dateOfBirth: z.coerce.date().refine((date) => date <= new Date(), "Date of birth cannot be in the future").optional().nullable(),
+  phone: z.string().trim().max(40).regex(/^$|^\+?[0-9 ()-]{7,40}$/, "Enter a valid phone number").optional().nullable(),
   email: z.string().trim().max(160).email().optional().nullable().or(z.literal("")),
   address: z.string().trim().max(500).optional().nullable(),
   department: z.string().trim().max(120).optional().nullable(),
@@ -65,12 +67,12 @@ const staffSchema = z.object({
     "OTHER",
   ]).default("OTHER"),
   employmentType: z.enum(["FULL_TIME", "PART_TIME", "CONTRACT", "CASUAL"]).default("FULL_TIME"),
-  dateEmployed: z.coerce.date(),
+  dateEmployed: z.preprocess((value) => value === null || value === "" ? undefined : value, z.coerce.date()),
   qualification: z.string().trim().max(200).optional().nullable(),
   emergencyContactName: z.string().trim().max(120).optional().nullable(),
-  emergencyContactPhone: z.string().trim().max(40).optional().nullable(),
+  emergencyContactPhone: z.string().trim().max(40).regex(/^$|^\+?[0-9 ()-]{7,40}$/, "Enter a valid emergency phone number").optional().nullable(),
   bankName: z.string().trim().max(120).optional().nullable(),
-  accountNumber: z.string().trim().max(40).optional().nullable(),
+  accountNumber: z.string().trim().regex(/^$|^\d{10}$/, "Account number must contain exactly 10 digits").optional().nullable(),
   accountName: z.string().trim().max(120).optional().nullable(),
   pensionPfa: z.string().trim().max(120).optional().nullable(),
   pensionPin: z.string().trim().max(60).optional().nullable(),
@@ -78,6 +80,7 @@ const staffSchema = z.object({
   notes: z.string().trim().max(1000).optional().nullable(),
   /** Links this record to an existing login, so a teacher is not duplicated. */
   userId: z.string().min(1).optional().nullable(),
+  createLogin: z.boolean().default(false),
 })
 
 const configSchema = z.object({
@@ -272,17 +275,8 @@ async function hrConfig(schoolId: string) {
 }
 
 /**
- * The next staff number for a school, as PREFIX-0001.
- *
- * The implementation now lives in `lib/hr/staff-provisioning.ts` so that provisioning a
- * teacher can call it from inside that teacher's own transaction. This wrapper keeps the
- * call sites in this file unchanged.
+ * The first and last instant of a payroll month, in one place so nothing goes off by a day.
  */
-async function nextStaffNo(schoolId: string, prefix: string): Promise<string> {
-  return nextStaffNoFor(prisma, schoolId, prefix)
-}
-
-/** The first and last instant of a payroll month, in one place so nothing goes off by a day. */
 function monthBounds(year: number, month: number) {
   const start = new Date(Date.UTC(year, month - 1, 1))
   const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
@@ -638,12 +632,130 @@ export async function getStaffMember(staffId: string): Promise<ActionResult<{
   }
 }
 
-export async function createStaff(input: unknown): Promise<ActionResult<{ id: string; staffNo: string }>> {
+/**
+ * The login for a teacher or an accountant, made inside the transaction that records them,
+ * so a staff record and its login are created together or not at all. A teacher also gets
+ * the Teacher record the Teachers screen manages classes and subjects through; an accountant
+ * gets the school-scoped admin record the finance screens are opened by.
+ */
+async function createStaffLoginInTransaction(tx: Prisma.TransactionClient, input: {
+  schoolId: string
+  staffNo: string
+  staffType: "TEACHER" | "ACCOUNTANT"
+  email: string
+  passwordHash: string
+  firstName: string
+  lastName: string
+  phone?: string | null
+  gender?: Gender | null
+  address?: string | null
+  dateOfBirth?: Date | null
+  department?: string | null
+  qualification?: string | null
+}): Promise<string> {
+  const user = await tx.user.create({
+    data: {
+      firstName: input.firstName, lastName: input.lastName, role: input.staffType,
+      phone: input.phone || null, gender: input.gender || null,
+      address: input.address || null, dateOfBirth: input.dateOfBirth || null,
+      credentials: { create: { type: "EMAIL", value: input.email.toLowerCase(), passwordHash: input.passwordHash, isPrimary: true } },
+    },
+  })
+  if (input.staffType === "TEACHER") {
+    await tx.teacher.create({ data: { userId: user.id, schoolId: input.schoolId, staffId: input.staffNo, department: input.department, qualification: input.qualification } })
+  } else {
+    await tx.admin.create({ data: { userId: user.id, schoolId: input.schoolId, permissions: JSON.stringify(["FINANCE"]) } })
+  }
+  return user.id
+}
+
+/** Who may give each kind of staff a login: hiring is HR's, the access it opens is not. */
+async function requireLoginCreator(staffType: string) {
+  if (staffType === "TEACHER") return requirePermission("teachers.manage")
+  if (staffType === "ACCOUNTANT") return requirePermission("finance.setup")
+  throw new Error("Logins are created for teachers and accountants only")
+}
+
+/**
+ * Gives a login to someone HR has already hired: a teacher or accountant whose record was
+ * saved without one, or hired before logins were made here. The only other way to a staff
+ * login is creating the record with one, so every login still starts from an HR record.
+ * The temporary password is returned once, to show the person creating it.
+ */
+export async function createLoginForStaff(input: unknown): Promise<ActionResult<{ loginEmail: string; temporaryPassword: string }>> {
+  try {
+    const actor = await requireHrManager()
+    const schoolId = await actorSchool(actor)
+    const data = z.object({ staffId: z.string().uuid(), email: z.string().trim().max(160).email() }).parse(input)
+    const staff = await prisma.staff.findFirst({
+      where: { id: data.staffId, schoolId },
+      select: { id: true, staffNo: true, staffType: true, userId: true, employmentStatus: true, firstName: true, lastName: true,
+        phone: true, gender: true, address: true, dateOfBirth: true, department: true, qualification: true, email: true },
+    })
+    if (!staff) throw new Error("Staff record not found")
+    if (staff.userId) throw new Error("This staff member already has a login")
+    if (staff.employmentStatus !== "ACTIVE") throw new Error("Reinstate this staff member in HR before giving them a login")
+    await requireLoginCreator(staff.staffType)
+    const email = data.email.toLowerCase()
+    if (await prisma.credential.findUnique({ where: { value: email }, select: { id: true } })) {
+      throw new Error("That email address is already used by another login")
+    }
+    if (staff.staffType === "TEACHER"
+      && await prisma.teacher.findFirst({ where: { schoolId, staffId: staff.staffNo }, select: { id: true } })) {
+      throw new Error(`A teacher login already uses staff number ${staff.staffNo}. Link it to this record from HR onboarding instead.`)
+    }
+
+    const temporaryPassword = generateTemporaryPassword()
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12)
+    await prisma.$transaction(async (tx) => {
+      const userId = await createStaffLoginInTransaction(tx, {
+        schoolId, staffNo: staff.staffNo, staffType: staff.staffType === "TEACHER" ? "TEACHER" : "ACCOUNTANT", email, passwordHash,
+        firstName: staff.firstName, lastName: staff.lastName, phone: staff.phone, gender: staff.gender, address: staff.address,
+        dateOfBirth: staff.dateOfBirth, department: staff.department, qualification: staff.qualification,
+      })
+      // Claimed only while still without a login, so two people at once cannot both attach one.
+      const linked = await tx.staff.updateMany({
+        where: { id: staff.id, userId: null },
+        data: { userId, ...(staff.email ? {} : { email }) },
+      })
+      if (linked.count !== 1) throw new Error("This staff member was given a login a moment ago. Refresh the page.")
+    })
+
+    await recordAudit({
+      actor,
+      action: "staff.login_create",
+      entityType: "Staff",
+      entityId: staff.id,
+      summary: `Created a ${staff.staffType === "TEACHER" ? "teacher" : "finance"} login for ${staff.firstName} ${staff.lastName} (${staff.staffNo})`,
+      after: { email },
+    })
+    revalidateHr("/staff", `/staff/${staff.id}`, "/onboarding")
+    revalidatePath("/dashboard/admin/teachers")
+    revalidatePath("/dashboard/admin/finance/staff")
+    return { success: true, data: { loginEmail: email, temporaryPassword } }
+  } catch (error) {
+    return toError(error, "Failed to create the login")
+  }
+}
+
+export async function createStaff(input: unknown): Promise<ActionResult<{ id: string; staffNo: string; temporaryPassword?: string; loginEmail?: string }>> {
   try {
     const actor = await requireHrManager()
     const schoolId = await actorSchool(actor)
     const data = staffSchema.parse(input)
     const config = await hrConfig(schoolId)
+    if (data.createLogin) {
+      if (data.userId) throw new Error("Choose an existing login or create a new one, not both")
+      if (!data.email) throw new Error("Email is required when creating a login")
+      await requireLoginCreator(data.staffType)
+      const existingCredential = await prisma.credential.findUnique({
+        where: { value: data.email.toLowerCase() },
+        select: { id: true },
+      })
+      if (existingCredential) throw new Error("That email address is already used by another login")
+    }
+    const temporaryPassword = data.createLogin ? generateTemporaryPassword() : undefined
+    const passwordHash = temporaryPassword ? await bcrypt.hash(temporaryPassword, 12) : undefined
 
     // Linking to a login must not steal one already claimed, and must stay inside the school.
     if (data.userId) {
@@ -698,11 +810,22 @@ export async function createStaff(input: unknown): Promise<ActionResult<{ id: st
       }
     }
 
-    const staff = await prisma.staff.create({
+    const staff = await prisma.$transaction(async (tx) => {
+      let userId = data.userId || null
+      const staffNo = await nextStaffNoFor(tx, schoolId, config.staffNoPrefix)
+      if (passwordHash && data.email) {
+        userId = await createStaffLoginInTransaction(tx, {
+          schoolId, staffNo, staffType: data.staffType === "TEACHER" ? "TEACHER" : "ACCOUNTANT", email: data.email, passwordHash,
+          firstName: data.firstName, lastName: data.lastName, phone: data.phone, gender: data.gender, address: data.address,
+          dateOfBirth: data.dateOfBirth, department: data.department, qualification: data.qualification,
+        })
+      }
+      return tx.staff.create({
       data: {
         schoolId,
-        staffNo: await nextStaffNo(schoolId, config.staffNoPrefix),
-        userId: data.userId || null,
+        staffNo,
+        userId,
+        onboardingStatus: "IN_PROGRESS",
         firstName: data.firstName,
         lastName: data.lastName,
         gender: data.gender || null,
@@ -727,6 +850,7 @@ export async function createStaff(input: unknown): Promise<ActionResult<{ id: st
         notes: data.notes || null,
       },
       select: { id: true, staffNo: true },
+      })
     })
 
     await recordAudit({
@@ -738,7 +862,10 @@ export async function createStaff(input: unknown): Promise<ActionResult<{ id: st
     })
 
     revalidateHr("/staff")
-    return { success: true, data: staff }
+    revalidatePath("/dashboard/admin/teachers")
+    revalidatePath("/dashboard/admin/finance/staff")
+    revalidateHr("/onboarding")
+    return { success: true, data: { ...staff, temporaryPassword, loginEmail: data.createLogin ? data.email ?? undefined : undefined } }
   } catch (error) {
     return toError(error, "Failed to create the staff record")
   }

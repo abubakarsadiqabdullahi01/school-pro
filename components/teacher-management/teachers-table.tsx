@@ -321,9 +321,9 @@ export function TeachersTable({ teachers, canManageTeachers = true }: TeachersTa
           </div>
           {canManageTeachers && (
             <Button asChild>
-              <Link href="/dashboard/admin/teachers/new">
+              <Link href="/dashboard/admin/hr/staff/new">
                 <UserPlus className="mr-2 h-4 w-4" />
-                Add Teacher
+                Onboard staff in HR
               </Link>
             </Button>
           )}
@@ -565,9 +565,9 @@ export function TeachersTable({ teachers, canManageTeachers = true }: TeachersTa
                           <p>No teachers found in this school.</p>
                           {canManageTeachers && (
                             <Button asChild>
-                              <Link href="/dashboard/admin/teachers/new">
+                              <Link href="/dashboard/admin/hr/staff/new">
                                 <UserPlus className="mr-2 h-4 w-4" />
-                                Add your first teacher
+                                Onboard staff in HR
                               </Link>
                             </Button>
                           )}
