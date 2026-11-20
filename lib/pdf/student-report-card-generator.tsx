@@ -1,6 +1,7 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { format } from "date-fns"
+import { sharePdf } from "./share-pdf"
 
 import { reportCardComments, type AnnualCardDecision } from "@/lib/pdf/report-card-comments"
 
@@ -158,7 +159,7 @@ interface GenerateReportParams {
   subjects: Subject[]
   classStatistics: ClassStatistics | null
   gradingSystem: GradingSystem
-  action?: "save" | "preview" | "print" | "merge-preview" | "merge-save"
+  action?: "save" | "preview" | "print" | "share" | "merge-preview" | "merge-save"
   previewWindow?: Window | null
   allStudents?: StudentResult[]
   /**
@@ -1049,7 +1050,7 @@ class StudentReportCardGenerator {
     subjects: Subject[],
     classStatistics: ClassStatistics | null,
     gradingSystem: GradingSystem,
-    action: "save" | "preview" | "print",
+    action: "save" | "preview" | "print" | "share",
     includePosition: boolean,
     previewWindow?: Window | null,
   ): Promise<void> {
@@ -1110,6 +1111,9 @@ class StudentReportCardGenerator {
         document.body.removeChild(iframe)
         URL.revokeObjectURL(pdfUrl)
       }, 1000)
+    } else if (action === "share") {
+      URL.revokeObjectURL(pdfUrl)
+      await sharePdf(blob, fileName, `${student.studentName} - ${classInfo.termName} Report Card`)
     } else {
       this.doc.save(fileName)
     }
@@ -1233,7 +1237,7 @@ class StudentReportCardGenerator {
           subjects,
           classStatistics,
           gradingSystem,
-          action as "save" | "preview" | "print",
+          action as "save" | "preview" | "print" | "share",
           includePosition,
           previewWindow,
         )
@@ -1253,7 +1257,7 @@ export async function exportStudentReportPDF(params: {
   subjects: Subject[]
   classStatistics: ClassStatistics | null
   gradingSystem: GradingSystem
-  action?: "save" | "preview" | "print" | "merge-preview" | "merge-save"
+  action?: "save" | "preview" | "print" | "share" | "merge-preview" | "merge-save"
   allStudents?: StudentResult[]
   includePosition?: boolean
   config?: Partial<PDFConfig>

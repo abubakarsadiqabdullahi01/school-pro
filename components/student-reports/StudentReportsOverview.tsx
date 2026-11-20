@@ -235,7 +235,7 @@ export function StudentReportsOverview({
 
   // Generate single student report
   const generateSingleReport = useCallback(
-    async (studentId: string, action: "save" | "preview" | "print") => {
+    async (studentId: string, action: "save" | "preview" | "print" | "share") => {
       if (!gradingSystem || !subjects.length) {
         toast.error("Missing required data for report generation")
         return
@@ -285,7 +285,7 @@ export function StudentReportsOverview({
           includePosition: form.includePosition,
         })
 
-        toast.success(
+        if (action !== "share") toast.success(
           `Report ${action === "save" ? "downloaded" : action === "preview" ? "previewed" : "printed"} successfully`,
         )
       } catch (error) {

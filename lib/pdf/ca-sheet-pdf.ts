@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import { format } from "date-fns"
+import { sharePdf } from "./share-pdf"
 
 interface Student {
   id: string
@@ -251,4 +252,10 @@ export async function printCASheet({
     console.error('Error generating PDF:', error)
     throw error
   }
+}
+
+export async function shareCASheet(params: { students: Student[]; schoolInfo: SchoolInfo; classInfo: ClassInfo }) {
+  const doc = await generateCASheetPDF(params)
+  const { className, termName } = params.classInfo
+  await sharePdf(doc.output("blob"), `CA-Sheet-${className}-${termName}.pdf`, `${className} ${termName} CA Sheet`)
 }

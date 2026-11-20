@@ -1,7 +1,7 @@
 "use client"
 
 import { memo } from "react"
-import { Download, Eye, FileText, Loader2 } from "lucide-react"
+import { Download, Eye, FileText, Loader2, Share2 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -34,7 +34,7 @@ interface StudentReportsTableProps {
   results: StudentResult[]
   selectedStudents: string[]
   onStudentSelect: (studentId: string, selected: boolean) => void
-  onGenerateReport: (studentId: string, action: "save" | "preview" | "print") => void
+  onGenerateReport: (studentId: string, action: "save" | "preview" | "print" | "share") => void
   canGenerateReports: boolean
   isGenerating: boolean
   isLoading: boolean
@@ -239,6 +239,22 @@ export const StudentReportsTable = memo(function StudentReportsTable({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>Print Report</TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onGenerateReport(student.id, "share")}
+                            disabled={!canGenerateReports || !hasResult || isGenerating}
+                            className="h-8 w-8 p-0"
+                            aria-label="Share Report"
+                          >
+                            {isGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Share2 className="h-3 w-3" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Share Report</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>

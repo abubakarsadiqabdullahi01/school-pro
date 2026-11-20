@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { useQuery } from "@tanstack/react-query"
-import { Download, FileText, Loader2 } from "lucide-react"
+import { Download, FileText, Loader2, Share2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getClassesForTerm, getStudentsForClassTerm } from "@/app/actions/compiler"
-import { generateCASheetPDF, printCASheet } from "@/lib/pdf/ca-sheet-pdf"
+import { generateCASheetPDF, printCASheet, shareCASheet } from "@/lib/pdf/ca-sheet-pdf"
 import Image from "next/image"
 import type { ClassLevel } from "@prisma/client"
 import { toast } from "sonner"
@@ -173,7 +173,7 @@ export function CASheetComponent({
   }
 
   // Handle print
-  const handlePrint = async () => {
+  const handlePrint = async (mode: "print" | "share" = "print") => {
     if (!filteredStudents.length) {
       toast.error("No students to print")
       return
@@ -182,7 +182,7 @@ export function CASheetComponent({
     setIsPrinting(true)
 
     try {
-      await printCASheet({
+      await (mode === "share" ? shareCASheet : printCASheet)({
         students: filteredStudents,
         schoolInfo: {
           schoolName,
@@ -199,7 +199,7 @@ export function CASheetComponent({
           teacherName: selectedClass?.teacherName,
         },
       })
-    toast.success("Print preview opened in a new tab")
+    if (mode === "print") toast.success("Print preview opened in a new tab")
     } catch (error) {
       console.error("Error printing:", error)
       toast.error("Failed to print", {
@@ -318,12 +318,22 @@ export function CASheetComponent({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handlePrint}
+                onClick={() => handlePrint()}
                 disabled={!filteredStudents.length || isLoadingStudents}
                 className="border-border hover:bg-muted"
               >
                 <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
                 Print
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePrint("share")}
+                disabled={!filteredStudents.length || isLoadingStudents || isPrinting}
+                className="border-gray-300 hover:bg-gray-100"
+              >
+                <Share2 className="mr-2 h-4 w-4 text-gray-600" />
+                Share
               </Button>
             </div>
           </CardHeader>

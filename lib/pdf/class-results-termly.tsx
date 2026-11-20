@@ -1,6 +1,7 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { format } from "date-fns"
+import { sharePdf } from "./share-pdf"
 
 interface StudentResult {
   studentId: string
@@ -238,7 +239,7 @@ class PDFGenerator {
     schoolInfo: SchoolInfo
     classInfo: ClassInfo
     subjects: Subject[]
-    action?: "save" | "preview"
+    action?: "save" | "preview" | "share"
     /**
      * Whether the Pos. column is printed. Mirrors the "Show Positions" switch on the
      * results screen — which previously only hid the column on screen, so the exported and
@@ -363,6 +364,8 @@ class PDFGenerator {
         const pdfUrl = URL.createObjectURL(blob)
         window.open(pdfUrl, "_blank")
         URL.revokeObjectURL(pdfUrl)
+      } else if (action === "share") {
+        await sharePdf(this.doc.output("blob"), fileName, `${classInfo.className} ${classInfo.termName} Results`)
       } else {
         this.doc.save(fileName)
       }
@@ -378,7 +381,7 @@ export async function exportClassResultsPDF(params: {
   schoolInfo: SchoolInfo
   classInfo: ClassInfo
   subjects: Subject[]
-  action?: "save" | "preview"
+  action?: "save" | "preview" | "share"
   showPositions?: boolean
   config?: Partial<PDFConfig>
 }): Promise<void> {
