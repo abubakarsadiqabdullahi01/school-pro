@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from "react"
 import { motion } from "framer-motion"
 import { useQuery } from "@tanstack/react-query"
-import { Download, Loader2, Search, Eye, CheckCircle2 } from "lucide-react"
+import { Download, Loader2, Search, Eye, CheckCircle2, Share2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -315,7 +315,7 @@ export function StudentReportsOverview({
 
   // Generate multiple reports
   const generateMultipleReports = useCallback(
-    async (action: "merge-preview" | "merge-save") => {
+    async (action: "merge-preview" | "merge-save" | "merge-share") => {
       if (!form.selectedStudents.length) {
         toast.error("Please select students to generate reports")
         return
@@ -386,7 +386,7 @@ export function StudentReportsOverview({
           includePosition: form.includePosition,
         })
 
-        toast.success(`Generated ${allStudentData.length} report${allStudentData.length > 1 ? "s" : ""} successfully`)
+        if (action !== "merge-share") toast.success(`Generated ${allStudentData.length} report${allStudentData.length > 1 ? "s" : ""} successfully`)
       } catch (error) {
         console.error("Error generating reports:", error)
         toast.error(`Failed to generate reports: ${error instanceof Error ? error.message : "Unknown error"}`)
@@ -599,6 +599,25 @@ export function StudentReportsOverview({
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Download reports for selected students</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => generateMultipleReports("merge-share")}
+                        disabled={!canGenerateReports || !form.selectedStudents.length || isGenerating}
+                      >
+                        {isGenerating ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Share2 className="mr-2 h-4 w-4" />
+                        )}
+                        Share Selected
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Share reports for selected students as one PDF</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>

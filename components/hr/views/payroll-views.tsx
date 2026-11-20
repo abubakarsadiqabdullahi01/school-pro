@@ -418,7 +418,7 @@ export async function PayslipView({ basePath, itemId }: { basePath: string; item
           </div>
           <p className="text-muted-foreground">{payslip.payslipNo} · {periodName(payslip.period)}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <PrintButton label="Print Payslip" />
           <BrandedDocumentDownload document={document} label="Download PDF" />
         </div>

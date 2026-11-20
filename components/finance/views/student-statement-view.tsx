@@ -135,7 +135,7 @@ export async function StudentStatementView({
             {student.currentTerm ?? "No term"}
           </p>
         </div>
-        <div className="flex gap-2 print:hidden">
+        <div className="flex flex-wrap gap-2 print:hidden">
           <PrintButton label="Print Statement" />
           <BrandedDocumentDownload document={document} label="Download PDF" />
         </div>

@@ -1,12 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { Download, FileSpreadsheet, Printer } from "lucide-react"
+import { Download, FileSpreadsheet, Printer, Share2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { exportFileName, toCsv } from "@/lib/csv"
 import { drawSchoolHeader, type PdfSchool } from "@/lib/pdf/school-header"
+import { sharePdf } from "@/lib/pdf/share-pdf"
 
 /**
  * Print, PDF and CSV for a tabular report.
@@ -57,7 +58,7 @@ export function ReportExport({
     URL.revokeObjectURL(url)
   }
 
-  async function downloadPdf() {
+  async function downloadPdf(mode: "save" | "share" = "save") {
     setIsBuilding(true)
     try {
       // Loaded on click. jsPDF and its autotable plugin are large, and a report page that
@@ -87,7 +88,8 @@ export function ReportExport({
         headStyles: { fillColor: [30, 41, 59] },
       })
 
-      doc.save(exportFileName(title, "pdf"))
+      if (mode === "share") await sharePdf(doc.output("blob"), exportFileName(title, "pdf"), title)
+      else doc.save(exportFileName(title, "pdf"))
     } catch (error) {
       console.error("Failed to build finance PDF", error)
       toast.error("Could not build the PDF", {
@@ -104,13 +106,17 @@ export function ReportExport({
         <Printer className="mr-2 h-4 w-4" />
         Print
       </Button>
-      <Button type="button" variant="outline" size="sm" onClick={downloadPdf} disabled={isEmpty || isBuilding}>
+      <Button type="button" variant="outline" size="sm" onClick={() => downloadPdf()} disabled={isEmpty || isBuilding}>
         <Download className="mr-2 h-4 w-4" />
         {isBuilding ? "Building…" : "PDF"}
       </Button>
       <Button type="button" variant="outline" size="sm" onClick={downloadCsv} disabled={isEmpty}>
         <FileSpreadsheet className="mr-2 h-4 w-4" />
         CSV
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => downloadPdf("share")} disabled={isEmpty || isBuilding}>
+        <Share2 className="mr-2 h-4 w-4" />
+        Share
       </Button>
     </div>
   )

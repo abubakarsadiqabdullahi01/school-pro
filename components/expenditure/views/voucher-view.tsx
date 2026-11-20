@@ -67,7 +67,7 @@ export async function VoucherView({ basePath, expenseId }: { basePath: string; e
           </div>
           <p className="text-muted-foreground">{expense.voucherNo}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <PrintButton label="Print Voucher" />
           <BrandedDocumentDownload document={document} label="Download PDF" />
         </div>
