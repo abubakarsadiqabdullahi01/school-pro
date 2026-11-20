@@ -1,13 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { Download } from "lucide-react"
+import { Download, Share2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { exportFileName } from "@/lib/csv"
 import { drawSchoolHeader, type PdfSchool } from "@/lib/pdf/school-header"
 import { stampAllPages } from "@/lib/pdf/watermark"
+import { sharePdf } from "@/lib/pdf/share-pdf"
 
 /**
  * A one-off financial document — a receipt, a statement, an expenditure voucher — as a PDF.
@@ -68,7 +69,7 @@ export type PrintableDocument = {
 export function DocumentDownload({ document: doc, label }: { document: PrintableDocument; label: string }) {
   const [isBuilding, setIsBuilding] = useState(false)
 
-  async function download() {
+  async function download(mode: "save" | "share" = "save") {
     setIsBuilding(true)
     try {
       const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
@@ -209,7 +210,9 @@ export function DocumentDownload({ document: doc, label }: { document: Printable
         marginX,
       })
 
-      pdf.save(exportFileName(doc.fileName ?? `${doc.title} ${doc.reference}`, "pdf"))
+      const fileName = exportFileName(doc.fileName ?? `${doc.title} ${doc.reference}`, "pdf")
+      if (mode === "share") await sharePdf(pdf.output("blob"), fileName, `${doc.title} ${doc.reference}`)
+      else pdf.save(fileName)
     } catch (error) {
       console.error("Failed to build finance document PDF", error)
       toast.error("Could not build the PDF", {
@@ -221,9 +224,15 @@ export function DocumentDownload({ document: doc, label }: { document: Printable
   }
 
   return (
-    <Button type="button" variant="outline" onClick={download} disabled={isBuilding}>
-      <Download className="mr-2 h-4 w-4" />
-      {isBuilding ? "Building…" : label}
-    </Button>
+    <>
+      <Button type="button" variant="outline" onClick={() => download()} disabled={isBuilding}>
+        <Download className="mr-2 h-4 w-4" />
+        {isBuilding ? "Building…" : label}
+      </Button>
+      <Button type="button" variant="outline" onClick={() => download("share")} disabled={isBuilding}>
+        <Share2 className="mr-2 h-4 w-4" />
+        Share
+      </Button>
+    </>
   )
 }

@@ -1,6 +1,7 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { format } from "date-fns"
+import { sharePdf } from "./share-pdf"
 
 import { reportCardComments, type AnnualCardDecision } from "@/lib/pdf/report-card-comments"
 
@@ -158,7 +159,7 @@ interface GenerateReportParams {
   subjects: Subject[]
   classStatistics: ClassStatistics | null
   gradingSystem: GradingSystem
-  action?: "save" | "preview" | "print" | "merge-preview" | "merge-save"
+  action?: "save" | "preview" | "print" | "share" | "merge-preview" | "merge-save" | "merge-share"
   previewWindow?: Window | null
   allStudents?: StudentResult[]
   /**
@@ -1049,7 +1050,7 @@ class StudentReportCardGenerator {
     subjects: Subject[],
     classStatistics: ClassStatistics | null,
     gradingSystem: GradingSystem,
-    action: "save" | "preview" | "print",
+    action: "save" | "preview" | "print" | "share",
     includePosition: boolean,
     previewWindow?: Window | null,
   ): Promise<void> {
@@ -1110,6 +1111,9 @@ class StudentReportCardGenerator {
         document.body.removeChild(iframe)
         URL.revokeObjectURL(pdfUrl)
       }, 1000)
+    } else if (action === "share") {
+      URL.revokeObjectURL(pdfUrl)
+      await sharePdf(blob, fileName, `${student.studentName} - ${classInfo.termName} Report Card`)
     } else {
       this.doc.save(fileName)
     }
@@ -1123,7 +1127,7 @@ class StudentReportCardGenerator {
     subjects: Subject[],
     classStatistics: ClassStatistics | null,
     gradingSystem: GradingSystem,
-  action: "merge-preview" | "merge-save",
+  action: "merge-preview" | "merge-save" | "merge-share",
   includePosition: boolean,
   previewWindow?: Window | null,
   ): Promise<void> {
@@ -1185,6 +1189,8 @@ class StudentReportCardGenerator {
       } else {
         window.open(pdfUrl, "_blank")
       }
+    } else if (action === "merge-share") {
+      await sharePdf(blob, fileName, `${classInfo.className} ${classInfo.termName} Report Cards`)
     } else {
       const link = document.createElement("a")
       link.href = pdfUrl
@@ -1213,7 +1219,7 @@ class StudentReportCardGenerator {
     previewWindow = null,
   }: GenerateReportParams): Promise<void> {
     try {
-      if (["merge-preview", "merge-save"].includes(action) && allStudents.length > 0) {
+      if (["merge-preview", "merge-save", "merge-share"].includes(action) && allStudents.length > 0) {
         await this.generateMergedReport(
           allStudents,
           schoolInfo,
@@ -1221,7 +1227,7 @@ class StudentReportCardGenerator {
           subjects,
           classStatistics,
           gradingSystem,
-          action as "merge-preview" | "merge-save",
+          action as "merge-preview" | "merge-save" | "merge-share",
           includePosition,
           previewWindow,
         )
@@ -1233,7 +1239,7 @@ class StudentReportCardGenerator {
           subjects,
           classStatistics,
           gradingSystem,
-          action as "save" | "preview" | "print",
+          action as "save" | "preview" | "print" | "share",
           includePosition,
           previewWindow,
         )
@@ -1253,7 +1259,7 @@ export async function exportStudentReportPDF(params: {
   subjects: Subject[]
   classStatistics: ClassStatistics | null
   gradingSystem: GradingSystem
-  action?: "save" | "preview" | "print" | "merge-preview" | "merge-save"
+  action?: "save" | "preview" | "print" | "share" | "merge-preview" | "merge-save" | "merge-share"
   allStudents?: StudentResult[]
   includePosition?: boolean
   config?: Partial<PDFConfig>

@@ -184,7 +184,7 @@ export async function ReceiptView({
           </div>
           <p className="text-muted-foreground">{data.receiptNo}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {/* An online receipt is refunded through the gateway from Online Payments, where the
               money actually goes back to the payer, and one made from held transfer money goes
               back to held money; this button only reverses cash-desk receipts. */}

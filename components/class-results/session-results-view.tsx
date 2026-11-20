@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Download, Eye, FileText, Loader2, Printer } from "lucide-react"
+import { Download, Eye, FileText, Loader2, Printer, Share2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -57,7 +57,7 @@ export function SessionResultsView({
   const [showPositions, setShowPositions] = useState(true)
   const [data, setData] = useState<ClassSessionResults | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [busy, setBusy] = useState<"broadsheet" | "cards" | "print" | null>(null)
+  const [busy, setBusy] = useState<"broadsheet" | "cards" | "print" | "share" | "cards-share" | null>(null)
   const [busyStudent, setBusyStudent] = useState<string | null>(null)
   const [search, setSearch] = useState("")
 
@@ -118,9 +118,9 @@ export function SessionResultsView({
     }
   }
 
-  async function downloadBroadsheet(action: "save" | "preview") {
+  async function downloadBroadsheet(action: "save" | "preview" | "share") {
     if (!data) return
-    setBusy(action === "save" ? "broadsheet" : "print")
+    setBusy(action === "save" ? "broadsheet" : action === "share" ? "share" : "print")
     try {
       await exportClassResultsPDF({
         results: broadsheetRows(data),
@@ -140,9 +140,9 @@ export function SessionResultsView({
     }
   }
 
-  async function downloadCards() {
+  async function downloadCards(mode: "save" | "share" = "save") {
     if (!data) return
-    setBusy("cards")
+    setBusy(mode === "share" ? "cards-share" : "cards")
     try {
       const students = data.report.students.map((student) => ({
         studentId: student.studentId,
@@ -173,11 +173,11 @@ export function SessionResultsView({
         subjects: data.report.subjects,
         classStatistics: data.report.statistics,
         gradingSystem: data.report.gradingSystem,
-        action: "merge-save",
+        action: mode === "share" ? "merge-share" : "merge-save",
         includePosition: showPositions,
         config: { scoreHeaders: data.scoreHeaders },
       })
-      toast.success("Downloaded", { description: `${students.length} sessional report cards.` })
+      if (mode === "save") toast.success("Downloaded", { description: `${students.length} sessional report cards.` })
     } catch (error) {
       console.error("Report cards failed:", error)
       toast.error("Could not build the cards", {
@@ -195,7 +195,7 @@ export function SessionResultsView({
    * difference is that `allStudents` is not passed, so it prints one card instead of the
    * set. A card printed on its own must not disagree with the same card printed in a batch.
    */
-  async function oneCard(studentId: string, action: "preview" | "save") {
+  async function oneCard(studentId: string, action: "preview" | "save" | "share") {
     if (!data) return
     const student = data.report.students.find((row) => row.studentId === studentId)
     if (!student) return
@@ -395,13 +395,39 @@ export function SessionResultsView({
                 )}
                 Preview
               </Button>
-              <Button size="sm" onClick={downloadCards} disabled={busy !== null || rows.length === 0}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => downloadBroadsheet("share")}
+                disabled={busy !== null || rows.length === 0}
+              >
+                {busy === "share" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Share2 className="mr-2 h-4 w-4" />
+                )}
+                Share
+              </Button>
+              <Button size="sm" onClick={() => downloadCards()} disabled={busy !== null || rows.length === 0}>
                 {busy === "cards" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <FileText className="mr-2 h-4 w-4" />
                 )}
                 All report cards
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => downloadCards("share")}
+                disabled={busy !== null || rows.length === 0}
+              >
+                {busy === "cards-share" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Share2 className="mr-2 h-4 w-4" />
+                )}
+                Share all cards
               </Button>
             </div>
           </CardHeader>
@@ -541,6 +567,20 @@ export function SessionResultsView({
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Download className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Share"
+                            aria-label="Share report card"
+                            disabled={!hasResults || busyStudent !== null}
+                            onClick={() => oneCard(student.studentId, "share")}
+                          >
+                            {busyStudent === `${student.studentId}:share` ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Share2 className="h-4 w-4" />
                             )}
                           </Button>
                         </div>

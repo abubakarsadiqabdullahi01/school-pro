@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Download, Eye, Loader2 } from "lucide-react"
+import { Download, Eye, Loader2, Share2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -43,8 +43,8 @@ export function SessionReportButton({
   label?: string
   variant?: "default" | "outline"
   includePosition?: boolean
-  /** "preview" opens the card in a tab; "save" downloads it. */
-  action?: "save" | "preview"
+  /** "preview" opens the card in a tab; "save" downloads it; "share" opens the device share sheet. */
+  action?: "save" | "preview" | "share"
 }) {
   const [isWorking, setIsWorking] = useState(false)
 
@@ -129,6 +129,8 @@ export function SessionReportButton({
         <>
           {action === "preview" ? (
             <Eye className="mr-2 h-4 w-4" />
+          ) : action === "share" ? (
+            <Share2 className="mr-2 h-4 w-4" />
           ) : (
             <Download className="mr-2 h-4 w-4" />
           )}

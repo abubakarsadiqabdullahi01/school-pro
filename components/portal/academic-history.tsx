@@ -298,6 +298,14 @@ function SessionSummaryCard({
               load={loadSessionReport}
               label="Session report (PDF)"
             />
+            <SessionReportButton
+              periodId={session.sessionId}
+              periodName={sessionTermLabel(session.terms.map((term) => ({ name: term.termName })))}
+              load={loadSessionReport}
+              label="Share"
+              variant="outline"
+              action="share"
+            />
           </div>
         ) : null}
       </CardHeader>
@@ -378,7 +386,7 @@ function TermCard({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-lg">{term.termName}</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {term.className ? <Badge variant="outline">{term.className}</Badge> : null}
             {term.average !== null && term.access.allowed ? (
               <Badge variant="secondary" className="tabular-nums">
@@ -401,6 +409,14 @@ function TermCard({
                   load={loadTermReport}
                   label="Report card (PDF)"
                   variant="outline"
+                />
+                <SessionReportButton
+                  periodId={term.termId}
+                  periodName={term.termName}
+                  load={loadTermReport}
+                  label="Share"
+                  variant="outline"
+                  action="share"
                 />
               </>
             ) : null}

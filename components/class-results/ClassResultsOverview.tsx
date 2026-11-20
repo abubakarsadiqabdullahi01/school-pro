@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from "react"
 import { motion } from "framer-motion"
 import { useQuery } from "@tanstack/react-query"
-import { Download, FileText, Loader2, Search, BarChart4, AlertTriangle, CheckCircle, Lock, Undo2 } from "lucide-react"
+import { Download, FileText, Loader2, Share2, Search, BarChart4, AlertTriangle, CheckCircle, Lock, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -411,7 +411,7 @@ export function ClassResultsOverview({
   ])
 
   // Print PDF
-  const handlePrint = useCallback(async () => {
+  const handlePrint = useCallback(async (mode: "print" | "share" = "print") => {
     if (!filteredAndSortedResults.length) {
       toast.error("No results to print")
       return
@@ -439,11 +439,11 @@ export function ClassResultsOverview({
           teacherName: selectedClass?.teacherName || "",
         },
         subjects,
-        action: "preview",
+        action: mode === "share" ? "share" : "preview",
         showPositions: form.showPositions,
       })
 
-      toast.success("Print preview opened")
+      if (mode === "print") toast.success("Print preview opened")
     } catch (error) {
       console.error("Error printing:", error)
       toast.error("Failed to print")
@@ -644,7 +644,7 @@ export function ClassResultsOverview({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={handlePrint}
+                        onClick={() => handlePrint()}
                         disabled={isLoadingResults || !filteredAndSortedResults.length || isPrinting}
                       >
                         {isPrinting ? (
@@ -656,6 +656,21 @@ export function ClassResultsOverview({
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Open print preview</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePrint("share")}
+                        disabled={isLoadingResults || !filteredAndSortedResults.length || isPrinting}
+                      >
+                        <Share2 className="mr-2 h-4 w-4" />
+                        Share
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Share PDF via WhatsApp, email and more</TooltipContent>
                   </Tooltip>
 
                   <Tooltip>
